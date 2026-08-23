@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "远程编辑器不获得任何 Tauri 或系统权限",
+  "windows": ["main"],
+  "permissions": []
+}

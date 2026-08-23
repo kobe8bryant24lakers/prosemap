@@ -20,6 +20,7 @@ export type Proposal = {
   title: string;
   original: string;
   modified: string;
+  sourceDocument: string;
   from: number;
   to: number;
   status: 'streaming' | 'ready' | 'error';

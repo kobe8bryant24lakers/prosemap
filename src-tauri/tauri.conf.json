@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:3000",
-    "frontendDist": "https://moliu.invalid/"
+    "frontendDist": "https://moliu-markdown-studio.ko8e24lakers.chatgpt.site/"
   },
   "app": {
     "withGlobalTauri": false,
@@ -16,8 +16,8 @@
         "title": "墨流 Markdown Studio",
         "width": 1440,
         "height": 900,
-        "minWidth": 1024,
-        "minHeight": 700,
+        "minWidth": 900,
+        "minHeight": 600,
         "center": true,
         "resizable": true,
         "fullscreen": false
@@ -29,12 +29,6 @@
     }
   },
   "bundle": {
-    "active": true,
-    "targets": ["nsis", "msi"],
-    "windows": {
-      "webviewInstallMode": {
-        "type": "downloadBootstrapper"
-      }
-    }
+    "active": true
   }
 }

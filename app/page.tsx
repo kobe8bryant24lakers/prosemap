@@ -60,6 +60,19 @@ function normalizeMermaidStream(value: string): string {
     .trimStart();
 }
 
+async function validateMermaidSource(source: string) {
+  if (/^\s*%%\{/m.test(source) || /\bclick\s+[\w-]+/i.test(source) || /<\/?[a-z][^>]*>/i.test(source) || /javascript\s*:/i.test(source)) {
+    throw new Error('AI 返回的图表包含不允许的指令或 HTML，请调整要求后重试');
+  }
+  try {
+    const mermaid = (await import('mermaid')).default;
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+    await mermaid.parse(source);
+  } catch {
+    throw new Error('AI 返回的 Mermaid 语法未通过校验，请重试或简化要求');
+  }
+}
+
 function createAiPrompts(action: AssistAction, original: string, instruction: string, hasSelection: boolean) {
   if (action === 'mermaid') {
     const existing = original.trim();
@@ -192,6 +205,9 @@ export default function Home() {
     }
     try {
       const text = await file.text();
+      abortRef.current?.abort();
+      abortRef.current = null;
+      setProposal(null);
       setContent(text);
       setDocumentName(safeDocumentName(file.name));
       setSelection({ from: 0, to: 0, text: '' });
@@ -234,6 +250,7 @@ export default function Home() {
       title: ACTION_LABELS[assistantAction],
       original: target.displayedOriginal,
       modified: '',
+      sourceDocument: content,
       from: target.from,
       to: target.to,
       status: 'streaming',
@@ -281,10 +298,10 @@ export default function Home() {
       }
       streamed += decoder.decode();
 
-      const finalText = isMermaid
-        ? `\`\`\`mermaid\n${stripCodeFence(streamed)}\n\`\`\``
-        : streamed.trim();
-      if (!finalText.trim() || (isMermaid && !stripCodeFence(streamed))) throw new Error('模型返回了空内容');
+      const mermaidSource = isMermaid ? stripCodeFence(streamed) : '';
+      const finalText = isMermaid ? `\`\`\`mermaid\n${mermaidSource}\n\`\`\`` : streamed.trim();
+      if (!finalText.trim() || (isMermaid && !mermaidSource)) throw new Error('模型返回了空内容');
+      if (isMermaid) await validateMermaidSource(mermaidSource);
       const inserted = isMermaid && !mermaidTarget ? `\n\n${finalText}\n` : finalText;
       setProposal((current) => current?.id === id ? { ...current, modified: inserted, status: 'ready' } : current);
     } catch (reason) {
@@ -311,6 +328,11 @@ export default function Home() {
 
   function acceptProposal() {
     if (!proposal || proposal.status !== 'ready') return;
+    if (content !== proposal.sourceDocument) {
+      setProposal(null);
+      showToast('error', '文档已发生变化，请重新生成建议');
+      return;
+    }
     replaceRange(proposal.from, proposal.to, proposal.modified);
     setProposal(null);
     showToast('success', '已接受修改');

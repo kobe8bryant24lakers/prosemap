@@ -3,7 +3,7 @@ use tauri::{
     Runtime,
 };
 
-const PRODUCTION_HOST: &str = "moliu.invalid";
+const PRODUCTION_HOST: &str = "moliu-markdown-studio.ko8e24lakers.chatgpt.site";
 
 fn navigation_guard<R: Runtime>() -> TauriPlugin<R> {
     PluginBuilder::new("navigation-guard")

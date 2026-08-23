@@ -14,7 +14,31 @@ const JSON_HEADERS = {
   'Content-Type': 'application/json; charset=utf-8',
   'Cache-Control': 'no-store, max-age=0',
   'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
 };
+
+class PayloadTooLargeError extends Error {}
+
+async function readLimitedJson(request: Request, maxBytes: number): Promise<AiRequestBody> {
+  if (!request.body) throw new Error('empty_body');
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) throw new PayloadTooLargeError('payload_too_large');
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    return JSON.parse(text) as AiRequestBody;
+  } finally {
+    reader.releaseLock();
+  }
+}
 
 function jsonError(message: string, status = 400) {
   return Response.json({ error: message }, { status, headers: JSON_HEADERS });
@@ -101,6 +125,32 @@ function providerStream(upstream: Response, provider: ProviderKind): ReadableStr
     async start(controller) {
       let buffer = '';
       let receivedBytes = 0;
+      let completed = false;
+      const processLine = (line: string) => {
+        if (!line.startsWith('data:')) return;
+        const data = line.slice(5).trim();
+        if (!data) return;
+        if (data === '[DONE]') {
+          completed = true;
+          return;
+        }
+        let payload: Record<string, unknown>;
+        try {
+          payload = JSON.parse(data) as Record<string, unknown>;
+        } catch {
+          return;
+        }
+        if (payload.error) throw new Error(extractMessage(payload));
+        if (provider === 'openai') {
+          const choices = Array.isArray(payload.choices) ? payload.choices : [];
+          const first = choices[0] as Record<string, unknown> | undefined;
+          if (first?.finish_reason != null) completed = true;
+        } else if (payload.type === 'message_stop') {
+          completed = true;
+        }
+        const text = provider === 'openai' ? openAiDelta(payload) : anthropicDelta(payload);
+        if (text) controller.enqueue(encoder.encode(text));
+      };
       try {
         while (!cancelled) {
           const { value, done } = await reader.read();
@@ -111,21 +161,14 @@ function providerStream(upstream: Response, provider: ProviderKind): ReadableStr
           const lines = buffer.split(/\r?\n/);
           buffer = lines.pop() ?? '';
 
-          for (const line of lines) {
-            if (!line.startsWith('data:')) continue;
-            const data = line.slice(5).trim();
-            if (!data || data === '[DONE]') continue;
-            let payload: Record<string, unknown>;
-            try {
-              payload = JSON.parse(data) as Record<string, unknown>;
-            } catch {
-              continue;
-            }
-            if (payload.error) throw new Error(extractMessage(payload));
-            const text = provider === 'openai' ? openAiDelta(payload) : anthropicDelta(payload);
-            if (text) controller.enqueue(encoder.encode(text));
-          }
+          for (const line of lines) processLine(line);
         }
+        buffer += decoder.decode();
+        if (buffer) {
+          const finalLines = buffer.split(/\r?\n/);
+          for (const line of finalLines) processLine(line);
+        }
+        if (!cancelled && !completed) throw new Error('模型响应提前结束，请重试');
         if (!cancelled) controller.close();
       } catch (reason) {
         if (!cancelled) controller.error(reason instanceof Error ? reason : new Error('流式响应意外中断'));
@@ -163,8 +206,9 @@ export async function POST(request: Request) {
 
   let body: AiRequestBody;
   try {
-    body = await request.json() as AiRequestBody;
-  } catch {
+    body = await readLimitedJson(request, 512 * 1024);
+  } catch (reason) {
+    if (reason instanceof PayloadTooLargeError) return jsonError('请求内容过大', 413);
     return jsonError('请求格式无效');
   }
 

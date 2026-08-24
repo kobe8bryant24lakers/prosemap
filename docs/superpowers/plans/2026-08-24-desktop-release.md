@@ -165,7 +165,7 @@ Expected: `valid YAML` and exit 0.
 Run:
 
 ```bash
-ruby -e '
+ruby - .github/workflows/release.yml <<'RUBY'
 text = File.read(ARGV.fetch(0))
 uses = text.lines.grep(/^\s*uses:/)
 abort("expected three immutable Action references") unless uses.length == 3 && uses.all? { |line|
@@ -219,7 +219,7 @@ required = [
 missing = required.reject { |value| text.include?(value) }
 abort("missing workflow invariants: #{missing.join(", ")}") unless missing.empty?
 puts "workflow invariants verified"
-' .github/workflows/release.yml
+RUBY
 ```
 
 Expected: `workflow invariants verified` and exit 0.

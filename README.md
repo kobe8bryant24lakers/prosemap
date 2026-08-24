@@ -58,7 +58,7 @@ Production distribution requires Apple Developer signing and notarization.
 
 ```powershell
 npm ci
-npm run desktop:build -- --bundles nsis,msi
+npm run desktop:build:windows
 ```
 
 Production distribution requires a Windows code-signing certificate. Windows installers should be built and tested on a real Windows machine or Windows CI runner.

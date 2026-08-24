@@ -15,7 +15,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit --pretty false",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build"
+    "desktop:build": "tauri build",
+    "desktop:build:windows": "tauri build --bundles nsis msi"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "^6.5.2",

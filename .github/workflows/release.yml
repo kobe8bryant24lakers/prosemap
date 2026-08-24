@@ -72,7 +72,7 @@ jobs:
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
 
       - name: Build Windows installers
-        run: npm run desktop:build -- --bundles nsis,msi
+        run: npm run desktop:build:windows
 
       - name: Normalize and verify Windows assets
         shell: pwsh

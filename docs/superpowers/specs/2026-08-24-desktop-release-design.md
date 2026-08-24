@@ -32,6 +32,8 @@ This approach keeps both builds native, preserves Apple silicon support, avoids 
 Create or amend only the release infrastructure, scoped build configuration, and documentation needed for repeatability:
 
 - `.github/workflows/release.yml` builds Windows packages for version tags and publishes a pre-release with the workflow-scoped `GITHUB_TOKEN`.
+- `package.json` provides a dedicated Windows bundle script so fixed Tauri arguments do not cross the PowerShell/npm argument-forwarding boundary.
+- `README.md` documents the same shell-safe Windows build entry point used by CI.
 - `docs/releases/v0.1.0.md` contains English release notes and unsigned-package installation warnings.
 - `docs/superpowers/plans/2026-08-24-desktop-release.md` records the exact verification and publication sequence; the workflow file remains the sole source of truth for CI implementation.
 - `.gitignore` ignores `/.worktrees/` so isolated release worktrees cannot become tracked release inputs.
@@ -53,7 +55,7 @@ The DMG contains `ProseMap.app` and an Applications shortcut. The ZIP is created
 
 ## Windows Build and Packaging
 
-The tag-triggered workflow runs on `windows-latest` with Node.js 22.13.0 and Rust 1.98.0. Every GitHub Action is pinned to an immutable 40-character commit SHA with a human-readable version comment. The job installs locked npm dependencies, runs frontend and Rust verification, then executes the Tauri build for both `nsis` and `msi` bundles.
+The tag-triggered workflow runs on `windows-latest` with Node.js 22.13.0 and Rust 1.98.0. Every GitHub Action is pinned to an immutable 40-character commit SHA with a human-readable version comment. The job installs locked npm dependencies, runs frontend and Rust verification, then calls the dedicated `desktop:build:windows` package script. That script owns the fixed `nsis` and `msi` Tauri arguments, avoiding PowerShell/npm argument-forwarding differences while leaving the generic desktop build script unchanged.
 
 Normalize the outputs to:
 

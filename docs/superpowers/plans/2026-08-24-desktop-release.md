@@ -13,6 +13,8 @@
 ## File Map
 
 - Create `.github/workflows/release.yml`: verify and build Windows packages, normalize asset names, and create/update the GitHub pre-release.
+- Modify `package.json`: provide the shell-safe `desktop:build:windows` entry point used by Windows CI.
+- Modify `README.md`: document the dedicated Windows build command.
 - Create `docs/releases/v0.1.0.md`: public English release notes, platform requirements, and unsigned-package warnings.
 - Modify `.gitignore`: ignore `/.worktrees/` so isolated worktrees stay outside tracked release inputs.
 - Modify `eslint.config.mjs`: ignore `.worktrees/**` so lint does not traverse a nested release worktree.
@@ -28,6 +30,7 @@
 - `/.worktrees/` was added to `.gitignore` because the isolated release branch lives inside the main checkout. `git check-ignore -v .worktrees/release-v0.1.0` verifies that the repository cannot accidentally stage that worktree.
 - `.worktrees/**` was added to the global ignore list in `eslint.config.mjs` because a repository-level lint run otherwise traversed a second checkout and reported findings outside the current worktree. `npm run lint` verifies the scoped exclusion while continuing to lint the application sources.
 - The macOS `contentTypes` entry in `src-tauri/tauri.conf.json` was narrowed to only `net.daringfireball.markdown` because claiming the generic plain-text type would make ProseMap eligible to open unrelated text files. A JSON assertion for the one allowed type and the successful native macOS bundle build verify the narrowed association.
+- GitHub Actions run `32765587987` supplied the behavioral RED for Windows packaging: PowerShell/npm 10 transformed the forwarded bundle arguments into `tauri build nsis msi`, and Tauri rejected the unexpected `nsis msi` argument. The fixed bundle arguments now live in `desktop:build:windows`, so the workflow passes only a script name across that boundary.
 
 ### Task 1: Add English v0.1.0 Release Notes
 
@@ -126,7 +129,10 @@ git commit -m "docs: add v0.1.0 release notes"
 
 **Files:**
 - Create: `.github/workflows/release.yml`
-- Test: YAML parse and structural assertions against `.github/workflows/release.yml`
+- Modify: `package.json`
+- Modify: `README.md`
+- Modify: `docs/superpowers/specs/2026-08-24-desktop-release-design.md`
+- Test: JSON/YAML parsing and structural assertions against `package.json` and `.github/workflows/release.yml`
 
 - [ ] **Step 1: Run the failing workflow existence check**
 
@@ -147,10 +153,19 @@ Treat `.github/workflows/release.yml` as the sole authoritative workflow impleme
 - Install Node.js 22.13.0 and Rust 1.98.0 with `rustfmt`.
 - Accept exactly one leading `v` followed by the supported SemVer form, remove that one character with `Substring(1)`, and require the tag version to match `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`.
 - Run `npm ci`, frontend lint, TypeScript checks, the frontend build, Rust formatting, Rust tests, and the all-targets Rust check before packaging.
+- Invoke the exact `desktop:build:windows` package script, whose fixed command is `tauri build --bundles nsis msi`, without forwarding bundle flags through PowerShell/npm.
 - Build both `nsis` and `msi` bundles, accept exactly one `*-setup.exe` and one MSI, copy them to `artifacts/ProseMap-Windows-x64-v<version>-setup.exe` and `artifacts/ProseMap-Windows-x64-v<version>.msi`, and fail if either output is empty.
 - Use the runner-provided `gh` command with `github.token` to create or update the same GitHub pre-release idempotently and upload both Windows assets with replacement enabled.
 
-- [ ] **Step 3: Parse the workflow as YAML**
+- [ ] **Step 3: Parse the package manifest and workflow**
+
+Run:
+
+```bash
+node -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); console.log("valid JSON")' package.json
+```
+
+Expected: `valid JSON` and exit 0.
 
 Run:
 
@@ -165,8 +180,12 @@ Expected: `valid YAML` and exit 0.
 Run:
 
 ```bash
-ruby - .github/workflows/release.yml <<'RUBY'
+ruby - .github/workflows/release.yml package.json README.md <<'RUBY'
+require "json"
+
 text = File.read(ARGV.fetch(0))
+package = JSON.parse(File.read(ARGV.fetch(1)))
+readme = File.read(ARGV.fetch(2))
 uses = text.lines.grep(/^\s*uses:/)
 abort("expected three immutable Action references") unless uses.length == 3 && uses.all? { |line|
   line.match?(/^\s*uses:\s+\S+@[0-9a-f]{40}\s+#\s+v[0-9]+(?:\.[0-9]+){0,2}\s*$/)
@@ -179,6 +198,12 @@ abort("expected one Windows job") unless jobs == ["windows:"] && text.scan(/^\s*
 strict_tag_check = %q{if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$')}
 abort("expected strict tag validation in all tag consumers") unless text.scan(strict_tag_check).length == 3
 abort("expected single-character tag prefix removal") unless text.scan(%q{$tag.Substring(1)}).length == 3
+abort("expected exact Windows package script") unless package.dig("scripts", "desktop:build:windows") == "tauri build --bundles nsis msi"
+abort("generic desktop build script changed") unless package.dig("scripts", "desktop:build") == "tauri build"
+abort("README lacks the Windows package script") unless readme.include?("npm run desktop:build:windows")
+
+legacy_windows_command = "npm run desktop:build -- --bundles " + "nsis,msi"
+abort("legacy Windows bundle forwarding remains") if [text, readme].any? { |content| content.include?(legacy_windows_command) }
 
 required = [
   %q{      - "v*"},
@@ -199,7 +224,7 @@ required = [
   %q{run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check},
   %q{run: cargo test --manifest-path src-tauri/Cargo.toml},
   %q{run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets},
-  %q{run: npm run desktop:build -- --bundles nsis,msi},
+  %q{run: npm run desktop:build:windows},
   %q{-Filter *-setup.exe -File},
   %q{-Filter *.msi -File},
   %q{if ($exe.Count -ne 1)},
@@ -227,16 +252,28 @@ Expected: `workflow invariants verified` and exit 0.
 Run:
 
 ```bash
+legacy_windows_prefix='npm run desktop:build -- --bundles '
+legacy_windows_command="${legacy_windows_prefix}nsis,msi"
+if rg --hidden -n --fixed-strings "$legacy_windows_command" -g '!.git/**' .; then
+  exit 1
+fi
+```
+
+Expected: no output and exit 0. The macOS `desktop:build` commands remain unchanged because they do not use the deprecated Windows bundle argument.
+
+Run:
+
+```bash
 git diff --check
 ```
 
 Expected: no output and exit 0.
 
-- [ ] **Step 5: Commit the workflow**
+- [ ] **Step 5: Commit the workflow and shell-safe Windows entry point**
 
 ```bash
-git add .github/workflows/release.yml
-git commit -m "ci: add native Windows release workflow"
+git add package.json .github/workflows/release.yml README.md docs/superpowers/specs/2026-08-24-desktop-release-design.md docs/superpowers/plans/2026-08-24-desktop-release.md
+git commit -m "fix: make Windows bundle invocation shell-safe"
 ```
 
 ### Task 3: Run the Local Release Quality Gate

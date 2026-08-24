@@ -35,7 +35,11 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $tagVersion = $env:GITHUB_REF_NAME.TrimStart([char]"v")
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$') {
+            throw "Invalid release tag: $tag"
+          }
+          $tagVersion = $tag.Substring(1)
           $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           $cargoMatch = Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1
@@ -73,16 +77,20 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $version = $env:GITHUB_REF_NAME.TrimStart([char]"v")
-          $exe = @(Get-ChildItem src-tauri/target/release/bundle/nsis -Filter *.exe -File)
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$') {
+            throw "Invalid release tag: $tag"
+          }
+          $version = $tag.Substring(1)
+          $exe = @(Get-ChildItem src-tauri/target/release/bundle/nsis -Filter *-setup.exe -File)
           $msi = @(Get-ChildItem src-tauri/target/release/bundle/msi -Filter *.msi -File)
 
           if ($exe.Count -ne 1) { throw "Expected exactly one NSIS installer, found $($exe.Count)" }
           if ($msi.Count -ne 1) { throw "Expected exactly one MSI installer, found $($msi.Count)" }
 
-          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
-          $exeTarget = "release-assets/ProseMap-Windows-x64-v$version-setup.exe"
-          $msiTarget = "release-assets/ProseMap-Windows-x64-v$version.msi"
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          $exeTarget = "artifacts/ProseMap-Windows-x64-v$version-setup.exe"
+          $msiTarget = "artifacts/ProseMap-Windows-x64-v$version.msi"
           Copy-Item -LiteralPath $exe[0].FullName -Destination $exeTarget
           Copy-Item -LiteralPath $msi[0].FullName -Destination $msiTarget
 
@@ -98,10 +106,13 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $tag = $env:GITHUB_REF_NAME
-          $version = $tag.TrimStart([char]"v")
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$') {
+            throw "Invalid release tag: $tag"
+          }
+          $version = $tag.Substring(1)
           $notes = "docs/releases/$tag.md"
-          $exe = "release-assets/ProseMap-Windows-x64-v$version-setup.exe"
-          $msi = "release-assets/ProseMap-Windows-x64-v$version.msi"
+          $exe = "artifacts/ProseMap-Windows-x64-v$version-setup.exe"
+          $msi = "artifacts/ProseMap-Windows-x64-v$version.msi"
 
           if (-not (Test-Path -LiteralPath $notes)) { throw "Missing release notes: $notes" }
 

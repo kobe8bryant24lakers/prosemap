@@ -30,3 +30,4 @@ yarn-error.log*
 /artifacts/
 /outputs/
 /work/
+/.worktrees/

@@ -6,7 +6,7 @@
 
 **Architecture:** Build the macOS arm64 app locally, package the verified app as DMG and ZIP, and build Windows NSIS/MSI installers on a tag-triggered native GitHub runner. The Windows workflow creates the public pre-release with its scoped GitHub token; the authenticated browser session then adds the macOS packages and a locally recomputed checksum manifest.
 
-**Tech Stack:** Tauri 2.11, Rust stable, Node.js 22.13, npm, Vite, GitHub Actions, GitHub CLI inside the hosted runner, macOS `codesign`, `hdiutil`, `zip`, and SHA-256 tools.
+**Tech Stack:** Tauri 2.11, Rust 1.98.0, Node.js 22.13.0, npm, Vite, GitHub Actions, GitHub CLI inside the hosted runner, macOS `codesign`, `hdiutil`, `zip`, and SHA-256 tools.
 
 ---
 
@@ -14,11 +14,20 @@
 
 - Create `.github/workflows/release.yml`: verify and build Windows packages, normalize asset names, and create/update the GitHub pre-release.
 - Create `docs/releases/v0.1.0.md`: public English release notes, platform requirements, and unsigned-package warnings.
+- Modify `.gitignore`: ignore `/.worktrees/` so isolated worktrees stay outside tracked release inputs.
+- Modify `eslint.config.mjs`: ignore `.worktrees/**` so lint does not traverse a nested release worktree.
+- Modify `src-tauri/tauri.conf.json`: limit the macOS Markdown document association to `net.daringfireball.markdown`.
 - Generate ignored `artifacts/ProseMap-macOS-arm64-v0.1.0.dmg`: Apple silicon disk image.
 - Replace ignored `artifacts/ProseMap-macOS-arm64-v0.1.0.zip`: Apple silicon ZIP archive built from the release commit.
 - Download ignored `artifacts/ProseMap-Windows-x64-v0.1.0-setup.exe`: native Windows NSIS installer.
 - Download ignored `artifacts/ProseMap-Windows-x64-v0.1.0.msi`: native Windows MSI installer.
 - Generate ignored `artifacts/SHA256SUMS.txt`: checksums for all four packages.
+
+## Scoped Hardening Amendments Recorded During Verification
+
+- `/.worktrees/` was added to `.gitignore` because the isolated release branch lives inside the main checkout. `git check-ignore -v .worktrees/release-v0.1.0` verifies that the repository cannot accidentally stage that worktree.
+- `.worktrees/**` was added to the global ignore list in `eslint.config.mjs` because a repository-level lint run otherwise traversed a second checkout and reported findings outside the current worktree. `npm run lint` verifies the scoped exclusion while continuing to lint the application sources.
+- The macOS `contentTypes` entry in `src-tauri/tauri.conf.json` was narrowed to only `net.daringfireball.markdown` because claiming the generic plain-text type would make ProseMap eligible to open unrelated text files. A JSON assertion for the one allowed type and the successful native macOS bundle build verify the narrowed association.
 
 ### Task 1: Add English v0.1.0 Release Notes
 
@@ -131,129 +140,15 @@ Expected: exit 1 because the workflow does not exist.
 
 - [ ] **Step 2: Create the Windows release workflow**
 
-Create `.github/workflows/release.yml` with exactly:
+Treat `.github/workflows/release.yml` as the sole authoritative workflow implementation. This plan intentionally does not duplicate its YAML. The implementation must satisfy these verifiable invariants:
 
-```yaml
-name: Release desktop packages
-
-on:
-  push:
-    tags:
-      - "v*"
-
-permissions:
-  contents: write
-
-jobs:
-  windows:
-    name: Windows 11 x64
-    runs-on: windows-latest
-    timeout-minutes: 45
-
-    steps:
-      - name: Check out the tagged source
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "22.13.0"
-          cache: npm
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Verify tag and application versions
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $tagVersion = $env:GITHUB_REF_NAME.TrimStart([char]"v")
-          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
-          $cargoMatch = Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1
-          $cargoVersion = $cargoMatch.Matches[0].Groups[1].Value
-
-          if ($tagVersion -ne $packageVersion -or $tagVersion -ne $tauriVersion -or $tagVersion -ne $cargoVersion) {
-            throw "Tag version $tagVersion does not match package=$packageVersion, tauri=$tauriVersion, cargo=$cargoVersion"
-          }
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Run frontend lint
-        run: npm run lint
-
-      - name: Run TypeScript checks
-        run: npm run typecheck
-
-      - name: Build the frontend
-        run: npm run build
-
-      - name: Check Rust formatting
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-
-      - name: Run Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
-
-      - name: Check all Rust targets
-        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
-
-      - name: Build Windows installers
-        run: npm run desktop:build -- --bundles nsis,msi
-
-      - name: Normalize and verify Windows assets
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $version = $env:GITHUB_REF_NAME.TrimStart([char]"v")
-          $exe = @(Get-ChildItem src-tauri/target/release/bundle/nsis -Filter *.exe -File)
-          $msi = @(Get-ChildItem src-tauri/target/release/bundle/msi -Filter *.msi -File)
-
-          if ($exe.Count -ne 1) { throw "Expected exactly one NSIS installer, found $($exe.Count)" }
-          if ($msi.Count -ne 1) { throw "Expected exactly one MSI installer, found $($msi.Count)" }
-
-          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
-          $exeTarget = "release-assets/ProseMap-Windows-x64-v$version-setup.exe"
-          $msiTarget = "release-assets/ProseMap-Windows-x64-v$version.msi"
-          Copy-Item -LiteralPath $exe[0].FullName -Destination $exeTarget
-          Copy-Item -LiteralPath $msi[0].FullName -Destination $msiTarget
-
-          foreach ($asset in @($exeTarget, $msiTarget)) {
-            if ((Get-Item -LiteralPath $asset).Length -le 0) { throw "Release asset is empty: $asset" }
-            Get-FileHash -LiteralPath $asset -Algorithm SHA256 | Format-List
-          }
-
-      - name: Create or update the GitHub pre-release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = "Stop"
-          $tag = $env:GITHUB_REF_NAME
-          $version = $tag.TrimStart([char]"v")
-          $notes = "docs/releases/$tag.md"
-          $exe = "release-assets/ProseMap-Windows-x64-v$version-setup.exe"
-          $msi = "release-assets/ProseMap-Windows-x64-v$version.msi"
-
-          if (-not (Test-Path -LiteralPath $notes)) { throw "Missing release notes: $notes" }
-
-          gh release view $tag --repo $env:GITHUB_REPOSITORY --json id *> $null
-          $releaseExists = $LASTEXITCODE -eq 0
-
-          if ($releaseExists) {
-            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title "ProseMap v$version" --notes-file $notes --prerelease
-            if ($LASTEXITCODE -ne 0) { throw "Failed to update release metadata" }
-            gh release upload $tag $exe $msi --repo $env:GITHUB_REPOSITORY --clobber
-            if ($LASTEXITCODE -ne 0) { throw "Failed to upload Windows release assets" }
-          } else {
-            gh release create $tag $exe $msi --repo $env:GITHUB_REPOSITORY --verify-tag --title "ProseMap v$version" --notes-file $notes --prerelease
-            if ($LASTEXITCODE -ne 0) { throw "Failed to create the GitHub pre-release" }
-          }
-```
+- Trigger only for `v*` tag pushes and define one `windows-latest` job with `contents: write`.
+- Pin every Action to an immutable 40-character commit SHA followed by a version comment.
+- Install Node.js 22.13.0 and Rust 1.98.0 with `rustfmt`.
+- Accept exactly one leading `v` followed by the supported SemVer form, remove that one character with `Substring(1)`, and require the tag version to match `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`.
+- Run `npm ci`, frontend lint, TypeScript checks, the frontend build, Rust formatting, Rust tests, and the all-targets Rust check before packaging.
+- Build both `nsis` and `msi` bundles, accept exactly one `*-setup.exe` and one MSI, copy them to `artifacts/ProseMap-Windows-x64-v<version>-setup.exe` and `artifacts/ProseMap-Windows-x64-v<version>.msi`, and fail if either output is empty.
+- Use the runner-provided `gh` command with `github.token` to create or update the same GitHub pre-release idempotently and upload both Windows assets with replacement enabled.
 
 - [ ] **Step 3: Parse the workflow as YAML**
 
@@ -270,10 +165,64 @@ Expected: `valid YAML` and exit 0.
 Run:
 
 ```bash
-rg -n "tags:|contents: write|persist-credentials: false|windows-latest|npm ci|cargo test|--bundles nsis,msi|GH_TOKEN|--verify-tag|--prerelease" .github/workflows/release.yml
+ruby -e '
+text = File.read(ARGV.fetch(0))
+uses = text.lines.grep(/^\s*uses:/)
+abort("expected three immutable Action references") unless uses.length == 3 && uses.all? { |line|
+  line.match?(/^\s*uses:\s+\S+@[0-9a-f]{40}\s+#\s+v[0-9]+(?:\.[0-9]+){0,2}\s*$/)
+}
+
+job_section = text.split(/^jobs:\s*$/, 2).fetch(1)
+jobs = job_section.lines.grep(/^  [A-Za-z0-9_-]+:\s*$/).map(&:strip)
+abort("expected one Windows job") unless jobs == ["windows:"] && text.scan(/^\s*uses:/).length == 3 && text.scan(/^\s*runs-on:/).length == 1
+
+strict_tag_check = %q{if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$')}
+abort("expected strict tag validation in all tag consumers") unless text.scan(strict_tag_check).length == 3
+abort("expected single-character tag prefix removal") unless text.scan(%q{$tag.Substring(1)}).length == 3
+
+required = [
+  %q{      - "v*"},
+  %q{contents: write},
+  %q{runs-on: windows-latest},
+  %q{persist-credentials: false},
+  %q{node-version: "22.13.0"},
+  %q{toolchain: "1.98.0"},
+  %q{components: rustfmt},
+  %q{$packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version},
+  %q{$tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version},
+  %q{$cargoMatch = Select-String -Path src-tauri/Cargo.toml},
+  %q{if ($tagVersion -ne $packageVersion -or $tagVersion -ne $tauriVersion -or $tagVersion -ne $cargoVersion)},
+  %q{run: npm ci},
+  %q{run: npm run lint},
+  %q{run: npm run typecheck},
+  %q{run: npm run build},
+  %q{run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check},
+  %q{run: cargo test --manifest-path src-tauri/Cargo.toml},
+  %q{run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets},
+  %q{run: npm run desktop:build -- --bundles nsis,msi},
+  %q{-Filter *-setup.exe -File},
+  %q{-Filter *.msi -File},
+  %q{if ($exe.Count -ne 1)},
+  %q{if ($msi.Count -ne 1)},
+  %q{artifacts/ProseMap-Windows-x64-v$version-setup.exe},
+  %q{artifacts/ProseMap-Windows-x64-v$version.msi},
+  %q{Length -le 0},
+  %q{GH_TOKEN: ${{ github.token }}},
+  %q{gh release view},
+  %q{gh release edit},
+  %q{gh release upload},
+  %q{--clobber},
+  %q{gh release create},
+  %q{--verify-tag},
+  %q{--prerelease}
+]
+missing = required.reject { |value| text.include?(value) }
+abort("missing workflow invariants: #{missing.join(", ")}") unless missing.empty?
+puts "workflow invariants verified"
+' .github/workflows/release.yml
 ```
 
-Expected: every invariant appears and the command exits 0.
+Expected: `workflow invariants verified` and exit 0.
 
 Run:
 

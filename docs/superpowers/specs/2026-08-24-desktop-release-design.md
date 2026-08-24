@@ -10,7 +10,7 @@ Publish reproducible, unsigned preview packages for ProseMap v0.1.0 on Apple sil
 - `main` is clean and currently has no tags or GitHub Releases.
 - `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` all declare version `0.1.0`.
 - The host Mac is Apple silicon and can build a native arm64 Tauri application.
-- The repository has no GitHub Actions workflow.
+- The repository has a tag-triggered Windows release workflow whose implementation is authoritative in `.github/workflows/release.yml`.
 - The host has no Apple Developer ID identity, Windows code-signing certificate, or notarization credentials.
 - The existing macOS ZIP predates the current Git commit and fails strict Gatekeeper verification, so it will not be reused.
 
@@ -29,11 +29,14 @@ This approach keeps both builds native, preserves Apple silicon support, avoids 
 
 ## Repository Changes
 
-Create only the release infrastructure and documentation needed for repeatability:
+Create or amend only the release infrastructure, scoped build configuration, and documentation needed for repeatability:
 
 - `.github/workflows/release.yml` builds Windows packages for version tags and publishes a pre-release with the workflow-scoped `GITHUB_TOKEN`.
 - `docs/releases/v0.1.0.md` contains English release notes and unsigned-package installation warnings.
-- `docs/superpowers/plans/2026-08-24-desktop-release.md` records the exact implementation and verification sequence.
+- `docs/superpowers/plans/2026-08-24-desktop-release.md` records the exact verification and publication sequence; the workflow file remains the sole source of truth for CI implementation.
+- `.gitignore` ignores `/.worktrees/` so isolated release worktrees cannot become tracked release inputs.
+- `eslint.config.mjs` ignores `.worktrees/**` so repository-level lint does not traverse nested isolated worktrees.
+- `src-tauri/tauri.conf.json` associates macOS document opening only with `net.daringfireball.markdown`, avoiding an over-broad claim on all plain-text documents.
 
 Generated installers remain under the ignored `artifacts/` directory and must not be committed.
 
@@ -50,7 +53,7 @@ The DMG contains `ProseMap.app` and an Applications shortcut. The ZIP is created
 
 ## Windows Build and Packaging
 
-The tag-triggered workflow runs on `windows-latest` with Node 22 and stable Rust. It installs locked npm dependencies, runs frontend and Rust verification, then executes the Tauri build for both `nsis` and `msi` bundles.
+The tag-triggered workflow runs on `windows-latest` with Node.js 22.13.0 and Rust 1.98.0. Every GitHub Action is pinned to an immutable 40-character commit SHA with a human-readable version comment. The job installs locked npm dependencies, runs frontend and Rust verification, then executes the Tauri build for both `nsis` and `msi` bundles.
 
 Normalize the outputs to:
 
@@ -77,6 +80,7 @@ Release notes and repository-facing text remain entirely in English.
 
 - No API key, signing certificate, password, personal access token, or notarization credential is added to source files, workflow files, shell arguments, release notes, or logs.
 - GitHub Actions receives only the repository-scoped `GITHUB_TOKEN` with `contents: write` permission.
+- Every third-party and GitHub-authored Action reference is pinned to an immutable commit SHA rather than a mutable tag.
 - The workflow is triggered only by version tags and does not run untrusted pull-request code with write permission.
 - Release binaries are generated from the tagged public commit.
 - Binary outputs remain ignored by Git.

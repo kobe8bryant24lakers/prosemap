@@ -9,11 +9,11 @@ import {
   Braces,
   Check,
   Code2,
-  Download,
   Eye,
   FileDown,
   FileText,
-  FileUp,
+  Folder,
+  FolderOpen,
   Heading2,
   Italic,
   KeyRound,
@@ -22,6 +22,7 @@ import {
   PanelLeft,
   PenLine,
   Quote,
+  Save,
   Settings2,
   ShieldCheck,
   Sparkles,
@@ -35,6 +36,7 @@ import AssistantPanel from '@/components/AssistantPanel';
 import DiffModal from '@/components/DiffModal';
 import MarkdownPreview from '@/components/MarkdownPreview';
 import SettingsModal from '@/components/SettingsModal';
+import { isDesktopRuntime, streamAi } from '@/lib/ai-client';
 import {
   ACTION_LABELS,
   INITIAL_MARKDOWN,
@@ -48,6 +50,17 @@ import {
   type Proposal,
   type SelectionRange,
 } from '@/lib/editor';
+import {
+  pickLocalMarkdown,
+  pickMarkdownFolder,
+  listenLocalOpened,
+  readLaunchTarget,
+  readLocalMarkdown,
+  saveLocalMarkdown,
+  type LocalDocument,
+  type LocalFileEntry,
+  type LocalWorkspace,
+} from '@/lib/local-desktop';
 
 type ViewMode = 'split' | 'editor' | 'preview';
 
@@ -99,7 +112,7 @@ function createAiPrompts(action: AssistAction, original: string, instruction: st
 
 export default function Home() {
   const [content, setContent] = useState(INITIAL_MARKDOWN);
-  const [documentName, setDocumentName] = useState('墨流入门');
+  const [documentName, setDocumentName] = useState('ProseMap 入门');
   const [selection, setSelection] = useState<SelectionRange>({ from: 0, to: 0, text: '' });
   const [viewMode, setViewMode] = useState<ViewMode>('split');
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -108,12 +121,16 @@ export default function Home() {
   const [config, setConfig] = useState<ModelConfig>({ provider: 'openai', baseUrl: OPENAI_BASE_URL, model: '', apiKey: '' });
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [localPath, setLocalPath] = useState<string | null>(null);
+  const [localWorkspace, setLocalWorkspace] = useState<LocalWorkspace | null>(null);
+  const [fileExplorerOpen, setFileExplorerOpen] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'info'; message: string } | null>(null);
   const editorRef = useRef<ReactCodeMirrorRef>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const proposalIdRef = useRef(0);
+  const dirtyRef = useRef(false);
 
   const readableCharacters = useMemo(() => countReadableCharacters(content), [content]);
   const mermaidTarget = useMemo(() => findMermaidTarget(content, selection.from), [content, selection.from]);
@@ -125,25 +142,38 @@ export default function Home() {
     toastTimerRef.current = window.setTimeout(() => setToast(null), 2800);
   }, []);
 
-  const downloadMarkdown = useCallback(() => {
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `${safeDocumentName(documentName)}.md`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-    showToast('success', 'Markdown 已下载到本机');
-  }, [content, documentName, showToast]);
+  const applyLocalDocument = useCallback((document: LocalDocument, announce = true) => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    proposalIdRef.current += 1;
+    setProposal(null);
+    setContent(document.content);
+    setDocumentName(safeDocumentName(document.name));
+    setLocalPath(document.path);
+    setSelection({ from: 0, to: 0, text: '' });
+    setIsDirty(false);
+    if (announce) showToast('success', `已打开 ${document.name}`);
+  }, [showToast]);
+
+  const saveDocument = useCallback(async (saveAs = false) => {
+    try {
+      const saved = await saveLocalMarkdown(saveAs ? null : localPath, `${safeDocumentName(documentName)}.md`, content);
+      if (!saved) return;
+      setLocalPath(saved.path);
+      setDocumentName(safeDocumentName(saved.name));
+      setIsDirty(false);
+      showToast('success', !saveAs && localPath ? '文件已保存' : `已保存为 ${saved.name}`);
+    } catch (reason) {
+      showToast('error', reason instanceof Error ? reason.message : '文件保存失败，请重试');
+    }
+  }, [content, documentName, localPath, showToast]);
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
       const command = event.metaKey || event.ctrlKey;
       if (command && event.key.toLowerCase() === 's') {
         event.preventDefault();
-        downloadMarkdown();
+        void saveDocument();
       }
       if (command && event.shiftKey && event.key.toLowerCase() === 'm') {
         event.preventDefault();
@@ -153,11 +183,76 @@ export default function Home() {
     }
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [downloadMarkdown]);
+  }, [saveDocument]);
+
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void (async () => {
+      const desktop = await isDesktopRuntime();
+      if (!active) return;
+      if (!desktop) return;
+
+      try {
+        unlisten = await listenLocalOpened((target) => {
+          if (!active) return;
+          if (target.kind === 'file') {
+            if (dirtyRef.current && !window.confirm('当前文档有未保存的修改。确定要放弃这些修改吗？')) return;
+            applyLocalDocument(target.document);
+          } else {
+            setLocalWorkspace(target.workspace);
+            setFileExplorerOpen(true);
+            showToast('success', `已打开文件夹 ${target.workspace.name}`);
+          }
+        });
+        const target = await readLaunchTarget();
+        if (!active || !target) return;
+        if (target.kind === 'file') {
+          applyLocalDocument(target.document, false);
+        } else {
+          setLocalWorkspace(target.workspace);
+          setFileExplorerOpen(true);
+        }
+      } catch (reason) {
+        if (active) showToast('error', reason instanceof Error ? reason.message : '无法读取启动文件');
+      }
+    })();
+    return () => { active = false; unlisten?.(); };
+  }, [applyLocalDocument, showToast]);
 
   useEffect(() => () => {
     abortRef.current?.abort();
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    dirtyRef.current = isDirty;
+  }, [isDirty]);
+
+  useEffect(() => {
+    function warnBeforeClose(event: BeforeUnloadEvent) {
+      if (!isDirty) return;
+      event.preventDefault();
+    }
+    window.addEventListener('beforeunload', warnBeforeClose);
+    return () => window.removeEventListener('beforeunload', warnBeforeClose);
+  }, [isDirty]);
+
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void (async () => {
+      if (!(await isDesktopRuntime()) || !active) return;
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const stopListening = await getCurrentWindow().onCloseRequested((event) => {
+        if (dirtyRef.current && !window.confirm('当前文档有未保存的修改。确定要关闭 ProseMap 吗？')) {
+          event.preventDefault();
+        }
+      });
+      if (!active) stopListening();
+      else unlisten = stopListening;
+    })().catch(() => undefined);
+    return () => { active = false; unlisten?.(); };
   }, []);
 
   function focusRange(from: number, to: number) {
@@ -171,6 +266,7 @@ export default function Home() {
 
   function replaceRange(from: number, to: number, replacement: string, selectInside = false) {
     setContent((current) => `${current.slice(0, from)}${replacement}${current.slice(to)}`);
+    setIsDirty(true);
     const anchor = selectInside ? from : from + replacement.length;
     const head = selectInside ? from + replacement.length : anchor;
     setSelection({ from: anchor, to: head, text: selectInside ? replacement : '' });
@@ -182,6 +278,7 @@ export default function Home() {
     const body = selected || placeholder;
     const replacement = `${before}${body}${after}`;
     setContent(`${content.slice(0, selection.from)}${replacement}${content.slice(selection.to)}`);
+    setIsDirty(true);
     const from = selection.from + before.length;
     const to = from + body.length;
     setSelection({ from, to, text: body });
@@ -194,7 +291,12 @@ export default function Home() {
     replaceRange(selection.from, selection.to, `${prefix}${block}${suffix}`, true);
   }
 
+  function canReplaceCurrentDocument() {
+    return !isDirty || window.confirm('当前文档有未保存的修改。确定要放弃这些修改吗？');
+  }
+
   async function loadFile(file: File) {
+    if (!canReplaceCurrentDocument()) return;
     if (!/\.(md|markdown|txt)$/i.test(file.name)) {
       showToast('error', '请选择 .md、.markdown 或 .txt 文件');
       return;
@@ -210,10 +312,43 @@ export default function Home() {
       setProposal(null);
       setContent(text);
       setDocumentName(safeDocumentName(file.name));
+      setLocalPath(null);
       setSelection({ from: 0, to: 0, text: '' });
+      setIsDirty(false);
       showToast('success', `已导入 ${file.name}`);
     } catch {
       showToast('error', '文件读取失败，请重试');
+    }
+  }
+
+  async function openFile() {
+    try {
+      const document = await pickLocalMarkdown();
+      if (document && canReplaceCurrentDocument()) applyLocalDocument(document);
+    } catch (reason) {
+      showToast('error', reason instanceof Error ? reason.message : '文件打开失败，请重试');
+    }
+  }
+
+  async function openFolder() {
+    try {
+      const workspace = await pickMarkdownFolder();
+      if (!workspace) return;
+      setLocalWorkspace(workspace);
+      setFileExplorerOpen(true);
+      showToast('success', `已打开文件夹 ${workspace.name}`);
+    } catch (reason) {
+      showToast('error', reason instanceof Error ? reason.message : '文件夹打开失败，请重试');
+    }
+  }
+
+  async function openWorkspaceFile(entry: LocalFileEntry) {
+    if (entry.path === localPath || !canReplaceCurrentDocument()) return;
+    try {
+      const document = await readLocalMarkdown(entry.path);
+      applyLocalDocument(document);
+    } catch (reason) {
+      showToast('error', reason instanceof Error ? reason.message : '文件读取失败，请重试');
     }
   }
 
@@ -263,45 +398,32 @@ export default function Home() {
     let streamed = '';
 
     try {
-      const response = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-ai-api-key': config.apiKey },
-        cache: 'no-store',
-        signal: controller.signal,
-        body: JSON.stringify({
+      await streamAi(
+        {
           provider: config.provider,
           baseUrl: config.baseUrl,
           model: config.model,
+          apiKey: config.apiKey,
           system: prompts.system,
           prompt: prompts.prompt,
           temperature: assistantAction === 'continue' ? 0.65 : 0.3,
           maxTokens: 4096,
-        }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({ error: '模型服务暂时不可用' })) as { error?: string };
-        throw new Error(data.error || '模型服务暂时不可用');
-      }
-      if (!response.body) throw new Error('模型服务没有返回内容');
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        streamed += decoder.decode(value, { stream: true });
-        const modified = isMermaid
-          ? `\`\`\`mermaid\n${normalizeMermaidStream(streamed)}\n\`\`\``
-          : streamed;
-        setProposal((current) => current?.id === id ? { ...current, modified } : current);
-      }
-      streamed += decoder.decode();
+        },
+        (chunk) => {
+          streamed += chunk;
+          const modified = isMermaid
+            ? `\`\`\`mermaid\n${normalizeMermaidStream(streamed)}\n\`\`\``
+            : streamed;
+          setProposal((current) => current?.id === id ? { ...current, modified } : current);
+        },
+        controller.signal,
+      );
 
       const mermaidSource = isMermaid ? stripCodeFence(streamed) : '';
       const finalText = isMermaid ? `\`\`\`mermaid\n${mermaidSource}\n\`\`\`` : streamed.trim();
       if (!finalText.trim() || (isMermaid && !mermaidSource)) throw new Error('模型返回了空内容');
       if (isMermaid) await validateMermaidSource(mermaidSource);
+      if (controller.signal.aborted || proposalIdRef.current !== id) return;
       const inserted = isMermaid && !mermaidTarget ? `\n\n${finalText}\n` : finalText;
       setProposal((current) => current?.id === id ? { ...current, modified: inserted, status: 'ready' } : current);
     } catch (reason) {
@@ -352,14 +474,16 @@ export default function Home() {
     >
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">M</span>
-          <div><strong>墨流</strong><small>Markdown Studio</small></div>
+          <span className="brand-mark">P</span>
+          <div><strong>ProseMap</strong><small>Markdown &amp; Mermaid</small></div>
         </div>
 
         <div className="document-control">
           <FileText size={14} />
           <input value={documentName} onChange={(event) => setDocumentName(event.target.value)} aria-label="文档名称" />
-          <span className="saved-state"><Check size={11} /> 本机内存</span>
+          <span className={`saved-state ${isDirty ? 'dirty' : ''}`}>
+            <Check size={11} /> {isDirty ? '未保存' : localPath ? '已保存到本地' : '本机内存'}
+          </span>
         </div>
 
         <div className="top-actions">
@@ -367,10 +491,11 @@ export default function Home() {
             {configured ? <ShieldCheck size={14} /> : <KeyRound size={14} />}
             <span>{configured ? config.model : '连接模型'}</span>
           </button>
-          <button type="button" className="header-button import-button" onClick={() => fileInputRef.current?.click()}><FileUp size={15} /> 导入</button>
-          <button type="button" className="header-primary" onClick={downloadMarkdown}><Download size={15} /> 下载 .md</button>
+          <button type="button" className="header-button import-button" onClick={() => void openFile()}><FolderOpen size={15} /> 打开文件</button>
+          <button type="button" className="header-button folder-button" onClick={() => void openFolder()}><Folder size={15} /> 打开文件夹</button>
+          <button type="button" className="header-button export-button" onClick={() => void saveDocument(true)}><FileDown size={15} /> 另存为</button>
+          <button type="button" className="header-primary" onClick={() => void saveDocument()}><Save size={15} /> 保存</button>
           <button type="button" className="icon-button header-settings" onClick={() => setSettingsOpen(true)} aria-label="设置"><Settings2 size={17} /></button>
-          <input ref={fileInputRef} className="visually-hidden" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadFile(file); event.target.value = ''; }} />
         </div>
       </header>
 
@@ -379,14 +504,45 @@ export default function Home() {
         <button type="button" className={viewMode === 'preview' ? 'active' : ''} onClick={() => setViewMode('preview')}><Eye size={14} /> 预览</button>
       </div>
 
-      <section className={`workspace ${assistantOpen ? 'with-assistant' : ''}`}>
+      <section className={`workspace ${assistantOpen ? 'with-assistant' : ''} ${fileExplorerOpen ? 'with-files' : ''}`}>
         <nav className="rail" aria-label="主要工具">
           <button type="button" className="rail-button active" aria-label="文档编辑" title="文档编辑"><PanelLeft size={18} /></button>
+          <button type="button" className={`rail-button ${fileExplorerOpen ? 'active' : ''}`} onClick={() => setFileExplorerOpen((open) => !open)} aria-label="本地文件" title="本地文件"><FolderOpen size={18} /></button>
           <button type="button" className="rail-button" onClick={() => openAssistant('polish')} aria-label="AI 文字助手" title="AI 文字助手"><Bot size={18} /></button>
           <button type="button" className="rail-button mermaid-rail" onClick={() => openAssistant('mermaid')} aria-label="Mermaid 智能绘图" title="Mermaid 智能绘图"><Workflow size={19} /></button>
           <span className="rail-spacer" />
           <button type="button" className="rail-button" onClick={() => setSettingsOpen(true)} aria-label="模型设置" title="模型设置"><Settings2 size={18} /></button>
         </nav>
+
+        {fileExplorerOpen ? (
+          <aside className="file-explorer" aria-label="本地 Markdown 文件">
+            <header>
+              <div>
+                <span>本地文件夹</span>
+                <strong title={localWorkspace?.root}>{localWorkspace?.name ?? '尚未打开文件夹'}</strong>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setFileExplorerOpen(false)} aria-label="关闭文件列表"><X size={15} /></button>
+            </header>
+            {localWorkspace ? (
+              localWorkspace.files.length ? (
+                <div className="file-list">
+                  {localWorkspace.files.map((entry) => (
+                    <button type="button" className={entry.path === localPath ? 'active' : ''} key={entry.path} onClick={() => void openWorkspaceFile(entry)} title={entry.path}>
+                      <FileText size={13} />
+                      <span>{entry.relativePath}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : <p className="file-explorer-empty">此文件夹中没有 Markdown 文件。</p>
+            ) : (
+              <div className="file-explorer-welcome">
+                <FolderOpen size={27} />
+                <p>打开文件夹后，可在这里直接切换其中的 Markdown 文件。</p>
+                <button type="button" onClick={() => void openFolder()}>选择文件夹</button>
+              </div>
+            )}
+          </aside>
+        ) : null}
 
         <section className="editor-pane">
           <header className="pane-header editor-header">
@@ -426,7 +582,7 @@ export default function Home() {
                 closeBrackets: true,
                 history: true,
               }}
-              onChange={(value) => setContent(value)}
+              onChange={(value) => { setContent(value); setIsDirty(true); }}
               onUpdate={(update) => {
                 if (!update.selectionSet && !update.docChanged) return;
                 const main = update.state.selection.main;

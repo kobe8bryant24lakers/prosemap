@@ -39,7 +39,7 @@ export const ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1';
 
 export const INITIAL_MARKDOWN = `# 把复杂想法，变成清晰表达
 
-墨流是一间安静的 Markdown 工作室。你可以专注写作，也可以让 AI 在真正改动文稿之前，先把差异呈现给你。
+ProseMap 是一间安静的 Markdown 工作室。你可以专注写作，也可以让 AI 在真正改动文稿之前，先把差异呈现给你。
 
 > 所有修改都由你决定。AI 的建议不会直接覆盖原文。
 
@@ -61,8 +61,9 @@ flowchart LR
 ## 现在就开始
 
 - 选中一段文字，再点击左侧的 **AI 助手**。
-- 把光标放进 Mermaid 代码块，用自然语言修改图表。
-- 拖入一个 \`.md\` 文件，完成后再下载到本机。
+- 桌面端可直接打开一个 Markdown 文件，或打开包含 Markdown 的本地文件夹。
+- 把光标放进 Mermaid 代码块，用自然语言创建或修改流程图。
+- 所有 AI 结果先进入差异预览，由你决定接受或拒绝。
 
 | 能力 | 状态 |
 | --- | --- |
@@ -99,9 +100,10 @@ export function stripCodeFence(value: string): string {
 }
 
 export function safeDocumentName(value: string): string {
-  const cleaned = value
-    .replace(/\.(md|markdown)$/i, '')
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-')
+  const withoutControlCharacters = Array.from(value, (character) => character.charCodeAt(0) < 32 ? '-' : character).join('');
+  const cleaned = withoutControlCharacters
+    .replace(/\.(md|markdown|mdown|mkdn|txt)$/i, '')
+    .replace(/[\\/:*?"<>|]/g, '-')
     .trim()
     .slice(0, 80);
   return cleaned || '未命名文档';

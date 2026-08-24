@@ -4,5 +4,5 @@
 )]
 
 fn main() {
-    moliu_markdown_studio_lib::run();
+    prosemap_lib::run();
 }

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "远程编辑器不获得任何 Tauri 或系统权限",
+  "description": "The main ProseMap window can only invoke audited application commands.",
   "windows": ["main"],
-  "permissions": []
+  "permissions": ["core:event:default", "core:window:allow-destroy"]
 }

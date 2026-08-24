@@ -1,36 +1,119 @@
-# 墨流 Markdown Studio
+# ProseMap
 
-墨流是一款桌面优先的中文 Markdown 智能编辑器，支持实时预览、Mermaid 可视化、OpenAI-compatible 与 Anthropic Claude 流式调用，以及所有 AI 修改的差异确认。
+> Write in flow. See the structure.
 
-私有在线版本：<https://moliu-markdown-studio.ko8e24lakers.chatgpt.site>
+ProseMap is a local-first AI Markdown and Mermaid editor for macOS and Windows. It combines focused writing, live visual preview, native file and folder workflows, and reviewable AI-assisted edits in a single desktop application.
 
-## 本地运行
+The application interface is currently localized in Simplified Chinese. The repository documentation and project metadata are maintained in English.
 
-要求 Node.js 22.13 或更高版本。
+## Highlights
+
+- Open individual Markdown files or browse every Markdown document in a local folder.
+- Edit Markdown with a responsive desktop-first workspace and live preview.
+- Render Mermaid diagrams locally in strict security mode.
+- Create or revise Mermaid flowcharts, sequence diagrams, state diagrams, class diagrams, ER diagrams, Gantt charts, and mind maps with natural-language instructions.
+- Use AI on the full document or a selection for polishing, continuation, summarization, and custom transformations.
+- Review streamed AI output as a line-by-line diff before accepting or rejecting it.
+- Connect to OpenAI-compatible Chat Completions endpoints or Anthropic Claude Messages endpoints.
+- Save safely back to the original file or export with Save As.
+
+## Desktop support
+
+| Platform | Status |
+| --- | --- |
+| macOS 11+ on Apple silicon | Built and locally verified |
+| Windows 10/11 | Tauri, NSIS, MSI, file association, and WebView2 configuration included; native Windows build verification is still required |
+| macOS on Intel | Source-compatible; a dedicated x86_64 or universal build is still required |
+| iOS and Android | Tauri library entry point reserved for future work; not implemented or verified |
+
+## Local development
+
+### Prerequisites
+
+- Node.js 22.13 or newer
+- Rust stable
+- macOS: Xcode Command Line Tools
+- Windows: Rust MSVC toolchain, Visual Studio C++ Build Tools, Windows SDK, and WebView2
+
+Install dependencies and start the desktop application:
 
 ```bash
 npm ci
-npm run dev
+npm run desktop:dev
 ```
 
-打开终端显示的本地地址即可使用。模型密钥仅保存在当前页面内存中，刷新页面后清除。
+The Vite development server only binds to `127.0.0.1`. It is an implementation detail of the local Tauri development workflow, not a hosted web product.
 
-## Windows 桌面端
+## Build
 
-桌面端当前是 Windows-first 的联网 Tauri 2 安全壳：它只加载已发布的墨流 HTTPS 地址，不授予远程页面任何原生系统权限。安装包不包含离线编辑资源，启动与 AI 功能都需要网络。请在 Windows 10/11 构建机安装 Rust MSVC 工具链、Visual Studio C++ Build Tools、Windows SDK 与 WebView2，然后运行：
+### macOS
+
+```bash
+npm run desktop:build -- --bundles app,dmg
+```
+
+Production distribution requires Apple Developer signing and notarization.
+
+### Windows
 
 ```powershell
 npm ci
-npm run desktop:dev
-npm run desktop:build -- --bundles nsis
+npm run desktop:build -- --bundles nsis,msi
 ```
 
-MSI 构建可使用 `npm run desktop:build -- --bundles msi`。生产分发前应在 Windows 构建机完成代码签名，并提交首次成功构建生成的 `src-tauri/Cargo.lock`。当前 Rust 入口兼容移动初始化，但尚未生成或验证 iOS/Android 工程；后续可增加 macOS、iOS 与 Android 平台配置。
+Production distribution requires a Windows code-signing certificate. Windows installers should be built and tested on a real Windows machine or Windows CI runner.
 
-## 安全说明
+## Validation
 
-- 密钥不写入源码、localStorage、IndexedDB、Cookie 或服务端日志。
-- 浏览器通过同源接口将密钥放在一次性请求头中转发给模型服务。
-- 自定义 OpenAI-compatible 地址必须使用公开 HTTPS 域名；本地地址、IP 地址、凭据、非标准端口和重定向会被拒绝。
-- 导入的 Markdown 不执行原始 HTML；Mermaid 使用严格安全模式并在渲染前清洗 SVG。
-- AI 建议必须先经过差异预览，只有用户明确接受后才会写入文档。
+```bash
+npm run lint
+npm run typecheck
+npm run build
+cargo fmt --manifest-path src-tauri/Cargo.toml --check
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+```
+
+## Architecture
+
+ProseMap embeds a React interface compiled by Vite inside a Tauri 2 desktop shell. No hosted site, web API route, or remote application UI is required.
+
+The Rust layer exposes a deliberately small native surface:
+
+- User-authorized Markdown file and folder access
+- Original-path saving and Save As
+- Operating-system file association launch targets
+- HTTPS model requests and streaming cancellation
+
+Platform-specific configuration lives in:
+
+- `src-tauri/tauri.macos.conf.json`
+- `src-tauri/tauri.windows.conf.json`
+
+## AI providers
+
+ProseMap supports:
+
+- OpenAI-compatible Chat Completions endpoints
+- Anthropic Claude Messages endpoints
+
+Provider settings and API keys live only in the current application process. They are cleared when the application exits and are never written to source files, local storage, cookies, or application logs.
+
+AI features require network access to the provider selected by the user. Local editing, file management, Markdown preview, and Mermaid rendering do not require an online application service.
+
+## Security model
+
+- API endpoints must use standard HTTPS on a public domain.
+- Credentials in URLs, query strings, fragments, redirects, private IP addresses, and local network destinations are rejected.
+- Validated DNS results are pinned to the outgoing model request.
+- Upstream errors are size-limited and API keys are redacted.
+- File access is limited to paths explicitly selected by the user or delivered through an operating-system file association.
+- Workspace traversal skips symlinks and applies file count, depth, extension, and size limits.
+- Saves use a synchronized temporary sibling followed by atomic replacement, protecting the original document from partial writes.
+- Markdown preview does not execute raw HTML.
+- Mermaid output is rendered in strict mode and sanitized before insertion into the page.
+- AI edits are applied only after explicit acceptance in the diff view.
+
+## License
+
+ProseMap is available under the [MIT License](LICENSE).

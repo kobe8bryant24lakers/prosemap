@@ -1,13 +1,15 @@
 [package]
-name = "moliu-markdown-studio"
+name = "prosemap"
 version = "0.1.0"
-description = "墨流 Markdown 智能编辑器桌面端"
+description = "ProseMap desktop Markdown editor"
+license = "MIT"
+repository = "https://github.com/kobe8bryant24lakers/prosemap"
 edition = "2021"
 rust-version = "1.77.2"
 build = "build.rs"
 
 [lib]
-name = "moliu_markdown_studio_lib"
+name = "prosemap_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -15,3 +17,13 @@ tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
 tauri = { version = "2.11.5", features = [] }
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "net", "sync"] }
+url = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }

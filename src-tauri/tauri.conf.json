@@ -1,19 +1,20 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "墨流 Markdown Studio",
+  "productName": "ProseMap",
   "version": "0.1.0",
-  "identifier": "com.moliu.markdownstudio",
+  "identifier": "com.prosemap.editor",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:3000",
-    "frontendDist": "https://moliu-markdown-studio.ko8e24lakers.chatgpt.site/"
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
   },
   "app": {
     "withGlobalTauri": false,
     "windows": [
       {
         "label": "main",
-        "title": "墨流 Markdown Studio",
+        "title": "ProseMap",
         "width": 1440,
         "height": 900,
         "minWidth": 900,
@@ -24,11 +25,29 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self' customprotocol: asset:; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+      "devCsp": null,
       "capabilities": ["default"]
     }
   },
   "bundle": {
-    "active": true
+    "active": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown", "mdown", "mkdn"],
+        "name": "Markdown Document",
+        "description": "Markdown document",
+        "role": "Editor",
+        "mimeType": "text/markdown",
+        "contentTypes": ["net.daringfireball.markdown", "public.plain-text"]
+      }
+    ]
   }
 }

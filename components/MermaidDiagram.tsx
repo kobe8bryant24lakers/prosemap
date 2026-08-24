@@ -38,7 +38,7 @@ export default function MermaidDiagram({ code }: MermaidDiagramProps) {
           },
           flowchart: { curve: 'basis', htmlLabels: true, padding: 16 },
         });
-        const id = `moliu-mermaid-${reactId.replace(/:/g, '')}-${Date.now()}`;
+        const id = `prosemap-mermaid-${reactId.replace(/:/g, '')}-${Date.now()}`;
         const rendered = await mermaid.render(id, code);
         if (!active) return;
         const clean = DOMPurify.sanitize(rendered.svg, {

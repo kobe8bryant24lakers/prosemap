@@ -46,7 +46,7 @@
         "description": "Markdown document",
         "role": "Editor",
         "mimeType": "text/markdown",
-        "contentTypes": ["net.daringfireball.markdown", "public.plain-text"]
+        "contentTypes": ["net.daringfireball.markdown"]
       }
     ]
   }

@@ -1,0 +1,119 @@
+name: Release desktop packages
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows 11 x64
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22.13.0"
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Verify tag and application versions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tagVersion = $env:GITHUB_REF_NAME.TrimStart([char]"v")
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $cargoMatch = Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1
+          $cargoVersion = $cargoMatch.Matches[0].Groups[1].Value
+
+          if ($tagVersion -ne $packageVersion -or $tagVersion -ne $tauriVersion -or $tagVersion -ne $cargoVersion) {
+            throw "Tag version $tagVersion does not match package=$packageVersion, tauri=$tauriVersion, cargo=$cargoVersion"
+          }
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run frontend lint
+        run: npm run lint
+
+      - name: Run TypeScript checks
+        run: npm run typecheck
+
+      - name: Build the frontend
+        run: npm run build
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Check all Rust targets
+        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+
+      - name: Build Windows installers
+        run: npm run desktop:build -- --bundles nsis,msi
+
+      - name: Normalize and verify Windows assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = $env:GITHUB_REF_NAME.TrimStart([char]"v")
+          $exe = @(Get-ChildItem src-tauri/target/release/bundle/nsis -Filter *.exe -File)
+          $msi = @(Get-ChildItem src-tauri/target/release/bundle/msi -Filter *.msi -File)
+
+          if ($exe.Count -ne 1) { throw "Expected exactly one NSIS installer, found $($exe.Count)" }
+          if ($msi.Count -ne 1) { throw "Expected exactly one MSI installer, found $($msi.Count)" }
+
+          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
+          $exeTarget = "release-assets/ProseMap-Windows-x64-v$version-setup.exe"
+          $msiTarget = "release-assets/ProseMap-Windows-x64-v$version.msi"
+          Copy-Item -LiteralPath $exe[0].FullName -Destination $exeTarget
+          Copy-Item -LiteralPath $msi[0].FullName -Destination $msiTarget
+
+          foreach ($asset in @($exeTarget, $msiTarget)) {
+            if ((Get-Item -LiteralPath $asset).Length -le 0) { throw "Release asset is empty: $asset" }
+            Get-FileHash -LiteralPath $asset -Algorithm SHA256 | Format-List
+          }
+
+      - name: Create or update the GitHub pre-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = $env:GITHUB_REF_NAME
+          $version = $tag.TrimStart([char]"v")
+          $notes = "docs/releases/$tag.md"
+          $exe = "release-assets/ProseMap-Windows-x64-v$version-setup.exe"
+          $msi = "release-assets/ProseMap-Windows-x64-v$version.msi"
+
+          if (-not (Test-Path -LiteralPath $notes)) { throw "Missing release notes: $notes" }
+
+          gh release view $tag --repo $env:GITHUB_REPOSITORY --json id *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+
+          if ($releaseExists) {
+            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title "ProseMap v$version" --notes-file $notes --prerelease
+            if ($LASTEXITCODE -ne 0) { throw "Failed to update release metadata" }
+            gh release upload $tag $exe $msi --repo $env:GITHUB_REPOSITORY --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Failed to upload Windows release assets" }
+          } else {
+            gh release create $tag $exe $msi --repo $env:GITHUB_REPOSITORY --verify-tag --title "ProseMap v$version" --notes-file $notes --prerelease
+            if ($LASTEXITCODE -ne 0) { throw "Failed to create the GitHub pre-release" }
+          }

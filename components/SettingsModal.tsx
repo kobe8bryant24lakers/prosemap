@@ -6,7 +6,7 @@ import { ANTHROPIC_BASE_URL, OPENAI_BASE_URL, type ModelConfig, type ProviderKin
 
 type SettingsModalProps = {
   config: ModelConfig;
-  onSave: (config: ModelConfig) => void;
+  onSave: (config: ModelConfig) => void | Promise<void>;
   onClose: () => void;
 };
 
@@ -18,6 +18,7 @@ const providerCopy: Record<ProviderKind, { name: string; detail: string; model: 
 export default function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
   const [draft, setDraft] = useState(config);
   const [showKey, setShowKey] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     function handleKeydown(event: KeyboardEvent) {
@@ -37,6 +38,15 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
   }
 
   const valid = draft.model.trim().length > 0 && draft.apiKey.trim().length > 0 && /^https:\/\//i.test(draft.baseUrl.trim());
+
+  async function save() {
+    setSaving(true);
+    try {
+      await onSave({ ...draft, model: draft.model.trim(), apiKey: draft.apiKey.trim(), baseUrl: draft.baseUrl.trim().replace(/\/+$/, '') });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="modal-backdrop" role="presentation">
@@ -64,7 +74,7 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
             <div className="field-group">
               <label htmlFor="base-url">API 地址</label>
               <input id="base-url" type="url" value={draft.baseUrl} onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} spellCheck={false} />
-              <small>仅允许公开的 HTTPS 地址，路径可包含 /v1。</small>
+              <small>仅允许公开的 HTTPS 地址，可包含显式端口与 /v1 路径。</small>
             </div>
             <div className="field-group">
               <label htmlFor="model-name">模型名称</label>
@@ -91,14 +101,14 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
 
           <div className="security-card">
             <ShieldCheck size={18} />
-            <div><strong>密钥只保留在当前应用内存</strong><p>不会写入源码、浏览器持久存储或服务端日志；关闭或刷新页面后即清除。调用时通过加密连接一次性转发给所选服务。</p></div>
+            <div><strong>配置将安全保存在本机</strong><p>桌面端使用系统安全凭据库加密保存，重启后仍可使用；不会写入源码或服务端日志。浏览器预览环境不持久化密钥。</p></div>
           </div>
         </div>
 
         <footer className="settings-footer">
-          <button type="button" className="secondary-button" onClick={onClose}>取消</button>
-          <button type="button" className="confirm-button" onClick={() => onSave({ ...draft, model: draft.model.trim(), apiKey: draft.apiKey.trim(), baseUrl: draft.baseUrl.trim().replace(/\/+$/, '') })} disabled={!valid}>
-            <Check size={15} /> 保存本次会话
+          <button type="button" className="secondary-button" onClick={onClose} disabled={saving}>取消</button>
+          <button type="button" className="confirm-button" onClick={() => void save()} disabled={!valid || saving}>
+            <Check size={15} /> {saving ? '安全保存中…' : '安全保存'}
           </button>
         </footer>
       </section>

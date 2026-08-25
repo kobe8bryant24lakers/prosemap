@@ -1,5 +1,6 @@
 mod ai;
 mod files;
+mod secure_config;
 
 use ai::AiState;
 use files::{launch_target_from_args, launch_target_from_path, FileAccessState};
@@ -43,6 +44,8 @@ pub fn run() {
             files::read_local_markdown,
             files::save_local_markdown,
             files::read_launch_target,
+            secure_config::save_model_config,
+            secure_config::load_model_config,
         ])
         .build(tauri::generate_context!())
         .expect("无法初始化 ProseMap 桌面端");

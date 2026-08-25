@@ -10,8 +10,9 @@ The application interface is currently localized in Simplified Chinese. The repo
 
 - Open individual Markdown files or browse every Markdown document in a local folder.
 - Edit Markdown with a responsive desktop-first workspace and live preview.
-- Render Mermaid diagrams locally in strict security mode.
-- Create or revise Mermaid flowcharts, sequence diagrams, state diagrams, class diagrams, ER diagrams, Gantt charts, and mind maps with natural-language instructions.
+- Render Mermaid diagrams locally in strict security mode, including node descriptions and branch labels.
+- Create diagrams from natural-language instructions, edit Mermaid source, or visually edit flowchart nodes and connections.
+- Start from common templates including basic flowcharts, 4+1 architecture views, sequence diagrams, state diagrams, class diagrams, ER diagrams, Gantt charts, and mind maps.
 - Use AI on the full document or a selection for polishing, continuation, summarization, and custom transformations.
 - Review streamed AI output as a line-by-line diff before accepting or rejecting it.
 - Connect to OpenAI-compatible Chat Completions endpoints or Anthropic Claude Messages endpoints.
@@ -22,7 +23,7 @@ The application interface is currently localized in Simplified Chinese. The repo
 | Platform | Status |
 | --- | --- |
 | macOS 11+ on Apple silicon | Built and locally verified |
-| Windows 10/11 | Tauri, NSIS, MSI, file association, and WebView2 configuration included; native Windows build verification is still required |
+| Windows 10/11 x64 | NSIS and MSI packages share one compatible build; WebView2 bootstrapper configuration is included |
 | macOS on Intel | Source-compatible; a dedicated x86_64 or universal build is still required |
 | iOS and Android | Tauri library entry point reserved for future work; not implemented or verified |
 
@@ -84,6 +85,7 @@ The Rust layer exposes a deliberately small native surface:
 - Original-path saving and Save As
 - Operating-system file association launch targets
 - HTTPS model requests and streaming cancellation
+- Encrypted, cross-session model configuration in the operating system credential store
 
 Platform-specific configuration lives in:
 
@@ -97,13 +99,13 @@ ProseMap supports:
 - OpenAI-compatible Chat Completions endpoints
 - Anthropic Claude Messages endpoints
 
-Provider settings and API keys live only in the current application process. They are cleared when the application exits and are never written to source files, local storage, cookies, or application logs.
+Provider settings and API keys are stored across sessions in the operating system credential store (Windows Credential Manager or macOS Keychain). They are never written to source files, browser local storage, cookies, or application logs.
 
 AI features require network access to the provider selected by the user. Local editing, file management, Markdown preview, and Mermaid rendering do not require an online application service.
 
 ## Security model
 
-- API endpoints must use standard HTTPS on a public domain.
+- API endpoints must use HTTPS on a public domain. Explicit HTTPS ports are supported.
 - Credentials in URLs, query strings, fragments, redirects, private IP addresses, and local network destinations are rejected.
 - Validated DNS results are pinned to the outgoing model request.
 - Upstream errors are size-limited and API keys are redacted.

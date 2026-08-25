@@ -98,10 +98,6 @@ fn resolve_endpoint(provider: Provider, base_url: &str) -> Result<Url, String> {
     {
         return Err("API 地址不能包含凭据、查询参数或锚点".to_string());
     }
-    if url.port().is_some_and(|port| port != 443) {
-        return Err("API 地址仅允许标准 HTTPS 端口".to_string());
-    }
-
     let host = match url.host() {
         Some(url::Host::Domain(host)) => host.trim_end_matches('.').to_ascii_lowercase(),
         _ => return Err("API 地址必须使用公开域名".to_string()),
@@ -174,7 +170,10 @@ async fn resolve_public_addresses(url: &Url) -> Result<Vec<SocketAddr>, String> 
     let host = url
         .host_str()
         .ok_or_else(|| "API 地址缺少域名".to_string())?;
-    let mut addresses: Vec<_> = lookup_host((host, 443))
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| "API 地址缺少有效端口".to_string())?;
+    let mut addresses: Vec<_> = lookup_host((host, port))
         .await
         .map_err(|_| "无法解析 API 域名".to_string())?
         .collect();
@@ -529,6 +528,13 @@ mod tests {
             resolve_endpoint(Provider::Anthropic, "https://api.anthropic.com/v1/messages")
                 .expect("Anthropic URL");
         assert_eq!(anthropic.as_str(), "https://api.anthropic.com/v1/messages");
+
+        let custom_port = resolve_endpoint(Provider::Openai, "https://gateway.example.com:8443/v1")
+            .expect("custom HTTPS port URL");
+        assert_eq!(
+            custom_port.as_str(),
+            "https://gateway.example.com:8443/v1/chat/completions"
+        );
     }
 
     #[test]

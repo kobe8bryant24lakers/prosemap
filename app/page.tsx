@@ -35,8 +35,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AssistantPanel from '@/components/AssistantPanel';
 import DiffModal from '@/components/DiffModal';
 import MarkdownPreview from '@/components/MarkdownPreview';
+import MermaidWorkbench from '@/components/MermaidWorkbench';
 import SettingsModal from '@/components/SettingsModal';
 import { isDesktopRuntime, streamAi } from '@/lib/ai-client';
+import { loadModelConfig, saveModelConfig } from '@/lib/model-config';
 import {
   ACTION_LABELS,
   INITIAL_MARKDOWN,
@@ -63,6 +65,12 @@ import {
 } from '@/lib/local-desktop';
 
 type ViewMode = 'split' | 'editor' | 'preview';
+
+type MermaidWorkbenchSession = {
+  sourceDocument: string;
+  insertAt: number;
+  target: { from: number; to: number; source: string } | null;
+};
 
 const editorExtensions = [markdownLanguage(), EditorView.lineWrapping];
 
@@ -117,6 +125,7 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<ViewMode>('split');
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantAction, setAssistantAction] = useState<AssistAction>('polish');
+  const [mermaidWorkbench, setMermaidWorkbench] = useState<MermaidWorkbenchSession | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [config, setConfig] = useState<ModelConfig>({ provider: 'openai', baseUrl: OPENAI_BASE_URL, model: '', apiKey: '' });
   const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -131,6 +140,8 @@ export default function Home() {
   const toastTimerRef = useRef<number | null>(null);
   const proposalIdRef = useRef(0);
   const dirtyRef = useRef(false);
+  const configChangedRef = useRef(false);
+  const configLoadRef = useRef<Promise<ModelConfig | null> | null>(null);
 
   const readableCharacters = useMemo(() => countReadableCharacters(content), [content]);
   const mermaidTarget = useMemo(() => findMermaidTarget(content, selection.from), [content, selection.from]);
@@ -141,6 +152,19 @@ export default function Home() {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     toastTimerRef.current = window.setTimeout(() => setToast(null), 2800);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    configLoadRef.current ??= loadModelConfig();
+    void configLoadRef.current
+      .then((saved) => {
+        if (active && saved && !configChangedRef.current) setConfig(saved);
+      })
+      .catch((reason: unknown) => {
+        if (active) showToast('error', reason instanceof Error ? reason.message : '无法读取已保存的模型配置');
+      });
+    return () => { active = false; };
+  }, [showToast]);
 
   const applyLocalDocument = useCallback((document: LocalDocument, announce = true) => {
     abortRef.current?.abort();
@@ -357,6 +381,36 @@ export default function Home() {
     setAssistantOpen(true);
   }
 
+  function openMermaidWorkbench() {
+    setAssistantOpen(false);
+    setMermaidWorkbench({
+      sourceDocument: content,
+      insertAt: selection.from,
+      target: mermaidTarget
+        ? { from: mermaidTarget.from, to: mermaidTarget.to, source: mermaidTarget.source }
+        : null,
+    });
+  }
+
+  function applyMermaidWorkbench(source: string) {
+    if (!mermaidWorkbench) return;
+    if (content !== mermaidWorkbench.sourceDocument) {
+      showToast('error', '文档已发生变化，请重新打开图表工作台');
+      return;
+    }
+    const fenced = `\`\`\`mermaid\n${source.trim()}\n\`\`\``;
+    if (mermaidWorkbench.target) {
+      replaceRange(mermaidWorkbench.target.from, mermaidWorkbench.target.to, fenced);
+    } else {
+      const at = mermaidWorkbench.insertAt;
+      const prefix = at > 0 && content[at - 1] !== '\n' ? '\n\n' : '';
+      const suffix = at < content.length && content[at] !== '\n' ? '\n\n' : '\n';
+      replaceRange(at, at, `${prefix}${fenced}${suffix}`);
+    }
+    setMermaidWorkbench(null);
+    showToast('success', mermaidWorkbench.target ? '图表已更新' : '图表已插入文档');
+  }
+
   async function runAssistant(instruction: string) {
     if (!configured) {
       setSettingsOpen(true);
@@ -510,6 +564,7 @@ export default function Home() {
           <button type="button" className={`rail-button ${fileExplorerOpen ? 'active' : ''}`} onClick={() => setFileExplorerOpen((open) => !open)} aria-label="本地文件" title="本地文件"><FolderOpen size={18} /></button>
           <button type="button" className="rail-button" onClick={() => openAssistant('polish')} aria-label="AI 文字助手" title="AI 文字助手"><Bot size={18} /></button>
           <button type="button" className="rail-button mermaid-rail" onClick={() => openAssistant('mermaid')} aria-label="Mermaid 智能绘图" title="Mermaid 智能绘图"><Workflow size={19} /></button>
+          <button type="button" className="rail-button diagram-workbench-rail" onClick={openMermaidWorkbench} aria-label="Mermaid 图表工作台" title="模板、源码和可视化编辑"><Braces size={18} /></button>
           <span className="rail-spacer" />
           <button type="button" className="rail-button" onClick={() => setSettingsOpen(true)} aria-label="模型设置" title="模型设置"><Settings2 size={18} /></button>
         </nav>
@@ -563,6 +618,7 @@ export default function Home() {
               <button type="button" onClick={() => openAssistant('continue')}><PenLine size={14} /> 续写</button>
               <button type="button" onClick={() => openAssistant('summarize')}><TextQuote size={14} /> 总结</button>
               <button type="button" className="mermaid-quick" onClick={() => openAssistant('mermaid')}><Workflow size={14} /> 智能绘图</button>
+              <button type="button" className="mermaid-workbench-quick" onClick={openMermaidWorkbench}><Braces size={14} /> 图表工作台</button>
             </div>
           </header>
 
@@ -603,6 +659,7 @@ export default function Home() {
             <div className="pane-title"><span className="status-dot mint" /> 可视化预览 <small>实时</small></div>
             <div className="preview-tools">
               <span className="diagram-ready"><Workflow size={13} /> Mermaid 已启用</span>
+              <button type="button" className="diagram-workbench-chip" onClick={openMermaidWorkbench}><Braces size={13} /> 图表编辑</button>
               <button type="button" className="ai-chip" onClick={() => openAssistant('custom')}><Sparkles size={13} /> AI 助手</button>
             </div>
           </header>
@@ -625,7 +682,39 @@ export default function Home() {
       </section>
 
       {dragging ? <div className="drop-overlay"><span><FileDown size={28} /></span><strong>松开即可导入 Markdown</strong><p>支持 .md、.markdown 与 .txt，最大 2 MB</p></div> : null}
-      {settingsOpen ? <SettingsModal config={config} onClose={() => setSettingsOpen(false)} onSave={(next) => { setConfig(next); setSettingsOpen(false); showToast('success', '模型配置已保存到本次会话'); }} /> : null}
+      {mermaidWorkbench ? (
+        <MermaidWorkbench
+          config={config}
+          initialSource={mermaidWorkbench.target?.source}
+          inactive={settingsOpen}
+          mode={mermaidWorkbench.target ? 'edit' : 'create'}
+          onApply={applyMermaidWorkbench}
+          onClose={() => setMermaidWorkbench(null)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      ) : null}
+      {settingsOpen ? (
+        <SettingsModal
+          config={config}
+          onClose={() => setSettingsOpen(false)}
+          onSave={async (next) => {
+            try {
+              const storage = await saveModelConfig(next);
+              configChangedRef.current = true;
+              setConfig(next);
+              setSettingsOpen(false);
+              showToast(
+                storage === 'memory' ? 'info' : 'success',
+                storage === 'system'
+                  ? '模型配置已加密保存到系统安全凭据库'
+                  : '浏览器预览环境不会持久化密钥，配置仅保留在本次会话',
+              );
+            } catch (reason) {
+              showToast('error', reason instanceof Error ? reason.message : '模型配置保存失败');
+            }
+          }}
+        />
+      ) : null}
       {proposal ? <DiffModal proposal={proposal} onAccept={acceptProposal} onReject={rejectProposal} onStop={stopGeneration} /> : null}
       {toast ? <div className={`toast ${toast.kind}`} role="status">{toast.kind === 'success' ? <Check size={15} /> : toast.kind === 'error' ? <X size={15} /> : <FileText size={15} />}{toast.message}</div> : null}
     </main>

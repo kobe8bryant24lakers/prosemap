@@ -1,4 +1,4 @@
-name: Release desktop packages
+name: Release Windows packages
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   windows:
-    name: Windows 11 x64
+    name: Windows 10/11 x64
     runs-on: windows-latest
     timeout-minutes: 45
 
@@ -95,10 +95,13 @@ jobs:
           Copy-Item -LiteralPath $exe[0].FullName -Destination $exeTarget
           Copy-Item -LiteralPath $msi[0].FullName -Destination $msiTarget
 
+          $checksums = @()
           foreach ($asset in @($exeTarget, $msiTarget)) {
             if ((Get-Item -LiteralPath $asset).Length -le 0) { throw "Release asset is empty: $asset" }
-            Get-FileHash -LiteralPath $asset -Algorithm SHA256 | Format-List
+            $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+            $checksums += "$hash  $([System.IO.Path]::GetFileName($asset))"
           }
+          $checksums | Set-Content -LiteralPath "artifacts/SHA256SUMS.txt" -Encoding utf8NoBOM
 
       - name: Create or update the GitHub pre-release
         shell: pwsh
@@ -114,6 +117,7 @@ jobs:
           $notes = "docs/releases/$tag.md"
           $exe = "artifacts/ProseMap-Windows-x64-v$version-setup.exe"
           $msi = "artifacts/ProseMap-Windows-x64-v$version.msi"
+          $checksums = "artifacts/SHA256SUMS.txt"
 
           if (-not (Test-Path -LiteralPath $notes)) { throw "Missing release notes: $notes" }
 
@@ -121,11 +125,11 @@ jobs:
           $releaseExists = $LASTEXITCODE -eq 0
 
           if ($releaseExists) {
-            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title "ProseMap v$version" --notes-file $notes --prerelease
+            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title "ProseMap v$version for Windows 10/11" --notes-file $notes --prerelease
             if ($LASTEXITCODE -ne 0) { throw "Failed to update release metadata" }
-            gh release upload $tag $exe $msi --repo $env:GITHUB_REPOSITORY --clobber
+            gh release upload $tag $exe $msi $checksums --repo $env:GITHUB_REPOSITORY --clobber
             if ($LASTEXITCODE -ne 0) { throw "Failed to upload Windows release assets" }
           } else {
-            gh release create $tag $exe $msi --repo $env:GITHUB_REPOSITORY --verify-tag --title "ProseMap v$version" --notes-file $notes --prerelease
+            gh release create $tag $exe $msi $checksums --repo $env:GITHUB_REPOSITORY --verify-tag --title "ProseMap v$version for Windows 10/11" --notes-file $notes --prerelease
             if ($LASTEXITCODE -ne 0) { throw "Failed to create the GitHub pre-release" }
           }

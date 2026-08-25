@@ -43,6 +43,12 @@ export default function MermaidDiagram({ code }: MermaidDiagramProps) {
         if (!active) return;
         const clean = DOMPurify.sanitize(rendered.svg, {
           USE_PROFILES: { html: true, svg: true, svgFilters: true },
+          // Mermaid renders rich node and edge labels inside SVG foreignObject
+          // elements. Keep that integration point while DOMPurify continues to
+          // sanitize the nested XHTML and its attributes.
+          ADD_TAGS: ['foreignObject'],
+          ADD_ATTR: ['dominant-baseline'],
+          HTML_INTEGRATION_POINTS: { foreignobject: true },
         });
         setSvg(clean);
         setError('');

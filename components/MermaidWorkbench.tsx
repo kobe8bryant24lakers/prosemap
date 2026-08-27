@@ -16,14 +16,15 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { streamAi } from '@/lib/ai-client';
 import type { ModelConfig } from '@/lib/editor';
+import { parseMermaid } from '@/lib/mermaid-runtime';
 import {
   MERMAID_TEMPLATES,
   createMermaidAiPrompts,
   extractMermaidSource,
   mermaidSafetyError,
-  parseFlowchartSource,
-  serializeFlowchart,
-  type MermaidFlowGraph,
+  parseMermaidVisualSource,
+  serializeMermaidVisualGraph,
+  type MermaidVisualGraph,
 } from '@/lib/mermaid-workbench';
 import MermaidCanvasEditor from './MermaidCanvasEditor';
 import MermaidDiagram from './MermaidDiagram';
@@ -57,9 +58,7 @@ const AI_EXAMPLES = [
 async function validateMermaid(source: string) {
   const safetyError = mermaidSafetyError(source);
   if (safetyError) throw new Error(safetyError);
-  const mermaid = (await import('mermaid')).default;
-  mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
-  await mermaid.parse(source);
+  await parseMermaid(source);
 }
 
 function diagramKind(source: string): string {
@@ -74,12 +73,28 @@ function diagramKind(source: string): string {
   return 'Mermaid';
 }
 
+function safelyParseVisualSource(source: string): MermaidVisualGraph | null {
+  try {
+    if (mermaidSafetyError(source)) return null;
+    return parseMermaidVisualSource(source);
+  } catch {
+    return null;
+  }
+}
+
+function isEditingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.matches('input, textarea, select, [role="textbox"]')
+    || target.isContentEditable
+    || Boolean(target.closest('.mermaid-canvas-editor'));
+}
+
 export default function MermaidWorkbench({ config, initialSource = '', inactive = false, mode, onApply, onClose, onOpenSettings }: MermaidWorkbenchProps) {
-  const startingSource = initialSource.trim() || MERMAID_TEMPLATES[0].source;
-  const startingGraph = useMemo(() => parseFlowchartSource(startingSource), [startingSource]);
+  const startingSource = initialSource.trim() ? initialSource : MERMAID_TEMPLATES[0].source;
+  const startingGraph = useMemo(() => safelyParseVisualSource(startingSource), [startingSource]);
   const [source, setSource] = useState(startingSource);
-  const [graph, setGraph] = useState<MermaidFlowGraph | null>(startingGraph);
-  const [tab, setTab] = useState<WorkbenchTab>(startingGraph ? 'visual' : 'source');
+  const [graph, setGraph] = useState<MermaidVisualGraph | null>(startingGraph);
+  const [tab, setTab] = useState<WorkbenchTab>('visual');
   const [selectedTemplateId, setSelectedTemplateId] = useState(initialSource.trim() ? '' : MERMAID_TEMPLATES[0].id);
   const [aiInstruction, setAiInstruction] = useState('');
   const [aiUseCurrentSource, setAiUseCurrentSource] = useState(mode === 'edit');
@@ -91,7 +106,8 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (inactive || event.key !== 'Escape') return;
+      if (inactive || event.key !== 'Escape' || event.defaultPrevented) return;
+      if (isEditingTarget(event.target) || isEditingTarget(document.activeElement)) return;
       event.preventDefault();
       abortRef.current?.abort();
       onClose();
@@ -102,8 +118,16 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  function updateDraft(nextSource: string, templateId = '') {
+    setSource(nextSource);
+    setGraph(safelyParseVisualSource(nextSource));
+    setSelectedTemplateId(templateId);
+    setAiUseCurrentSource(true);
+    setFormError('');
+  }
+
   function switchTab(nextTab: WorkbenchTab) {
-    if (nextTab === 'visual') setGraph(parseFlowchartSource(source));
+    if (nextTab === 'visual') setGraph(safelyParseVisualSource(source));
     setFormError('');
     setTab(nextTab);
   }
@@ -111,21 +135,22 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
   function selectTemplate(templateId: string) {
     const template = MERMAID_TEMPLATES.find((candidate) => candidate.id === templateId);
     if (!template) return;
-    setSelectedTemplateId(template.id);
-    setSource(template.source);
-    setGraph(parseFlowchartSource(template.source));
-    setAiUseCurrentSource(true);
+    updateDraft(template.source, template.id);
     setAiStatus({ kind: 'idle', message: '' });
-    setFormError('');
-    if (template.visualEditable) setTab('visual');
+    setTab('visual');
   }
 
-  function commitGraph(next: MermaidFlowGraph) {
-    setGraph(next);
-    setSource(serializeFlowchart(next));
-    setSelectedTemplateId('');
-    setAiUseCurrentSource(true);
-    setFormError('');
+  function commitGraph(next: MermaidVisualGraph) {
+    try {
+      const nextSource = serializeMermaidVisualGraph(next);
+      setGraph(next);
+      setSource(nextSource);
+      setSelectedTemplateId('');
+      setAiUseCurrentSource(true);
+      setFormError('');
+    } catch (reason) {
+      setFormError(reason instanceof Error ? reason.message : '画布内容无法转换为 Mermaid 源码');
+    }
   }
 
   async function runAi() {
@@ -168,10 +193,7 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
       if (!nextSource) throw new Error('模型返回了空内容');
       await validateMermaid(nextSource);
       if (controller.signal.aborted) return;
-      setSource(nextSource);
-      setGraph(parseFlowchartSource(nextSource));
-      setSelectedTemplateId('');
-      setAiUseCurrentSource(true);
+      updateDraft(nextSource);
       setAiStatus({ kind: 'success', message: '图表草稿已生成，可继续编辑或应用到文档' });
     } catch (reason) {
       if (controller.signal.aborted) return;
@@ -273,14 +295,14 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
                 <div className="workbench-template-panel">
                   <div className="workbench-section-heading compact">
                     <span><LayoutTemplate size={17} /></span>
-                    <div><strong>从常用图表开始</strong><small>流程图模板会直接进入画布，其他图表可用 AI 或源码继续编辑</small></div>
+                    <div><strong>从常用图表开始</strong><small>所有现有图种均可直接进入画布，也可继续用 AI 或源码调整</small></div>
                   </div>
                   <div className="workbench-template-grid">
                     {MERMAID_TEMPLATES.map((template) => (
                       <button key={template.id} type="button" className={selectedTemplateId === template.id ? 'active' : ''} onClick={() => selectTemplate(template.id)}>
                         <span><b>{template.name}</b><i>{template.category}</i></span>
                         <small>{template.description}</small>
-                        <em>{template.visualEditable ? '支持画布直接编辑' : '支持源码与 AI 编辑'}</em>
+                        <em>支持画布直接编辑</em>
                       </button>
                     ))}
                   </div>
@@ -288,24 +310,27 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
               ) : null}
 
               <div className="workbench-visual-panel" hidden={tab !== 'visual'}>
-                {graph ? (
+                {graph && tab === 'visual' ? (
                   <MermaidCanvasEditor active={tab === 'visual'} graph={graph} onChange={commitGraph} />
-                ) : (
-                  <div className="visual-unsupported">
-                    <span><CircleAlert size={22} /></span>
-                    <strong>此图种暂不支持画布直接编辑</strong>
-                    <p>当前画布支持 flowchart / graph 的节点拖拽与连线。时序图、类图、状态图、ER 图、思维导图和甘特图仍可通过 AI 与源码编辑。</p>
-                    <button type="button" onClick={() => { selectTemplate('basic-flowchart'); setTab('visual'); }}><Workflow size={15} /> 改用基本流程图</button>
-                  </div>
-                )}
+                ) : tab === 'visual' ? (
+                  <section className="workbench-preview" style={{ height: '100%' }} aria-label="只读图表预览">
+                    <header>
+                      <div><CircleAlert size={14} /><strong>当前图表仅支持只读预览</strong><small>{diagramKind(source)}</small></div>
+                      <span>当前源码无法安全转换，原始内容已完整保留</span>
+                    </header>
+                    <div className="workbench-preview-canvas">
+                      {source.trim() ? <MermaidDiagram code={source} /> : <div className="workbench-preview-empty"><Workflow size={28} /><span>源码为空，请在源码页输入 Mermaid 图表</span></div>}
+                    </div>
+                  </section>
+                ) : null}
               </div>
 
               {tab === 'source' ? (
                 <div className="workbench-source-panel">
-                  <div className="source-editor-heading"><div><strong>Mermaid 源码</strong><small>{sourceLines} 行 · 实时预览</small></div><button type="button" onClick={() => { setSource(startingSource); setGraph(parseFlowchartSource(startingSource)); setSelectedTemplateId(''); }}><RotateCcw size={13} /> 恢复打开时内容</button></div>
+                  <div className="source-editor-heading"><div><strong>Mermaid 源码</strong><small>{sourceLines} 行 · 实时预览</small></div><button type="button" onClick={() => updateDraft(startingSource)}><RotateCcw size={13} /> 恢复打开时内容</button></div>
                   <textarea
                     value={source}
-                    onChange={(event) => { setSource(event.target.value); setSelectedTemplateId(''); setAiUseCurrentSource(true); setFormError(''); }}
+                    onChange={(event) => updateDraft(event.target.value)}
                     spellCheck={false}
                     aria-label="Mermaid 源码编辑器"
                   />

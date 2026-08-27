@@ -1,6 +1,6 @@
 {
   "name": "prosemap",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A local-first AI Markdown and Mermaid editor for macOS and Windows.",
   "license": "MIT",
   "repository": "https://github.com/kobe8bryant24lakers/prosemap",
@@ -13,6 +13,7 @@
     "build": "vite build --config vite.config.ts",
     "preview": "vite preview --config vite.config.ts",
     "lint": "eslint .",
+    "test:mermaid": "node --experimental-strip-types --test tests/mermaid-workbench.test.mjs",
     "typecheck": "tsc --noEmit --pretty false",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",

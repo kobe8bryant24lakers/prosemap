@@ -39,6 +39,7 @@ import MermaidWorkbench from '@/components/MermaidWorkbench';
 import SettingsModal from '@/components/SettingsModal';
 import { isDesktopRuntime, streamAi } from '@/lib/ai-client';
 import { loadModelConfig, saveModelConfig } from '@/lib/model-config';
+import { parseMermaid } from '@/lib/mermaid-runtime';
 import {
   ACTION_LABELS,
   INITIAL_MARKDOWN,
@@ -86,9 +87,7 @@ async function validateMermaidSource(source: string) {
     throw new Error('AI 返回的图表包含不允许的指令或 HTML，请调整要求后重试');
   }
   try {
-    const mermaid = (await import('mermaid')).default;
-    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
-    await mermaid.parse(source);
+    await parseMermaid(source);
   } catch {
     throw new Error('AI 返回的 Mermaid 语法未通过校验，请重试或简化要求');
   }

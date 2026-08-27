@@ -3,43 +3,31 @@
 import DOMPurify from 'dompurify';
 import { Check, Copy, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
+import { renderMermaid } from '@/lib/mermaid-runtime';
 
 type MermaidDiagramProps = {
   code: string;
 };
 
+type MermaidRenderState = {
+  code: string;
+  error: string;
+  svg: string;
+};
+
 export default function MermaidDiagram({ code }: MermaidDiagramProps) {
   const reactId = useId();
-  const [svg, setSvg] = useState('');
-  const [error, setError] = useState('');
+  const [renderState, setRenderState] = useState<MermaidRenderState>({ code: '', error: '', svg: '' });
   const [zoom, setZoom] = useState(1);
   const [copied, setCopied] = useState(false);
+  const currentRender = renderState.code === code ? renderState : null;
 
   useEffect(() => {
     let active = true;
     const timer = window.setTimeout(async () => {
       try {
-        const mermaid = (await import('mermaid')).default;
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: 'strict',
-          theme: 'base',
-          fontFamily: 'Inter, PingFang SC, Microsoft YaHei, sans-serif',
-          themeVariables: {
-            primaryColor: '#e6f3ec',
-            primaryTextColor: '#183b2e',
-            primaryBorderColor: '#76a590',
-            lineColor: '#527463',
-            secondaryColor: '#f7f4ec',
-            tertiaryColor: '#eef7f2',
-            clusterBkg: '#f7faf8',
-            clusterBorder: '#cbd8d1',
-            fontSize: '14px',
-          },
-          flowchart: { curve: 'basis', htmlLabels: true, padding: 16 },
-        });
         const id = `prosemap-mermaid-${reactId.replace(/:/g, '')}-${Date.now()}`;
-        const rendered = await mermaid.render(id, code);
+        const rendered = await renderMermaid(id, code);
         if (!active) return;
         const clean = DOMPurify.sanitize(rendered.svg, {
           USE_PROFILES: { html: true, svg: true, svgFilters: true },
@@ -50,13 +38,11 @@ export default function MermaidDiagram({ code }: MermaidDiagramProps) {
           ADD_ATTR: ['dominant-baseline'],
           HTML_INTEGRATION_POINTS: { foreignobject: true },
         });
-        setSvg(clean);
-        setError('');
+        setRenderState({ code, error: '', svg: clean });
       } catch (reason) {
         if (!active) return;
         const message = reason instanceof Error ? reason.message : '图表语法无法解析';
-        setError(message.replace(/^Error:\s*/i, '').split('\n')[0]);
-        setSvg('');
+        setRenderState({ code, error: message.replace(/^Error:\s*/i, '').split('\n')[0], svg: '' });
       }
     }, 220);
 
@@ -91,15 +77,15 @@ export default function MermaidDiagram({ code }: MermaidDiagramProps) {
           </button>
         </span>
       </span>
-      {error ? (
+      {currentRender?.error ? (
         <span className="mermaid-error">
           <strong>图表暂时无法渲染</strong>
-          <span>{error}</span>
+          <span>{currentRender.error}</span>
           <code>{code}</code>
         </span>
-      ) : svg ? (
+      ) : currentRender?.svg ? (
         <span className="mermaid-canvas">
-          <span className="mermaid-svg" style={{ transform: `scale(${zoom})` }} dangerouslySetInnerHTML={{ __html: svg }} />
+          <span className="mermaid-svg" style={{ transform: `scale(${zoom})` }} dangerouslySetInnerHTML={{ __html: currentRender.svg }} />
         </span>
       ) : (
         <span className="mermaid-loading"><i /><span>正在绘制图表…</span></span>

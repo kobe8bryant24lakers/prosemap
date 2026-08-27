@@ -59,6 +59,9 @@ jobs:
       - name: Run TypeScript checks
         run: npm run typecheck
 
+      - name: Run Mermaid workbench tests
+        run: npm run test:mermaid
+
       - name: Build the frontend
         run: npm run build
 

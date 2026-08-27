@@ -11,7 +11,7 @@ The application interface is currently localized in Simplified Chinese. The repo
 - Open individual Markdown files or browse every Markdown document in a local folder.
 - Edit Markdown with a responsive desktop-first workspace and live preview.
 - Render Mermaid diagrams locally in strict security mode, including node descriptions and branch labels.
-- Create diagrams from natural-language instructions, edit Mermaid source, or directly drag, connect, and edit flowchart nodes on a canvas.
+- Create diagrams from natural-language instructions, edit Mermaid source, or directly manipulate flowcharts, sequence diagrams, state diagrams, class diagrams, ER models, mind maps, and Gantt plans on a canvas.
 - Start from common templates including basic flowcharts, 4+1 architecture views, sequence diagrams, state diagrams, class diagrams, ER diagrams, Gantt charts, and mind maps.
 - Use AI on the full document or a selection for polishing, continuation, summarization, and custom transformations.
 - Review streamed AI output as a line-by-line diff before accepting or rejecting it.
@@ -69,6 +69,7 @@ Production distribution requires a Windows code-signing certificate. Windows ins
 ```bash
 npm run lint
 npm run typecheck
+npm run test:mermaid
 npm run build
 cargo fmt --manifest-path src-tauri/Cargo.toml --check
 cargo test --manifest-path src-tauri/Cargo.toml

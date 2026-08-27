@@ -1,3 +1,4 @@
+use crate::endpoint::parse_base_url;
 use keyring::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -33,17 +34,7 @@ fn validate_config(config: &ModelConfig) -> Result<(), String> {
         return Err("API 地址无效".to_string());
     }
 
-    let url = url::Url::parse(config.base_url.trim()).map_err(|_| "API 地址无效".to_string())?;
-    if url.scheme() != "https" || url.host_str().is_none() {
-        return Err("API 地址必须使用 HTTPS".to_string());
-    }
-    if !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-    {
-        return Err("API 地址不能包含凭据、查询参数或锚点".to_string());
-    }
+    parse_base_url(&config.base_url)?;
     Ok(())
 }
 
@@ -119,13 +110,18 @@ mod tests {
     }
 
     #[test]
-    fn accepts_https_urls_with_explicit_ports() {
+    fn accepts_domains_and_ip_addresses_with_optional_ports() {
         assert!(validate_config(&valid_config("https://gateway.example.com:8443/v1")).is_ok());
+        assert!(validate_config(&valid_config("https://203.0.113.10/v1")).is_ok());
+        assert!(validate_config(&valid_config("https://[2001:db8::10]:8443/v1")).is_ok());
+        assert!(validate_config(&valid_config("http://127.0.0.1:11434/v1")).is_ok());
+        assert!(validate_config(&valid_config("http://192.168.1.20:8080/v1")).is_ok());
+        assert!(validate_config(&valid_config("http://[::1]:11434/v1")).is_ok());
     }
 
     #[test]
-    fn rejects_plaintext_and_credentialed_urls() {
-        assert!(validate_config(&valid_config("http://gateway.example.com/v1")).is_err());
+    fn rejects_public_plaintext_ip_and_credentialed_urls() {
+        assert!(validate_config(&valid_config("http://8.8.8.8/v1")).is_err());
         assert!(validate_config(&valid_config("https://token@gateway.example.com/v1")).is_err());
     }
 }

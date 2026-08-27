@@ -8,10 +8,8 @@ import {
   GitBranch,
   LayoutTemplate,
   LoaderCircle,
-  Plus,
   RotateCcw,
   Sparkles,
-  Trash2,
   Workflow,
   X,
 } from 'lucide-react';
@@ -23,14 +21,11 @@ import {
   createMermaidAiPrompts,
   extractMermaidSource,
   mermaidSafetyError,
-  nextMermaidNodeId,
   parseFlowchartSource,
   serializeFlowchart,
-  type MermaidEdgeStyle,
-  type MermaidFlowDirection,
   type MermaidFlowGraph,
-  type MermaidNodeShape,
 } from '@/lib/mermaid-workbench';
+import MermaidCanvasEditor from './MermaidCanvasEditor';
 import MermaidDiagram from './MermaidDiagram';
 import './MermaidWorkbench.css';
 
@@ -47,26 +42,10 @@ type MermaidWorkbenchProps = {
 };
 
 const TABS: Array<{ id: WorkbenchTab; label: string; icon: typeof Sparkles }> = [
-  { id: 'ai', label: 'AI 生成', icon: Sparkles },
+  { id: 'visual', label: '画布', icon: GitBranch },
   { id: 'templates', label: '模板', icon: LayoutTemplate },
-  { id: 'visual', label: '可视化编辑', icon: GitBranch },
+  { id: 'ai', label: 'AI 辅助', icon: Sparkles },
   { id: 'source', label: '源码', icon: Braces },
-];
-
-const NODE_SHAPES: Array<{ value: MermaidNodeShape; label: string }> = [
-  { value: 'rectangle', label: '矩形' },
-  { value: 'rounded', label: '圆角' },
-  { value: 'terminal', label: '开始 / 结束' },
-  { value: 'decision', label: '判断分支' },
-  { value: 'circle', label: '圆形' },
-  { value: 'database', label: '数据库' },
-];
-
-const EDGE_STYLES: Array<{ value: MermaidEdgeStyle; label: string }> = [
-  { value: 'arrow', label: '实线箭头' },
-  { value: 'line', label: '无箭头' },
-  { value: 'dotted', label: '虚线箭头' },
-  { value: 'thick', label: '强调箭头' },
 ];
 
 const AI_EXAMPLES = [
@@ -100,7 +79,7 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
   const startingGraph = useMemo(() => parseFlowchartSource(startingSource), [startingSource]);
   const [source, setSource] = useState(startingSource);
   const [graph, setGraph] = useState<MermaidFlowGraph | null>(startingGraph);
-  const [tab, setTab] = useState<WorkbenchTab>(initialSource.trim() ? (startingGraph ? 'visual' : 'source') : 'templates');
+  const [tab, setTab] = useState<WorkbenchTab>(startingGraph ? 'visual' : 'source');
   const [selectedTemplateId, setSelectedTemplateId] = useState(initialSource.trim() ? '' : MERMAID_TEMPLATES[0].id);
   const [aiInstruction, setAiInstruction] = useState('');
   const [aiUseCurrentSource, setAiUseCurrentSource] = useState(mode === 'edit');
@@ -138,6 +117,7 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
     setAiUseCurrentSource(true);
     setAiStatus({ kind: 'idle', message: '' });
     setFormError('');
+    if (template.visualEditable) setTab('visual');
   }
 
   function commitGraph(next: MermaidFlowGraph) {
@@ -146,56 +126,6 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
     setSelectedTemplateId('');
     setAiUseCurrentSource(true);
     setFormError('');
-  }
-
-  function addNode() {
-    if (!graph) return;
-    const id = nextMermaidNodeId(graph.nodes);
-    commitGraph({ ...graph, nodes: [...graph.nodes, { id, label: '新节点', shape: 'rectangle' }] });
-  }
-
-  function renameNode(previousId: string, nextId: string) {
-    if (!graph) return;
-    const normalized = nextId.trim();
-    if (!/^[A-Za-z_][\w-]*$/.test(normalized)) {
-      setFormError('节点 ID 必须以英文字母或下划线开头，且只能包含字母、数字、下划线和连字符');
-      return;
-    }
-    if (normalized !== previousId && graph.nodes.some((node) => node.id === normalized)) {
-      setFormError(`节点 ID “${normalized}” 已存在`);
-      return;
-    }
-    commitGraph({
-      ...graph,
-      nodes: graph.nodes.map((node) => node.id === previousId ? { ...node, id: normalized } : node),
-      edges: graph.edges.map((edge) => ({
-        ...edge,
-        from: edge.from === previousId ? normalized : edge.from,
-        to: edge.to === previousId ? normalized : edge.to,
-      })),
-    });
-  }
-
-  function removeNode(nodeId: string) {
-    if (!graph) return;
-    commitGraph({
-      ...graph,
-      nodes: graph.nodes.filter((node) => node.id !== nodeId),
-      edges: graph.edges.filter((edge) => edge.from !== nodeId && edge.to !== nodeId),
-    });
-  }
-
-  function addEdge() {
-    if (!graph || graph.nodes.length < 2) {
-      setFormError('至少需要两个节点才能添加连线');
-      return;
-    }
-    const from = graph.nodes[0].id;
-    const to = graph.nodes[1].id;
-    commitGraph({
-      ...graph,
-      edges: [...graph.edges, { id: `edge-${Date.now()}-${graph.edges.length}`, from, to, label: '', style: 'arrow' }],
-    });
   }
 
   async function runAi() {
@@ -283,12 +213,12 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
               <h2 id="mermaid-workbench-title">Mermaid 图表工作台</h2>
               <span>{mode === 'edit' ? '编辑当前图表' : '创建新图表'}</span>
             </div>
-            <p>AI、模板、表单和源码协同编辑，确认后再写回 Markdown</p>
+            <p>在画布上直接拖拽、改名和连线，AI、模板与源码作为辅助</p>
           </div>
           <button type="button" className="icon-button" onClick={onClose} aria-label="关闭图表工作台"><X size={19} /></button>
         </header>
 
-        <div className="workbench-main">
+        <div className={`workbench-main${tab === 'visual' ? ' visual-mode' : ''}`}>
           <section className="workbench-controls">
             <nav className="workbench-tabs" aria-label="图表编辑方式">
               {TABS.map(({ id, label, icon: Icon }) => (
@@ -343,86 +273,32 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
                 <div className="workbench-template-panel">
                   <div className="workbench-section-heading compact">
                     <span><LayoutTemplate size={17} /></span>
-                    <div><strong>从常用图表开始</strong><small>选择模板后可继续用 AI、源码或可视化表单修改</small></div>
+                    <div><strong>从常用图表开始</strong><small>流程图模板会直接进入画布，其他图表可用 AI 或源码继续编辑</small></div>
                   </div>
                   <div className="workbench-template-grid">
                     {MERMAID_TEMPLATES.map((template) => (
                       <button key={template.id} type="button" className={selectedTemplateId === template.id ? 'active' : ''} onClick={() => selectTemplate(template.id)}>
                         <span><b>{template.name}</b><i>{template.category}</i></span>
                         <small>{template.description}</small>
-                        <em>{template.visualEditable ? '支持可视化表单编辑' : '支持源码与 AI 编辑'}</em>
+                        <em>{template.visualEditable ? '支持画布直接编辑' : '支持源码与 AI 编辑'}</em>
                       </button>
                     ))}
                   </div>
                 </div>
               ) : null}
 
-              {tab === 'visual' ? (
-                <div className="workbench-visual-panel">
-                  {graph ? (
-                    <>
-                      <div className="visual-editor-intro">
-                        <div><strong>流程图可视化编辑</strong><small>表单修改会实时同步为 Mermaid 源码</small></div>
-                        <label>布局
-                          <select value={graph.direction} onChange={(event) => commitGraph({ ...graph, direction: event.target.value as MermaidFlowDirection })}>
-                            <option value="TD">从上到下</option>
-                            <option value="LR">从左到右</option>
-                            <option value="BT">从下到上</option>
-                            <option value="RL">从右到左</option>
-                          </select>
-                        </label>
-                      </div>
-
-                      <div className="visual-editor-group">
-                        <header><div><strong>节点</strong><small>{graph.nodes.length} 个</small></div><button type="button" onClick={addNode}><Plus size={13} /> 添加节点</button></header>
-                        <div className="visual-node-list">
-                          {graph.nodes.map((node, nodeIndex) => (
-                            <div className="visual-node-card" key={`visual-node-${nodeIndex}`}>
-                              <div className="visual-node-meta">
-                                <label>ID<input value={node.id} onChange={(event) => renameNode(node.id, event.target.value)} aria-label={`${node.label} 节点 ID`} /></label>
-                                <label>形状<select value={node.shape} onChange={(event) => commitGraph({ ...graph, nodes: graph.nodes.map((item) => item.id === node.id ? { ...item, shape: event.target.value as MermaidNodeShape } : item) })}>{NODE_SHAPES.map((shape) => <option key={shape.value} value={shape.value}>{shape.label}</option>)}</select></label>
-                                <button type="button" onClick={() => removeNode(node.id)} aria-label={`删除节点 ${node.label}`} title="删除节点"><Trash2 size={14} /></button>
-                              </div>
-                              <label>节点名称与说明<textarea rows={2} value={node.label} onChange={(event) => commitGraph({ ...graph, nodes: graph.nodes.map((item) => item.id === node.id ? { ...item, label: event.target.value } : item) })} /></label>
-                            </div>
-                          ))}
-                          {!graph.nodes.length ? <p className="visual-empty">还没有节点。点击“添加节点”开始绘制。</p> : null}
-                        </div>
-                      </div>
-
-                      <div className="visual-editor-group edge-group">
-                        <header><div><strong>连线与分支</strong><small>{graph.edges.length} 条</small></div><button type="button" onClick={addEdge}><Plus size={13} /> 添加连线</button></header>
-                        <div className="visual-edge-list">
-                          {graph.edges.map((edge) => (
-                            <div className="visual-edge-row" key={edge.id}>
-                              <select value={edge.from} onChange={(event) => commitGraph({ ...graph, edges: graph.edges.map((item) => item.id === edge.id ? { ...item, from: event.target.value } : item) })} aria-label="起点">
-                                {graph.nodes.map((node) => <option key={node.id} value={node.id}>{node.label || node.id}</option>)}
-                              </select>
-                              <span>→</span>
-                              <select value={edge.to} onChange={(event) => commitGraph({ ...graph, edges: graph.edges.map((item) => item.id === edge.id ? { ...item, to: event.target.value } : item) })} aria-label="终点">
-                                {graph.nodes.map((node) => <option key={node.id} value={node.id}>{node.label || node.id}</option>)}
-                              </select>
-                              <input value={edge.label} onChange={(event) => commitGraph({ ...graph, edges: graph.edges.map((item) => item.id === edge.id ? { ...item, label: event.target.value } : item) })} placeholder="分支标签（可选）" aria-label="连线标签" />
-                              <select value={edge.style} onChange={(event) => commitGraph({ ...graph, edges: graph.edges.map((item) => item.id === edge.id ? { ...item, style: event.target.value as MermaidEdgeStyle } : item) })} aria-label="连线样式">
-                                {EDGE_STYLES.map((style) => <option key={style.value} value={style.value}>{style.label}</option>)}
-                              </select>
-                              <button type="button" onClick={() => commitGraph({ ...graph, edges: graph.edges.filter((item) => item.id !== edge.id) })} aria-label="删除连线"><Trash2 size={14} /></button>
-                            </div>
-                          ))}
-                          {!graph.edges.length ? <p className="visual-empty">还没有连线。至少添加两个节点后即可连接。</p> : null}
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="visual-unsupported">
-                      <span><CircleAlert size={22} /></span>
-                      <strong>此图种暂不支持表单化编辑</strong>
-                      <p>时序图、类图、状态图、ER 图、思维导图和甘特图仍可通过 AI 与源码编辑。表单化节点和连线编辑目前适用于 flowchart / graph。</p>
-                      <button type="button" onClick={() => { selectTemplate('basic-flowchart'); setTab('visual'); }}><Workflow size={15} /> 改用基本流程图</button>
-                    </div>
-                  )}
-                </div>
-              ) : null}
+              <div className="workbench-visual-panel" hidden={tab !== 'visual'}>
+                {graph ? (
+                  <MermaidCanvasEditor active={tab === 'visual'} graph={graph} onChange={commitGraph} />
+                ) : (
+                  <div className="visual-unsupported">
+                    <span><CircleAlert size={22} /></span>
+                    <strong>此图种暂不支持画布直接编辑</strong>
+                    <p>当前画布支持 flowchart / graph 的节点拖拽与连线。时序图、类图、状态图、ER 图、思维导图和甘特图仍可通过 AI 与源码编辑。</p>
+                    <button type="button" onClick={() => { selectTemplate('basic-flowchart'); setTab('visual'); }}><Workflow size={15} /> 改用基本流程图</button>
+                  </div>
+                )}
+              </div>
 
               {tab === 'source' ? (
                 <div className="workbench-source-panel">
@@ -439,12 +315,14 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
             </div>
           </section>
 
-          <section className="workbench-preview" aria-label="图表草稿预览">
-            <header><div><span className="live-dot" /><strong>草稿预览</strong><small>{diagramKind(source)}</small></div><span>修改实时呈现</span></header>
-            <div className="workbench-preview-canvas">
-              {source.trim() ? <MermaidDiagram code={source} /> : <div className="workbench-preview-empty"><Workflow size={28} /><span>输入源码后将在这里预览</span></div>}
-            </div>
-          </section>
+          {tab !== 'visual' ? (
+            <section className="workbench-preview" aria-label="图表草稿预览">
+              <header><div><span className="live-dot" /><strong>草稿预览</strong><small>{diagramKind(source)}</small></div><span>修改实时呈现</span></header>
+              <div className="workbench-preview-canvas">
+                {source.trim() ? <MermaidDiagram code={source} /> : <div className="workbench-preview-empty"><Workflow size={28} /><span>输入源码后将在这里预览</span></div>}
+              </div>
+            </section>
+          ) : null}
         </div>
 
         <footer className="workbench-footer">

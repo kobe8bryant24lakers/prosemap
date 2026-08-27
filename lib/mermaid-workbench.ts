@@ -273,7 +273,7 @@ export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
     const line = rawLine.trim();
     if (!line) continue;
     if (line.startsWith('%%')) return null;
-    // The form editor intentionally supports only a lossless subset. Returning
+    // The direct-manipulation canvas intentionally supports only a lossless subset. Returning
     // null keeps richer Mermaid source (subgraphs, styling, classes, etc.) in
     // source/AI mode instead of silently dropping it during serialization.
     if (/^(?:(?:subgraph|direction|classDef|class|style|linkStyle)(?:\s|$)|end\s*$)/i.test(line) || line.includes(';')) return null;

@@ -1,4 +1,5 @@
 mod ai;
+mod endpoint;
 mod files;
 mod secure_config;
 

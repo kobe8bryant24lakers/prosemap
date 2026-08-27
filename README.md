@@ -11,7 +11,7 @@ The application interface is currently localized in Simplified Chinese. The repo
 - Open individual Markdown files or browse every Markdown document in a local folder.
 - Edit Markdown with a responsive desktop-first workspace and live preview.
 - Render Mermaid diagrams locally in strict security mode, including node descriptions and branch labels.
-- Create diagrams from natural-language instructions, edit Mermaid source, or visually edit flowchart nodes and connections.
+- Create diagrams from natural-language instructions, edit Mermaid source, or directly drag, connect, and edit flowchart nodes on a canvas.
 - Start from common templates including basic flowcharts, 4+1 architecture views, sequence diagrams, state diagrams, class diagrams, ER diagrams, Gantt charts, and mind maps.
 - Use AI on the full document or a selection for polishing, continuation, summarization, and custom transformations.
 - Review streamed AI output as a line-by-line diff before accepting or rejecting it.
@@ -84,7 +84,7 @@ The Rust layer exposes a deliberately small native surface:
 - User-authorized Markdown file and folder access
 - Original-path saving and Save As
 - Operating-system file association launch targets
-- HTTPS model requests and streaming cancellation
+- HTTPS model requests, local/private HTTP model requests, and streaming cancellation
 - Encrypted, cross-session model configuration in the operating system credential store
 
 Platform-specific configuration lives in:
@@ -105,9 +105,10 @@ AI features require network access to the provider selected by the user. Local e
 
 ## Security model
 
-- API endpoints must use HTTPS on a public domain. Explicit HTTPS ports are supported.
-- Credentials in URLs, query strings, fragments, redirects, private IP addresses, and local network destinations are rejected.
-- Validated DNS results are pinned to the outgoing model request.
+- API endpoints may use hostnames, IPv4 addresses, or bracketed IPv6 addresses, with an optional explicit port.
+- HTTPS is supported for public and private destinations. Plain HTTP is limited to loopback, private-network, carrier-grade NAT, or link-local destinations and is checked again after hostname resolution.
+- Credentials in URLs, query strings, fragments, redirects, and unusable network destinations are rejected.
+- Validated hostname results are pinned to the outgoing model request to prevent DNS rebinding between validation and connection.
 - Upstream errors are size-limited and API keys are redacted.
 - File access is limited to paths explicitly selected by the user or delivered through an operating-system file association.
 - Workspace traversal skips symlinks and applies file count, depth, extension, and size limits.

@@ -15,6 +15,23 @@ const providerCopy: Record<ProviderKind, { name: string; detail: string; model: 
   anthropic: { name: 'Anthropic Claude', detail: 'Anthropic Messages API 与 Claude 系列模型', model: '例如：claude-sonnet-4-5' },
 };
 
+function isValidEndpoint(value: string): boolean {
+  try {
+    const endpoint = new URL(value.trim());
+    return (
+      (endpoint.protocol === 'https:' || endpoint.protocol === 'http:')
+      && endpoint.hostname.length > 0
+      && endpoint.username.length === 0
+      && endpoint.password.length === 0
+      && endpoint.search.length === 0
+      && endpoint.hash.length === 0
+      && endpoint.port !== '0'
+    );
+  } catch {
+    return false;
+  }
+}
+
 export default function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
   const [draft, setDraft] = useState(config);
   const [showKey, setShowKey] = useState(false);
@@ -37,7 +54,7 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
     }));
   }
 
-  const valid = draft.model.trim().length > 0 && draft.apiKey.trim().length > 0 && /^https:\/\//i.test(draft.baseUrl.trim());
+  const valid = draft.model.trim().length > 0 && draft.apiKey.trim().length > 0 && isValidEndpoint(draft.baseUrl);
 
   async function save() {
     setSaving(true);
@@ -73,8 +90,16 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
           <div className="settings-fields">
             <div className="field-group">
               <label htmlFor="base-url">API 地址</label>
-              <input id="base-url" type="url" value={draft.baseUrl} onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} spellCheck={false} />
-              <small>仅允许公开的 HTTPS 地址，可包含显式端口与 /v1 路径。</small>
+              <input
+                id="base-url"
+                type="url"
+                value={draft.baseUrl}
+                onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
+                placeholder="https://api.example.com:8443/v1"
+                aria-describedby="base-url-help"
+                spellCheck={false}
+              />
+              <small id="base-url-help">支持域名、IPv4/IPv6 与可选端口；公网请使用 HTTPS，本机或私网可使用 HTTP（如 http://127.0.0.1:11434/v1）。</small>
             </div>
             <div className="field-group">
               <label htmlFor="model-name">模型名称</label>

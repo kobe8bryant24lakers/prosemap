@@ -1,3 +1,4 @@
+use crate::endpoint::{is_local_network_ip, is_unusable_destination, parse_base_url};
 use futures_util::StreamExt;
 use reqwest::{header, redirect::Policy, Client, Response, Url};
 use serde::{Deserialize, Serialize};
@@ -10,6 +11,7 @@ use std::{
 };
 use tauri::{ipc::Channel, State};
 use tokio::{net::lookup_host, sync::watch};
+use url::Host;
 
 const MAX_INPUT_CHARS: usize = 140_000;
 const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
@@ -87,38 +89,7 @@ fn validate_request(request: &AiRequest) -> Result<(), String> {
 }
 
 fn resolve_endpoint(provider: Provider, base_url: &str) -> Result<Url, String> {
-    let mut url = Url::parse(base_url.trim()).map_err(|_| "API 地址无效".to_string())?;
-    if url.scheme() != "https" {
-        return Err("API 地址必须使用 HTTPS".to_string());
-    }
-    if !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-    {
-        return Err("API 地址不能包含凭据、查询参数或锚点".to_string());
-    }
-    let host = match url.host() {
-        Some(url::Host::Domain(host)) => host.trim_end_matches('.').to_ascii_lowercase(),
-        _ => return Err("API 地址必须使用公开域名".to_string()),
-    };
-    if host.is_empty()
-        || host == "localhost"
-        || host.ends_with(".localhost")
-        || [
-            ".local",
-            ".internal",
-            ".lan",
-            ".home",
-            ".test",
-            ".invalid",
-            ".example",
-        ]
-        .iter()
-        .any(|suffix| host.ends_with(suffix))
-    {
-        return Err("API 地址必须使用公开域名".to_string());
-    }
+    let mut url = parse_base_url(base_url)?;
 
     let suffix = match provider {
         Provider::Openai => "/chat/completions",
@@ -134,59 +105,49 @@ fn resolve_endpoint(provider: Provider, base_url: &str) -> Result<Url, String> {
     Ok(url)
 }
 
-fn is_non_public_ip(address: IpAddr) -> bool {
-    match address {
-        IpAddr::V4(ip) => {
-            let octets = ip.octets();
-            ip.is_private()
-                || ip.is_loopback()
-                || ip.is_link_local()
-                || ip.is_unspecified()
-                || ip.is_multicast()
-                || ip.is_broadcast()
-                || octets[0] == 0
-                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
-                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
-                || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
-                || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
-                || octets[0] >= 240
-        }
-        IpAddr::V6(ip) => {
-            if let Some(ipv4) = ip.to_ipv4_mapped() {
-                return is_non_public_ip(IpAddr::V4(ipv4));
-            }
-            let segments = ip.segments();
-            ip.is_loopback()
-                || ip.is_unspecified()
-                || ip.is_multicast()
-                || (segments[0] & 0xfe00) == 0xfc00
-                || (segments[0] & 0xffc0) == 0xfe80
-                || (segments[0] == 0x2001 && segments[1] == 0x0db8)
-        }
+fn validate_address_policy(scheme: &str, addresses: &[SocketAddr]) -> Result<(), String> {
+    if addresses.is_empty() {
+        return Err("API 主机名没有可用的网络地址".to_string());
     }
+    if addresses
+        .iter()
+        .any(|address| is_unusable_destination(address.ip()))
+    {
+        return Err("API 地址解析到了不可用的网络地址".to_string());
+    }
+    if scheme == "http"
+        && addresses
+            .iter()
+            .any(|address| !is_local_network_ip(address.ip()))
+    {
+        return Err("HTTP API 地址仅允许本机、私有网络或链路本地目标".to_string());
+    }
+    Ok(())
 }
 
-async fn resolve_public_addresses(url: &Url) -> Result<Vec<SocketAddr>, String> {
-    let host = url
-        .host_str()
-        .ok_or_else(|| "API 地址缺少域名".to_string())?;
+async fn resolve_addresses(url: &Url) -> Result<(Option<String>, Vec<SocketAddr>), String> {
     let port = url
         .port_or_known_default()
         .ok_or_else(|| "API 地址缺少有效端口".to_string())?;
-    let mut addresses: Vec<_> = lookup_host((host, port))
-        .await
-        .map_err(|_| "无法解析 API 域名".to_string())?
-        .collect();
-    if addresses.is_empty()
-        || addresses
-            .iter()
-            .any(|address| is_non_public_ip(address.ip()))
+    let (domain, mut addresses) = match url
+        .host()
+        .ok_or_else(|| "API 地址缺少有效的主机名或 IP".to_string())?
     {
-        return Err("API 域名不能解析到本机或私有网络".to_string());
-    }
+        Host::Domain(host) => {
+            let host = host.to_string();
+            let addresses = lookup_host((host.as_str(), port))
+                .await
+                .map_err(|_| "无法解析 API 主机名".to_string())?
+                .collect();
+            (Some(host), addresses)
+        }
+        Host::Ipv4(ip) => (None, vec![SocketAddr::new(IpAddr::V4(ip), port)]),
+        Host::Ipv6(ip) => (None, vec![SocketAddr::new(IpAddr::V6(ip), port)]),
+    };
     addresses.sort_unstable();
     addresses.dedup();
-    Ok(addresses)
+    validate_address_policy(url.scheme(), &addresses)?;
+    Ok((domain, addresses))
 }
 
 fn safe_upstream_error(bytes: &[u8], api_key: &str) -> String {
@@ -305,18 +266,17 @@ async fn execute_stream(
 ) -> Result<(), String> {
     validate_request(request)?;
     let endpoint = resolve_endpoint(request.provider, &request.base_url)?;
-    let resolved_addresses = resolve_public_addresses(&endpoint).await?;
-    let endpoint_host = endpoint
-        .host_str()
-        .ok_or_else(|| "API 地址缺少域名".to_string())?
-        .to_string();
+    let (endpoint_domain, resolved_addresses) = resolve_addresses(&endpoint).await?;
 
-    let client = Client::builder()
+    let mut client_builder = Client::builder()
         .redirect(Policy::none())
-        .resolve_to_addrs(&endpoint_host, &resolved_addresses)
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(180))
-        .user_agent("ProseMap/0.1")
+        .user_agent("ProseMap/0.1");
+    if let Some(domain) = endpoint_domain {
+        client_builder = client_builder.resolve_to_addrs(&domain, &resolved_addresses);
+    }
+    let client = client_builder
         .build()
         .map_err(|_| "无法初始化安全网络客户端".to_string())?;
 
@@ -535,17 +495,40 @@ mod tests {
             custom_port.as_str(),
             "https://gateway.example.com:8443/v1/chat/completions"
         );
+
+        let loopback = resolve_endpoint(Provider::Openai, "http://127.0.0.1:11434/v1")
+            .expect("loopback IPv4 URL");
+        assert_eq!(
+            loopback.as_str(),
+            "http://127.0.0.1:11434/v1/chat/completions"
+        );
+        let lan = resolve_endpoint(Provider::Anthropic, "http://192.168.1.20:8080/v1")
+            .expect("LAN IPv4 URL");
+        assert_eq!(lan.as_str(), "http://192.168.1.20:8080/v1/messages");
+        let ipv6 =
+            resolve_endpoint(Provider::Openai, "http://[::1]:11434/v1").expect("loopback IPv6 URL");
+        assert_eq!(ipv6.as_str(), "http://[::1]:11434/v1/chat/completions");
     }
 
     #[test]
-    fn rejects_local_insecure_and_credentialed_urls() {
-        assert!(resolve_endpoint(Provider::Openai, "http://api.openai.com/v1").is_err());
-        assert!(resolve_endpoint(Provider::Openai, "https://localhost/v1").is_err());
+    fn rejects_public_plaintext_ip_and_unsafe_url_parts() {
+        assert!(resolve_endpoint(Provider::Openai, "http://8.8.8.8/v1").is_err());
         assert!(resolve_endpoint(Provider::Openai, "https://key@example.com/v1").is_err());
-        assert!(resolve_endpoint(Provider::Openai, "https://127.0.0.1/v1").is_err());
-        assert!(is_non_public_ip(
-            "::ffff:127.0.0.1".parse().expect("mapped loopback")
-        ));
+        assert!(resolve_endpoint(Provider::Openai, "https://example.com/v1?q=1").is_err());
+    }
+
+    #[test]
+    fn enforces_resolved_address_policy_for_http_and_https() {
+        let local_addresses = [
+            "127.0.0.1:11434".parse().expect("IPv4 loopback"),
+            "[::1]:11434".parse().expect("IPv6 loopback"),
+            "192.168.1.20:11434".parse().expect("LAN IPv4"),
+        ];
+        let public_address = ["8.8.8.8:443".parse().expect("public IPv4")];
+        assert!(validate_address_policy("http", &local_addresses).is_ok());
+        assert!(validate_address_policy("http", &public_address).is_err());
+        assert!(validate_address_policy("https", &local_addresses).is_ok());
+        assert!(validate_address_policy("https", &public_address).is_ok());
     }
 
     #[test]

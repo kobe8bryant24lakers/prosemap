@@ -1,6 +1,6 @@
 use crate::endpoint::{is_local_network_ip, is_unusable_destination, parse_base_url};
 use futures_util::StreamExt;
-use reqwest::{header, redirect::Policy, Client, Response, Url};
+use reqwest::{header, redirect::Policy, Client, Response, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -15,6 +15,7 @@ use url::Host;
 
 const MAX_INPUT_CHARS: usize = 140_000;
 const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
+const MAX_ERROR_CHARS: usize = 700;
 
 #[derive(Default)]
 pub struct AiState {
@@ -137,7 +138,7 @@ async fn resolve_addresses(url: &Url) -> Result<(Option<String>, Vec<SocketAddr>
             let host = host.to_string();
             let addresses = lookup_host((host.as_str(), port))
                 .await
-                .map_err(|_| "无法解析 API 主机名".to_string())?
+                .map_err(|error| format!("无法解析 API 主机名 {host}：{error}"))?
                 .collect();
             (Some(host), addresses)
         }
@@ -150,23 +151,175 @@ async fn resolve_addresses(url: &Url) -> Result<(Option<String>, Vec<SocketAddr>
     Ok((domain, addresses))
 }
 
-fn safe_upstream_error(bytes: &[u8], api_key: &str) -> String {
-    let fallback = "上游模型服务拒绝了本次请求";
-    let message = serde_json::from_slice::<Value>(bytes)
+fn redact_and_limit(message: &str, api_key: &str) -> String {
+    let redacted = if api_key.is_empty() {
+        message.to_string()
+    } else {
+        message.replace(api_key, "[已隐藏]")
+    };
+    redacted.chars().take(MAX_ERROR_CHARS).collect()
+}
+
+fn upstream_error_detail(bytes: &[u8]) -> Option<String> {
+    serde_json::from_slice::<Value>(bytes)
         .ok()
         .and_then(|value| {
             value
-                .get("message")
+                .pointer("/error/message")
                 .and_then(Value::as_str)
-                .or_else(|| value.pointer("/error/message").and_then(Value::as_str))
+                .or_else(|| value.get("message").and_then(Value::as_str))
+                .or_else(|| value.get("detail").and_then(Value::as_str))
+                .or_else(|| value.get("error").and_then(Value::as_str))
+                .or_else(|| value.pointer("/error/code").and_then(Value::as_str))
                 .map(str::to_string)
         })
-        .unwrap_or_else(|| fallback.to_string());
-    message
-        .replace(api_key, "[已隐藏]")
-        .chars()
-        .take(500)
-        .collect()
+        .filter(|message| !message.trim().is_empty())
+}
+
+fn upstream_error_message(
+    status: StatusCode,
+    endpoint: &Url,
+    bytes: &[u8],
+    api_key: &str,
+) -> String {
+    let summary = match status {
+        StatusCode::BAD_REQUEST => "请求格式或参数不受模型服务支持",
+        StatusCode::UNAUTHORIZED => "API 密钥无效或未获得授权",
+        StatusCode::PAYMENT_REQUIRED => "模型账户余额或付费状态异常",
+        StatusCode::FORBIDDEN => "模型服务拒绝访问当前模型或资源",
+        StatusCode::NOT_FOUND => "API 路径或模型不存在",
+        StatusCode::METHOD_NOT_ALLOWED => "API 路径不接受当前请求方法",
+        StatusCode::REQUEST_TIMEOUT | StatusCode::GATEWAY_TIMEOUT => "模型服务处理请求超时",
+        StatusCode::CONFLICT => "模型服务拒绝了冲突的请求",
+        StatusCode::UNPROCESSABLE_ENTITY => "模型服务无法处理请求参数",
+        StatusCode::TOO_MANY_REQUESTS => "请求过于频繁、额度不足或已达到限额",
+        status if status.is_server_error() => "上游模型服务暂时不可用",
+        _ => "上游模型服务拒绝了本次请求",
+    };
+    let mut message = format!(
+        "{summary}（HTTP {}）。请求地址：{}",
+        status.as_u16(),
+        endpoint
+    );
+    if let Some(detail) = upstream_error_detail(bytes) {
+        message.push_str("。服务返回：");
+        message.push_str(detail.trim());
+    }
+    redact_and_limit(&message, api_key)
+}
+
+fn request_error_sources(error: &reqwest::Error) -> Vec<String> {
+    let mut messages = Vec::new();
+    let mut source = std::error::Error::source(error);
+    while let Some(reason) = source {
+        messages.push(reason.to_string());
+        source = reason.source();
+    }
+    messages
+}
+
+fn transport_source_summary(details: &str) -> Option<&'static str> {
+    let details = details.to_ascii_lowercase();
+    if details.contains("certificate")
+        || details.contains("unknownissuer")
+        || details.contains("unknown issuer")
+        || details.contains("invalid peer")
+        || details.contains("tls")
+        || details.contains("ssl")
+    {
+        return Some("TLS 握手或证书校验失败，请检查服务证书链或企业代理证书");
+    }
+    if details.contains("connection refused")
+        || details.contains("actively refused")
+        || details.contains("os error 61")
+        || details.contains("os error 111")
+        || details.contains("os error 10061")
+    {
+        return Some("模型服务拒绝连接，请确认服务已启动且 API 端口正确");
+    }
+    if details.contains("network is unreachable")
+        || details.contains("no route to host")
+        || details.contains("os error 51")
+        || details.contains("os error 101")
+        || details.contains("os error 10051")
+    {
+        return Some("模型服务所在网络不可达，请检查网络、VPN 或代理");
+    }
+    if details.contains("dns")
+        || details.contains("name resolution")
+        || details.contains("failed to lookup address")
+        || details.contains("nodename nor servname")
+    {
+        return Some("模型服务域名解析失败，请检查 API 地址或 DNS");
+    }
+    if details.contains("proxy") || details.contains("tunnel") {
+        return Some("代理连接失败，请检查代理地址、认证与放行规则");
+    }
+    if details.contains("connection reset")
+        || details.contains("broken pipe")
+        || details.contains("unexpected eof")
+    {
+        return Some("连接被模型服务或中间代理意外断开");
+    }
+    None
+}
+
+fn transport_failure_summary(error: &reqwest::Error, details: &str) -> &'static str {
+    if error.is_timeout() {
+        if error.is_connect() {
+            return "连接模型服务超时，请检查 API 地址、网络、VPN 或代理";
+        }
+        return "等待模型服务响应超时，请稍后重试或缩小处理内容";
+    }
+    if let Some(summary) = transport_source_summary(details) {
+        return summary;
+    }
+    if error.is_connect() {
+        return "无法与模型服务建立 TCP 连接，请检查地址、端口、网络或代理";
+    }
+    if error.is_builder() {
+        return "模型请求构造失败，请检查 API 地址与请求配置";
+    }
+    if error.is_body() {
+        return "模型请求或响应数据传输失败";
+    }
+    if error.is_decode() {
+        return "模型响应解码失败";
+    }
+    "发送模型请求失败"
+}
+
+fn safe_root_cause(sources: &[String], api_key: &str) -> Option<String> {
+    let source = sources
+        .last()?
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if source.is_empty()
+        || source.contains("://")
+        || source.contains('@')
+        || source.to_ascii_lowercase().contains("authorization")
+    {
+        return None;
+    }
+    Some(
+        redact_and_limit(&source, api_key)
+            .chars()
+            .take(220)
+            .collect(),
+    )
+}
+
+fn request_error_message(error: &reqwest::Error, endpoint: &Url, api_key: &str) -> String {
+    let sources = request_error_sources(error);
+    let details = sources.join("; ");
+    let summary = transport_failure_summary(error, &details);
+    let mut message = format!("{summary}。请求地址：{endpoint}");
+    if let Some(cause) = safe_root_cause(&sources, api_key) {
+        message.push_str("。底层原因：");
+        message.push_str(&cause);
+    }
+    redact_and_limit(&message, api_key)
 }
 
 fn extract_openai_text(payload: &Value) -> String {
@@ -246,11 +399,16 @@ fn extract_non_streaming_text(provider: Provider, payload: &Value) -> String {
     }
 }
 
-async fn read_limited_body(response: Response, limit: usize) -> Result<Vec<u8>, String> {
+async fn read_limited_body(
+    response: Response,
+    limit: usize,
+    endpoint: &Url,
+    api_key: &str,
+) -> Result<Vec<u8>, String> {
     let mut stream = response.bytes_stream();
     let mut bytes = Vec::new();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|_| "读取模型响应失败".to_string())?;
+        let chunk = chunk.map_err(|error| request_error_message(&error, endpoint, api_key))?;
         if bytes.len() + chunk.len() > limit {
             return Err("模型响应超过大小限制".to_string());
         }
@@ -266,7 +424,9 @@ async fn execute_stream(
 ) -> Result<(), String> {
     validate_request(request)?;
     let endpoint = resolve_endpoint(request.provider, &request.base_url)?;
-    let (endpoint_domain, resolved_addresses) = resolve_addresses(&endpoint).await?;
+    let (endpoint_domain, resolved_addresses) = resolve_addresses(&endpoint)
+        .await
+        .map_err(|message| format!("{message}。请求地址：{endpoint}"))?;
 
     let mut client_builder = Client::builder()
         .redirect(Policy::none())
@@ -278,7 +438,7 @@ async fn execute_stream(
     }
     let client = client_builder
         .build()
-        .map_err(|_| "无法初始化安全网络客户端".to_string())?;
+        .map_err(|error| request_error_message(&error, &endpoint, request.api_key.trim()))?;
 
     let body = match request.provider {
         Provider::Openai => json!({
@@ -302,7 +462,7 @@ async fn execute_stream(
     };
 
     let mut builder = client
-        .post(endpoint)
+        .post(endpoint.clone())
         .header(header::ACCEPT, "text/event-stream")
         .header(header::CONTENT_TYPE, "application/json")
         .json(&body);
@@ -318,29 +478,56 @@ async fn execute_stream(
             let _ = changed;
             return Err("请求已取消".to_string());
         }
-        result = builder.send() => result.map_err(|_| "无法连接模型服务".to_string())?,
+        result = builder.send() => result.map_err(|error| {
+            request_error_message(&error, &endpoint, request.api_key.trim())
+        })?,
     };
 
     if response.status().is_redirection() {
-        return Err("API 地址发生了不安全的跳转".to_string());
+        return Err(format!(
+            "API 地址返回了重定向（HTTP {}）；为保护密钥，应用不会自动跟随。请填写最终 API 地址。请求地址：{}",
+            response.status().as_u16(),
+            endpoint
+        ));
     }
     if !response.status().is_success() {
-        let bytes = read_limited_body(response, 4_096).await?;
-        return Err(safe_upstream_error(&bytes, request.api_key.trim()));
+        let status = response.status();
+        let bytes = read_limited_body(response, 4_096, &endpoint, request.api_key.trim()).await?;
+        return Err(upstream_error_message(
+            status,
+            &endpoint,
+            &bytes,
+            request.api_key.trim(),
+        ));
     }
 
-    let is_sse = response
+    let response_content_type = response
         .headers()
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.to_ascii_lowercase().contains("text/event-stream"));
+        .unwrap_or("未提供")
+        .to_string();
+    let is_sse = response_content_type
+        .to_ascii_lowercase()
+        .contains("text/event-stream");
     if !is_sse {
-        let bytes = read_limited_body(response, MAX_OUTPUT_BYTES).await?;
-        let payload: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| "模型服务返回了无法识别的内容".to_string())?;
+        let bytes = read_limited_body(
+            response,
+            MAX_OUTPUT_BYTES,
+            &endpoint,
+            request.api_key.trim(),
+        )
+        .await?;
+        let payload: Value = serde_json::from_slice(&bytes).map_err(|_| {
+            format!(
+                "模型服务返回了无法识别的内容（Content-Type: {response_content_type}）。请检查 API 地址与服务类型。请求地址：{endpoint}"
+            )
+        })?;
         let text = extract_non_streaming_text(request.provider, &payload);
         if text.is_empty() {
-            return Err("模型服务返回了空内容".to_string());
+            return Err(format!(
+                "模型服务返回了空内容或不兼容的响应格式。请检查服务类型与模型接口。请求地址：{endpoint}"
+            ));
         }
         channel
             .send(AiEvent::Delta { text })
@@ -366,7 +553,12 @@ async fn execute_stream(
             chunk = stream.next() => chunk,
         };
         let Some(chunk) = next else { break };
-        let chunk = chunk.map_err(|_| "模型流式响应意外中断".to_string())?;
+        let chunk = chunk.map_err(|error| {
+            format!(
+                "模型流式响应意外中断。{}",
+                request_error_message(&error, &endpoint, request.api_key.trim())
+            )
+        })?;
         received = received.saturating_add(chunk.len());
         if received > MAX_OUTPUT_BYTES {
             return Err("模型输出超过 8 MB 限制".to_string());
@@ -446,7 +638,7 @@ pub async fn stream_ai(
     let request_id = request.request_id.clone();
     let result = execute_stream(&request, &on_event, receiver)
         .await
-        .map_err(|message| message.replace(request.api_key.trim(), "[已隐藏]"));
+        .map_err(|message| redact_and_limit(&message, request.api_key.trim()));
     state
         .cancellations
         .lock()
@@ -529,6 +721,75 @@ mod tests {
         assert!(validate_address_policy("http", &public_address).is_err());
         assert!(validate_address_policy("https", &local_addresses).is_ok());
         assert!(validate_address_policy("https", &public_address).is_ok());
+    }
+
+    #[test]
+    fn reports_http_status_endpoint_and_safe_upstream_detail() {
+        let endpoint =
+            Url::parse("https://api.example.com/v1/chat/completions").expect("valid endpoint");
+        let message = upstream_error_message(
+            StatusCode::UNAUTHORIZED,
+            &endpoint,
+            br#"{"error":{"message":"invalid token secret-key"}}"#,
+            "secret-key",
+        );
+        assert!(message.contains("API 密钥无效或未获得授权"));
+        assert!(message.contains("HTTP 401"));
+        assert!(message.contains(endpoint.as_str()));
+        assert!(message.contains("invalid token [已隐藏]"));
+        assert!(!message.contains("secret-key"));
+
+        let unavailable = upstream_error_message(
+            StatusCode::BAD_GATEWAY,
+            &endpoint,
+            b"<html>bad gateway</html>",
+            "",
+        );
+        assert!(unavailable.contains("上游模型服务暂时不可用"));
+        assert!(unavailable.contains("HTTP 502"));
+        assert!(!unavailable.contains("<html>"));
+    }
+
+    #[test]
+    fn classifies_common_transport_failures() {
+        let cases = [
+            (
+                "invalid peer certificate: UnknownIssuer",
+                "TLS 握手或证书校验失败",
+            ),
+            (
+                "tcp connect error: Connection refused (os error 61)",
+                "模型服务拒绝连接",
+            ),
+            ("No route to host (os error 65)", "模型服务所在网络不可达"),
+            (
+                "dns error: failed to lookup address",
+                "模型服务域名解析失败",
+            ),
+            ("proxy tunnel error", "代理连接失败"),
+            (
+                "connection reset by peer",
+                "连接被模型服务或中间代理意外断开",
+            ),
+        ];
+        for (detail, expected) in cases {
+            assert!(
+                transport_source_summary(detail)
+                    .expect("classified transport error")
+                    .contains(expected),
+                "should classify {detail}"
+            );
+        }
+        assert!(transport_source_summary("an uncommon transport failure").is_none());
+    }
+
+    #[test]
+    fn redaction_is_safe_for_empty_and_non_empty_keys() {
+        assert_eq!(redact_and_limit("API 密钥无效", ""), "API 密钥无效");
+        assert_eq!(
+            redact_and_limit("request contained abc123", "abc123"),
+            "request contained [已隐藏]"
+        );
     }
 
     #[test]

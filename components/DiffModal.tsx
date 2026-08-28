@@ -1,7 +1,7 @@
 'use client';
 
 import { diffLines } from 'diff';
-import { Check, GitCompareArrows, LoaderCircle, Square, X } from 'lucide-react';
+import { Check, CircleAlert, GitCompareArrows, LoaderCircle, Square, X } from 'lucide-react';
 import { useEffect, useMemo } from 'react';
 import type { Proposal } from '@/lib/editor';
 
@@ -58,7 +58,9 @@ export default function DiffModal({ proposal, onAccept, onReject, onStop }: Diff
         </div>
 
         <div className="diff-content" aria-live="polite">
-          {proposal.modified || proposal.status === 'streaming' ? (
+          {proposal.status === 'error' && !proposal.modified ? (
+            <div className="diff-waiting diff-failed"><CircleAlert size={22} /><span>未收到模型返回内容</span></div>
+          ) : proposal.modified || proposal.status === 'streaming' ? (
             <pre>
               {changes.map((change, changeIndex) => {
                 const lines = change.value.split('\n');

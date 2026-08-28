@@ -16,6 +16,17 @@ type DesktopStreamEvent =
   | { type: 'done' }
   | { type: 'error'; message: string };
 
+function modelErrorMessage(reason: unknown, fallback = '本地模型请求失败'): string {
+  const message = typeof reason === 'string'
+    ? reason
+    : reason instanceof Error
+      ? reason.message
+      : reason && typeof reason === 'object' && 'message' in reason
+        ? String(reason.message)
+        : '';
+  return message.trim().replace(/^Error:\s*/i, '') || fallback;
+}
+
 async function streamFromDesktop(
   input: AiStreamInput,
   onDelta: (text: string) => void,
@@ -28,7 +39,7 @@ async function streamFromDesktop(
 
   channel.onmessage = (event) => {
     if (event.type === 'delta') onDelta(event.text);
-    if (event.type === 'error') streamError = event.message;
+    if (event.type === 'error') streamError = modelErrorMessage(event.message);
   };
 
   const cancel = () => { void invoke('cancel_ai', { requestId }).catch(() => undefined); };
@@ -38,7 +49,7 @@ async function streamFromDesktop(
     if (streamError) throw new Error(streamError);
   } catch (reason) {
     if (signal.aborted) throw new DOMException('请求已取消', 'AbortError');
-    throw new Error(typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : '本地模型请求失败');
+    throw new Error(streamError || modelErrorMessage(reason));
   } finally {
     signal.removeEventListener('abort', cancel);
   }

@@ -284,6 +284,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .diff-line.removed { background: #ffebe9; color: #824947; text-decoration: line-through; text-decoration-color: rgb(130 73 71 / 35%); }.diff-line.removed > i { color: #bb5753; }
 .stream-caret { width: 2px; height: 16px; display: inline-block; margin-left: 32px; background: var(--green); animation: blink 1s step-end infinite; }
 .diff-waiting { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 9px; }.diff-waiting svg { animation: spin .8s linear infinite; }
+.diff-waiting.diff-failed svg { animation: none; color: var(--red); }
 .diff-error { flex: none; padding: 10px 17px; border-top: 1px solid #f0cecb; background: var(--red-soft); color: var(--red); font-size: 9px; }
 .diff-footer { min-height: 61px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 17px; border-top: 1px solid var(--line); background: #fff; }
 .privacy-note { color: var(--muted-light); font-size: 8px; }.diff-buttons { display: flex; gap: 8px; }

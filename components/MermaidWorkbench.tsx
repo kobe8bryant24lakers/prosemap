@@ -2,18 +2,23 @@
 
 import {
   Bot,
+  BrainCircuit,
   Braces,
   Check,
+  ChevronDown,
+  ChevronRight,
   CircleAlert,
+  Eye,
   GitBranch,
   LayoutTemplate,
   LoaderCircle,
+  Pencil,
   RotateCcw,
   Sparkles,
   Workflow,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { streamAi } from '@/lib/ai-client';
 import type { ModelConfig } from '@/lib/editor';
 import { parseMermaid } from '@/lib/mermaid-runtime';
@@ -31,6 +36,11 @@ import MermaidDiagram from './MermaidDiagram';
 import './MermaidWorkbench.css';
 
 type WorkbenchTab = 'ai' | 'templates' | 'visual' | 'source';
+
+type AiDraftValidation = {
+  kind: 'idle' | 'checking' | 'valid' | 'error';
+  message: string;
+};
 
 type MermaidWorkbenchProps = {
   config: ModelConfig;
@@ -85,8 +95,7 @@ function safelyParseVisualSource(source: string): MermaidVisualGraph | null {
 function isEditingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.matches('input, textarea, select, [role="textbox"]')
-    || target.isContentEditable
-    || Boolean(target.closest('.mermaid-canvas-editor'));
+    || target.isContentEditable;
 }
 
 export default function MermaidWorkbench({ config, initialSource = '', inactive = false, mode, onApply, onClose, onOpenSettings }: MermaidWorkbenchProps) {
@@ -99,28 +108,65 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
   const [aiInstruction, setAiInstruction] = useState('');
   const [aiUseCurrentSource, setAiUseCurrentSource] = useState(mode === 'edit');
   const [aiStatus, setAiStatus] = useState<{ kind: 'idle' | 'running' | 'success' | 'error'; message: string }>({ kind: 'idle', message: '' });
+  const [aiReasoning, setAiReasoning] = useState('');
+  const [aiReasoningOpen, setAiReasoningOpen] = useState(true);
+  const [aiPreviewEditing, setAiPreviewEditing] = useState(false);
+  const [aiDraftValidation, setAiDraftValidation] = useState<AiDraftValidation>({ kind: 'checking', message: '等待校验当前草稿' });
   const [formError, setFormError] = useState('');
   const [applying, setApplying] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const configured = Boolean(config.apiKey && config.model);
+  const aiRunning = aiStatus.kind === 'running';
+  const draftChanged = source.trim() !== startingSource.trim();
+
+  const requestClose = useCallback(() => {
+    if ((aiRunning || draftChanged) && !window.confirm(aiRunning
+      ? 'AI 仍在生成，关闭会停止生成并丢弃尚未应用的图表草稿。确定关闭吗？'
+      : '图表草稿尚未应用到文档。确定放弃这些修改吗？')) return;
+    abortRef.current?.abort();
+    onClose();
+  }, [aiRunning, draftChanged, onClose]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (inactive || event.key !== 'Escape' || event.defaultPrevented) return;
       if (isEditingTarget(event.target) || isEditingTarget(document.activeElement)) return;
       event.preventDefault();
-      abortRef.current?.abort();
-      onClose();
+      requestClose();
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [inactive, onClose]);
+  }, [inactive, requestClose]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (tab !== 'ai' || aiRunning || !source.trim()) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void validateMermaid(source.trim())
+        .then(() => {
+          if (active) setAiDraftValidation({ kind: 'valid', message: 'Mermaid v11 语法有效，可应用或继续切换到画布' });
+        })
+        .catch((reason) => {
+          if (!active) return;
+          const message = reason instanceof Error ? reason.message.replace(/^Error:\s*/i, '').split('\n')[0] : 'Mermaid 语法校验失败';
+          setAiDraftValidation({ kind: 'error', message });
+        });
+    }, 420);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [aiRunning, source, tab]);
 
   function updateDraft(nextSource: string, templateId = '') {
     setSource(nextSource);
     setGraph(safelyParseVisualSource(nextSource));
+    setAiDraftValidation(nextSource.trim()
+      ? { kind: 'checking', message: '正在校验 Mermaid v11 语法…' }
+      : { kind: 'error', message: '图表源码不能为空' });
     setSelectedTemplateId(templateId);
     setAiUseCurrentSource(true);
     setFormError('');
@@ -128,6 +174,11 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
 
   function switchTab(nextTab: WorkbenchTab) {
     if (nextTab === 'visual') setGraph(safelyParseVisualSource(source));
+    if (nextTab === 'ai' && !aiRunning) {
+      setAiDraftValidation(source.trim()
+        ? { kind: 'checking', message: '正在校验 Mermaid v11 语法…' }
+        : { kind: 'error', message: '图表源码不能为空' });
+    }
     setFormError('');
     setTab(nextTab);
   }
@@ -137,6 +188,7 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
     if (!template) return;
     updateDraft(template.source, template.id);
     setAiStatus({ kind: 'idle', message: '' });
+    setAiReasoning('');
     setTab('visual');
   }
 
@@ -168,6 +220,10 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    setAiPreviewEditing(false);
+    setAiReasoning('');
+    setAiReasoningOpen(true);
+    setAiDraftValidation({ kind: 'idle', message: 'AI 生成中，完成后可继续手动编辑' });
     setAiStatus({ kind: 'running', message: 'AI 正在组织图表结构…' });
     const prompts = createMermaidAiPrompts(instruction, aiUseCurrentSource ? source : '');
     let generated = '';
@@ -183,9 +239,14 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
           temperature: 0.3,
           maxTokens: 4096,
         },
-        (chunk) => {
-          generated += chunk;
-          setAiStatus({ kind: 'running', message: `正在生成 · 已接收 ${generated.length} 个字符` });
+        {
+          onContentDelta: (chunk) => {
+            generated += chunk;
+            setAiStatus({ kind: 'running', message: `正在生成 · 已接收 ${generated.length} 个字符` });
+          },
+          onReasoningDelta: (chunk) => {
+            setAiReasoning((current) => current + chunk);
+          },
         },
         controller.signal,
       );
@@ -197,6 +258,9 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
       setAiStatus({ kind: 'success', message: '图表草稿已生成，可继续编辑或应用到文档' });
     } catch (reason) {
       if (controller.signal.aborted) return;
+      setAiDraftValidation(source.trim()
+        ? { kind: 'checking', message: '正在重新校验当前草稿…' }
+        : { kind: 'error', message: '图表源码不能为空' });
       setAiStatus({ kind: 'error', message: reason instanceof Error ? reason.message : '图表生成失败，请重试' });
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
@@ -206,6 +270,9 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
   function stopAi() {
     abortRef.current?.abort();
     abortRef.current = null;
+    setAiDraftValidation(source.trim()
+      ? { kind: 'checking', message: '正在重新校验当前草稿…' }
+      : { kind: 'error', message: '图表源码不能为空' });
     setAiStatus({ kind: 'idle', message: '已停止生成，当前草稿保持不变' });
   }
 
@@ -226,7 +293,7 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
   const sourceLines = source ? source.split(/\r?\n/).length : 0;
 
   return (
-    <div className="modal-backdrop mermaid-workbench-backdrop" role="presentation" onMouseDown={(event) => { if (!inactive && event.target === event.currentTarget) onClose(); }}>
+    <div className="modal-backdrop mermaid-workbench-backdrop" role="presentation" onMouseDown={(event) => { if (!inactive && event.target === event.currentTarget) requestClose(); }}>
       <section className="mermaid-workbench" role="dialog" aria-modal="true" aria-labelledby="mermaid-workbench-title">
         <header className="workbench-header">
           <span className="workbench-heading-icon"><Workflow size={20} /></span>
@@ -237,7 +304,7 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
             </div>
             <p>在画布上直接拖拽、改名和连线，AI、模板与源码作为辅助</p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭图表工作台"><X size={19} /></button>
+          <button type="button" className="icon-button" onClick={requestClose} aria-label="关闭图表工作台"><X size={19} /></button>
         </header>
 
         <div className={`workbench-main${tab === 'visual' ? ' visual-mode' : ''}`}>
@@ -263,21 +330,46 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
                     rows={6}
                     value={aiInstruction}
                     onChange={(event) => setAiInstruction(event.target.value)}
+                    disabled={aiRunning}
                     placeholder="例如：生成电商订单从创建、支付、履约到售后的完整流程，并标出超时和退款分支"
                   />
                   <label className="workbench-ai-context">
-                    <input type="checkbox" checked={aiUseCurrentSource} onChange={(event) => setAiUseCurrentSource(event.target.checked)} />
+                    <input type="checkbox" checked={aiUseCurrentSource} onChange={(event) => setAiUseCurrentSource(event.target.checked)} disabled={aiRunning} />
                     <span>基于右侧当前草稿修改</span>
                     <small>{aiUseCurrentSource ? 'AI 会尽量保留未要求改变的内容' : 'AI 将从你的描述创建一张新图'}</small>
                   </label>
                   <div className="workbench-prompt-examples">
-                    {AI_EXAMPLES.map((example) => <button key={example} type="button" onClick={() => setAiInstruction(example)}>{example}</button>)}
+                    {AI_EXAMPLES.map((example) => <button key={example} type="button" onClick={() => setAiInstruction(example)} disabled={aiRunning}>{example}</button>)}
                   </div>
                   {aiStatus.message ? (
                     <div className={`workbench-ai-status ${aiStatus.kind}`} role="status">
                       {aiStatus.kind === 'running' ? <LoaderCircle size={15} /> : aiStatus.kind === 'error' ? <CircleAlert size={15} /> : aiStatus.kind === 'success' ? <Check size={15} /> : <Bot size={15} />}
                       <span>{aiStatus.message}</span>
                     </div>
+                  ) : null}
+                  {aiStatus.kind !== 'idle' || aiReasoning ? (
+                    <section className={`workbench-ai-reasoning${aiReasoningOpen ? ' open' : ''}`}>
+                      <button
+                        type="button"
+                        className="workbench-ai-reasoning-toggle"
+                        onClick={() => setAiReasoningOpen((open) => !open)}
+                        aria-expanded={aiReasoningOpen}
+                      >
+                        <BrainCircuit size={15} />
+                        <span>
+                          <strong>AI 思考过程</strong>
+                          <small>{aiReasoning ? `已接收 ${aiReasoning.length} 个字符` : aiRunning ? '等待模型返回推理内容' : '模型未返回推理内容'}</small>
+                        </span>
+                        {aiRunning ? <LoaderCircle className="spinning" size={13} /> : aiReasoningOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                      </button>
+                      {aiReasoningOpen ? (
+                        <div className="workbench-ai-reasoning-content" aria-live="polite">
+                          {aiReasoning
+                            ? <pre>{aiReasoning}</pre>
+                            : <p>{aiRunning ? '正在等待模型提供可展示的思考过程…' : '当前模型或接口没有返回可展示的思考过程。'}</p>}
+                        </div>
+                      ) : null}
+                    </section>
                   ) : null}
                   {!configured ? (
                     <button type="button" className="workbench-configure" onClick={onOpenSettings}>先连接模型</button>
@@ -311,7 +403,7 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
 
               <div className="workbench-visual-panel" hidden={tab !== 'visual'}>
                 {graph && tab === 'visual' ? (
-                  <MermaidCanvasEditor active={tab === 'visual'} graph={graph} onChange={commitGraph} />
+                  <MermaidCanvasEditor active={tab === 'visual' && !inactive} graph={graph} onChange={commitGraph} />
                 ) : tab === 'visual' ? (
                   <section className="workbench-preview" style={{ height: '100%' }} aria-label="只读图表预览">
                     <header>
@@ -341,10 +433,47 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
           </section>
 
           {tab !== 'visual' ? (
-            <section className="workbench-preview" aria-label="图表草稿预览">
-              <header><div><span className="live-dot" /><strong>草稿预览</strong><small>{diagramKind(source)}</small></div><span>修改实时呈现</span></header>
+            <section className={`workbench-preview${tab === 'ai' && aiPreviewEditing ? ' workbench-ai-editing' : ''}`} aria-label={tab === 'ai' && aiPreviewEditing ? 'AI 图表草稿编辑器' : '图表草稿预览'}>
+              <header>
+                <div>
+                  <span className="live-dot" />
+                  <strong>{tab === 'ai' && aiPreviewEditing ? '手动编辑 AI 草稿' : '草稿预览'}</strong>
+                  <small>{tab === 'ai' && aiPreviewEditing ? `${sourceLines} 行` : diagramKind(source)}</small>
+                </div>
+                {tab === 'ai' ? (
+                  <div className="workbench-ai-preview-actions">
+                    <span>{aiRunning ? '生成完成后可编辑' : aiPreviewEditing ? '编辑内容同步到当前草稿' : '修改实时呈现'}</span>
+                    <button
+                      type="button"
+                      className="workbench-ai-mode-toggle"
+                      onClick={() => setAiPreviewEditing((value) => !value)}
+                      disabled={aiRunning}
+                    >
+                      {aiPreviewEditing ? <><Eye size={13} /> 返回预览</> : <><Pencil size={13} /> 手动编辑</>}
+                    </button>
+                  </div>
+                ) : <span>修改实时呈现</span>}
+              </header>
               <div className="workbench-preview-canvas">
-                {source.trim() ? <MermaidDiagram code={source} /> : <div className="workbench-preview-empty"><Workflow size={28} /><span>输入源码后将在这里预览</span></div>}
+                {tab === 'ai' && aiPreviewEditing ? (
+                  <div className="workbench-ai-source-editor">
+                    <div className="workbench-ai-editor-heading">
+                      <div><strong>Mermaid 源码</strong><small>{sourceLines} 行 · 修改会直接更新当前草稿</small></div>
+                      <span>切换到画布时继续编辑同一份内容</span>
+                    </div>
+                    <textarea
+                      value={source}
+                      onChange={(event) => updateDraft(event.target.value)}
+                      disabled={aiRunning}
+                      spellCheck={false}
+                      aria-label="AI 生成结果源码编辑器"
+                    />
+                    <div className={`workbench-ai-validation ${aiDraftValidation.kind}`} role="status" aria-live="polite">
+                      {aiDraftValidation.kind === 'checking' ? <LoaderCircle className="spinning" size={14} /> : aiDraftValidation.kind === 'valid' ? <Check size={14} /> : aiDraftValidation.kind === 'error' ? <CircleAlert size={14} /> : <Bot size={14} />}
+                      <div><strong>{aiDraftValidation.kind === 'checking' ? '正在校验' : aiDraftValidation.kind === 'valid' ? '语法有效' : aiDraftValidation.kind === 'error' ? '需要修正' : '等待 AI'}</strong><small>{aiDraftValidation.message}</small></div>
+                    </div>
+                  </div>
+                ) : source.trim() ? <MermaidDiagram code={source} /> : <div className="workbench-preview-empty"><Workflow size={28} /><span>输入源码后将在这里预览</span></div>}
               </div>
             </section>
           ) : null}
@@ -352,7 +481,7 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
 
         <footer className="workbench-footer">
           <div className={formError ? 'error' : ''}>{formError ? <><CircleAlert size={14} /> {formError}</> : <><Check size={14} /> 应用前会校验语法，文档不会被静默覆盖</>}</div>
-          <button type="button" className="secondary-button" onClick={onClose}>取消</button>
+          <button type="button" className="secondary-button" onClick={requestClose}>取消</button>
           <button type="button" className="confirm-button" onClick={() => void applySource()} disabled={applying || aiStatus.kind === 'running'}>{applying ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />} 应用到文档</button>
         </footer>
       </section>

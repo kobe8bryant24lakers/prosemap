@@ -46,9 +46,11 @@ import {
   OPENAI_BASE_URL,
   countReadableCharacters,
   findMermaidTarget,
+  formatMermaidFence,
   safeDocumentName,
   stripCodeFence,
   type AssistAction,
+  type MermaidTarget,
   type ModelConfig,
   type Proposal,
   type SelectionRange,
@@ -70,7 +72,7 @@ type ViewMode = 'split' | 'editor' | 'preview';
 type MermaidWorkbenchSession = {
   sourceDocument: string;
   insertAt: number;
-  target: { from: number; to: number; source: string } | null;
+  target: NonNullable<MermaidTarget> | null;
 };
 
 const editorExtensions = [markdownLanguage(), EditorView.lineWrapping];
@@ -381,13 +383,15 @@ export default function Home() {
   }
 
   function openMermaidWorkbench() {
+    openMermaidTarget(mermaidTarget);
+  }
+
+  function openMermaidTarget(target: MermaidTarget) {
     setAssistantOpen(false);
     setMermaidWorkbench({
       sourceDocument: content,
-      insertAt: selection.from,
-      target: mermaidTarget
-        ? { from: mermaidTarget.from, to: mermaidTarget.to, source: mermaidTarget.source }
-        : null,
+      insertAt: target?.from ?? selection.from,
+      target,
     });
   }
 
@@ -397,7 +401,7 @@ export default function Home() {
       showToast('error', '文档已发生变化，请重新打开图表工作台');
       return;
     }
-    const fenced = `\`\`\`mermaid\n${source.trim()}\n\`\`\``;
+    const fenced = formatMermaidFence(source, mermaidWorkbench.target);
     if (mermaidWorkbench.target) {
       replaceRange(mermaidWorkbench.target.from, mermaidWorkbench.target.to, fenced);
     } else {
@@ -438,6 +442,7 @@ export default function Home() {
       title: ACTION_LABELS[assistantAction],
       original: target.displayedOriginal,
       modified: '',
+      reasoning: '',
       sourceDocument: content,
       from: target.from,
       to: target.to,
@@ -462,12 +467,17 @@ export default function Home() {
           temperature: assistantAction === 'continue' ? 0.65 : 0.3,
           maxTokens: 4096,
         },
-        (chunk) => {
-          streamed += chunk;
-          const modified = isMermaid
-            ? `\`\`\`mermaid\n${normalizeMermaidStream(streamed)}\n\`\`\``
-            : streamed;
-          setProposal((current) => current?.id === id ? { ...current, modified } : current);
+        {
+          onContentDelta: (chunk) => {
+            streamed += chunk;
+            const modified = isMermaid
+              ? `\`\`\`mermaid\n${normalizeMermaidStream(streamed)}\n\`\`\``
+              : streamed;
+            setProposal((current) => current?.id === id ? { ...current, modified } : current);
+          },
+          onReasoningDelta: (chunk) => {
+            setProposal((current) => current?.id === id ? { ...current, reasoning: current.reasoning + chunk } : current);
+          },
         },
         controller.signal,
       );
@@ -563,7 +573,7 @@ export default function Home() {
           <button type="button" className={`rail-button ${fileExplorerOpen ? 'active' : ''}`} onClick={() => setFileExplorerOpen((open) => !open)} aria-label="本地文件" title="本地文件"><FolderOpen size={18} /></button>
           <button type="button" className="rail-button" onClick={() => openAssistant('polish')} aria-label="AI 文字助手" title="AI 文字助手"><Bot size={18} /></button>
           <button type="button" className="rail-button mermaid-rail" onClick={() => openAssistant('mermaid')} aria-label="Mermaid 智能绘图" title="Mermaid 智能绘图"><Workflow size={19} /></button>
-          <button type="button" className="rail-button diagram-workbench-rail" onClick={openMermaidWorkbench} aria-label="Mermaid 图表工作台" title="模板、源码和可视化编辑"><Braces size={18} /></button>
+          <button type="button" className="rail-button diagram-workbench-rail" onClick={openMermaidWorkbench} aria-label="Mermaid 可视化画布" title={mermaidTarget ? '编辑光标所在图表' : '新建 Mermaid 图表'}><Braces size={18} /></button>
           <span className="rail-spacer" />
           <button type="button" className="rail-button" onClick={() => setSettingsOpen(true)} aria-label="模型设置" title="模型设置"><Settings2 size={18} /></button>
         </nav>
@@ -617,7 +627,7 @@ export default function Home() {
               <button type="button" onClick={() => openAssistant('continue')}><PenLine size={14} /> 续写</button>
               <button type="button" onClick={() => openAssistant('summarize')}><TextQuote size={14} /> 总结</button>
               <button type="button" className="mermaid-quick" onClick={() => openAssistant('mermaid')}><Workflow size={14} /> 智能绘图</button>
-              <button type="button" className="mermaid-workbench-quick" onClick={openMermaidWorkbench}><Braces size={14} /> 图表工作台</button>
+              <button type="button" className="mermaid-workbench-quick" onClick={openMermaidWorkbench}><Braces size={14} /> {mermaidTarget ? '编辑当前图表' : '新建图表'}</button>
             </div>
           </header>
 
@@ -658,11 +668,11 @@ export default function Home() {
             <div className="pane-title"><span className="status-dot mint" /> 可视化预览 <small>实时</small></div>
             <div className="preview-tools">
               <span className="diagram-ready"><Workflow size={13} /> Mermaid 已启用</span>
-              <button type="button" className="diagram-workbench-chip" onClick={openMermaidWorkbench}><Braces size={13} /> 图表编辑</button>
+              <button type="button" className="diagram-workbench-chip" onClick={openMermaidWorkbench}><Braces size={13} /> 新建图表</button>
               <button type="button" className="ai-chip" onClick={() => openAssistant('custom')}><Sparkles size={13} /> AI 助手</button>
             </div>
           </header>
-          <div className="preview-scroll"><MarkdownPreview markdown={content} /></div>
+          <div className="preview-scroll"><MarkdownPreview markdown={content} onEditMermaid={openMermaidTarget} /></div>
         </section>
 
         {assistantOpen ? (
@@ -714,7 +724,7 @@ export default function Home() {
           }}
         />
       ) : null}
-      {proposal ? <DiffModal proposal={proposal} onAccept={acceptProposal} onReject={rejectProposal} onStop={stopGeneration} /> : null}
+      {proposal ? <DiffModal key={proposal.id} proposal={proposal} onAccept={acceptProposal} onReject={rejectProposal} onStop={stopGeneration} /> : null}
       {toast ? <div className={`toast ${toast.kind}`} role="status">{toast.kind === 'success' ? <Check size={15} /> : toast.kind === 'error' ? <X size={15} /> : <FileText size={15} />}{toast.message}</div> : null}
     </main>
   );

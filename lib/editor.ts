@@ -20,6 +20,7 @@ export type Proposal = {
   title: string;
   original: string;
   modified: string;
+  reasoning: string;
   sourceDocument: string;
   from: number;
   to: number;
@@ -32,6 +33,8 @@ export type MermaidTarget = {
   to: number;
   source: string;
   fenced: string;
+  linePrefix?: string;
+  lineEnding?: '\n' | '\r\n';
 } | null;
 
 export const OPENAI_BASE_URL = 'https://api.openai.com/v1';
@@ -62,7 +65,7 @@ flowchart LR
 
 - 选中一段文字，再点击左侧的 **AI 助手**。
 - 桌面端可直接打开一个 Markdown 文件，或打开包含 Markdown 的本地文件夹。
-- 把光标放进 Mermaid 代码块，用自然语言创建或修改流程图。
+- 在预览图右上角点击 **画布编辑**，可直接拖拽、缩放和修改图表。
 - 所有 AI 结果先进入差异预览，由你决定接受或拒绝。
 
 | 能力 | 状态 |
@@ -87,10 +90,42 @@ export function findMermaidTarget(markdown: string, position: number): MermaidTa
     const fenced = match[0];
     const to = from + fenced.length;
     if (position >= from && position <= to) {
-      return { from, to, source: match[1].trim(), fenced };
+      return createMermaidTarget(markdown, from, to, match[1]);
     }
   }
   return null;
+}
+
+export function createMermaidTarget(
+  markdown: string,
+  from: number,
+  to: number,
+  source: string,
+): MermaidTarget {
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to <= from || to > markdown.length) return null;
+  const fenced = markdown.slice(from, to);
+  const lineEnding = fenced.includes('\r\n') ? '\r\n' : '\n';
+  const rawLines = fenced.split(/\r?\n/);
+  const normalizedSource = source.trim();
+  const firstSourceLine = normalizedSource.split(/\r?\n/, 1)[0];
+  const firstRawContentLine = rawLines[1] ?? '';
+  let linePrefix = '';
+  if (firstSourceLine && firstRawContentLine.endsWith(firstSourceLine)) {
+    linePrefix = firstRawContentLine.slice(0, -firstSourceLine.length);
+  } else {
+    const closingLine = rawLines.at(-1) ?? '';
+    linePrefix = closingLine.match(/^(.*?)(?:`{3,}|~{3,})[\t ]*$/)?.[1] ?? '';
+  }
+  return { from, to, source: normalizedSource, fenced, linePrefix, lineEnding };
+}
+
+export function formatMermaidFence(source: string, target: MermaidTarget = null): string {
+  const lineEnding = target?.lineEnding ?? '\n';
+  const linePrefix = target?.linePrefix ?? '';
+  const sourceLines = source.trim().replace(/\r\n?/g, '\n').split('\n');
+  return ['```mermaid', ...sourceLines, '```']
+    .map((line, index) => index === 0 ? line : `${linePrefix}${line}`)
+    .join(lineEnding);
 }
 
 export function stripCodeFence(value: string): string {

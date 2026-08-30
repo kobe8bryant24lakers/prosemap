@@ -1,8 +1,8 @@
 'use client';
 
 import { diffLines } from 'diff';
-import { Check, CircleAlert, GitCompareArrows, LoaderCircle, Square, X } from 'lucide-react';
-import { useEffect, useMemo } from 'react';
+import { BrainCircuit, Check, ChevronDown, ChevronRight, CircleAlert, GitCompareArrows, LoaderCircle, Square, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Proposal } from '@/lib/editor';
 
 type DiffModalProps = {
@@ -13,6 +13,7 @@ type DiffModalProps = {
 };
 
 export default function DiffModal({ proposal, onAccept, onReject, onStop }: DiffModalProps) {
+  const [reasoningOpen, setReasoningOpen] = useState(true);
   const changes = useMemo(() => diffLines(proposal.original, proposal.modified), [proposal.original, proposal.modified]);
   const stats = useMemo(() => {
     let added = 0;
@@ -37,6 +38,8 @@ export default function DiffModal({ proposal, onAccept, onReject, onStop }: Diff
     return () => window.removeEventListener('keydown', handleKeydown);
   }, [onReject, onStop, proposal.status]);
 
+  const reasoning = proposal.reasoning.trim();
+
   return (
     <div className="modal-backdrop diff-backdrop" role="presentation">
       <section className="diff-modal" role="dialog" aria-modal="true" aria-labelledby="diff-title">
@@ -56,6 +59,19 @@ export default function DiffModal({ proposal, onAccept, onReject, onStop }: Diff
           <span>原文</span><span className="diff-arrow">→</span><span>建议版本</span>
           <span className="diff-stats"><b>+{stats.added}</b><i>−{stats.removed}</i></span>
         </div>
+
+        <section className={`reasoning-panel${reasoningOpen ? ' open' : ''}`}>
+          <button type="button" className="reasoning-toggle" onClick={() => setReasoningOpen((open) => !open)} aria-expanded={reasoningOpen}>
+            <BrainCircuit size={16} />
+            <span><strong>AI 思考过程</strong><small>{reasoning ? `已接收 ${reasoning.length} 个字符` : proposal.status === 'streaming' ? '等待模型返回推理内容' : '模型未返回推理内容'}</small></span>
+            {proposal.status === 'streaming' ? <LoaderCircle className="spinning" size={14} /> : reasoningOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+          {reasoningOpen ? (
+            <div className="reasoning-content" aria-live="polite">
+              {reasoning ? <pre>{reasoning}</pre> : <p>{proposal.status === 'streaming' ? '正在等待模型提供可展示的思考过程…' : '当前模型或接口没有返回可展示的思考过程。'}</p>}
+            </div>
+          ) : null}
+        </section>
 
         <div className="diff-content" aria-live="polite">
           {proposal.status === 'error' && !proposal.modified ? (

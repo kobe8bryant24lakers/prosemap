@@ -175,7 +175,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .diagram-actions { display: flex; gap: 2px; }
 .diagram-actions button { width: 26px; height: 25px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
 .diagram-actions button:hover { background: #e9f1ec; color: var(--green); }
+.diagram-actions .diagram-edit-action { width: auto; display: inline-flex; gap: 5px; padding: 0 8px; border: 1px solid #c6ddcf; background: var(--green-soft); color: var(--green); font-size: 9.5px; font-weight: 760; }
+.diagram-actions .diagram-edit-action:hover { border-color: #8fbea7; background: #dff0e7; }
+.diagram-actions .diagram-zoom-value { width: 42px; color: #607169; font-size: 8.5px; font-weight: 750; }
 .mermaid-canvas { min-height: 220px; max-height: 610px; display: block; overflow: auto; padding: 30px; background-color: #fff; background-image: radial-gradient(#dbe5df 0.6px, transparent 0.6px); background-size: 14px 14px; }
+.mermaid-canvas.editable { cursor: pointer; }
 .mermaid-svg { width: max-content; min-width: 100%; display: block; transform-origin: top center; transition: transform .16s ease; }
 .mermaid-svg > svg { max-width: none!important; height: auto; display: block; margin: 0 auto; }
 .mermaid-loading { min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 11px; color: var(--muted); font-size: 10px; }
@@ -275,6 +279,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .stream-badge svg { animation: spin .8s linear infinite; }
 .diff-meta { height: 37px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 17px; border-bottom: 1px solid var(--line); background: #fafbfa; color: var(--muted); font-size: 8px; font-weight: 720; }
 .diff-arrow { color: #a6afaa; }.diff-stats { margin-left: auto; display: flex; gap: 8px; }.diff-stats b { color: #237354; }.diff-stats i { color: var(--red); font-style: normal; font-weight: 750; }
+.reasoning-panel { flex: none; border-bottom: 1px solid var(--line); background: #f8fbf9; }
+.reasoning-toggle { width: 100%; min-height: 43px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 7px 17px; border: 0; background: transparent; color: #587066; text-align: left; }
+.reasoning-toggle:hover { background: #f0f6f2; }
+.reasoning-toggle > svg:first-child { color: var(--green); }
+.reasoning-toggle > span { min-width: 0; display: flex; flex-direction: column; }
+.reasoning-toggle strong { color: var(--ink-soft); font-size: 10px; }
+.reasoning-toggle small { margin-top: 2px; overflow: hidden; color: var(--muted-light); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
+.reasoning-content { max-height: 150px; overflow: auto; padding: 0 17px 12px 42px; }
+.reasoning-content pre { margin: 0; color: #50645a; white-space: pre-wrap; overflow-wrap: anywhere; font: 10.5px/1.65 "SFMono-Regular", Consolas, monospace; }
+.reasoning-content p { margin: 0; color: var(--muted-light); font-size: 9.5px; }
 .diff-content { min-height: 0; flex: 1; overflow: auto; background: #f7f9f7; }
 .diff-content pre { min-height: 100%; margin: 0; padding: 15px 0 32px; white-space: pre-wrap; overflow-wrap: anywhere; font: 10.5px/1.7 "SFMono-Regular", Consolas, monospace; }
 .diff-line { min-height: 20px; display: grid; grid-template-columns: 28px 1fr; padding: 1px 16px 1px 0; color: #49584f; }

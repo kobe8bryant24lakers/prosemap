@@ -3,25 +3,15 @@
 import { FileText } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { createMermaidTarget, type MermaidTarget } from '@/lib/editor';
 import MermaidDiagram from './MermaidDiagram';
 
 type MarkdownPreviewProps = {
   markdown: string;
+  onEditMermaid?: (target: NonNullable<MermaidTarget>) => void;
 };
 
-const components: Components = {
-  a({ children, ...props }) {
-    return <a {...props} target="_blank" rel="noreferrer noopener">{children}</a>;
-  },
-  code({ className, children, ...props }) {
-    const language = /language-([^\s]+)/.exec(className ?? '')?.[1]?.toLowerCase();
-    const value = String(children).replace(/\n$/, '');
-    if (language === 'mermaid') return <MermaidDiagram code={value} />;
-    return <code className={className} {...props}>{children}</code>;
-  },
-};
-
-export default function MarkdownPreview({ markdown }: MarkdownPreviewProps) {
+export default function MarkdownPreview({ markdown, onEditMermaid }: MarkdownPreviewProps) {
   if (!markdown.trim()) {
     return (
       <div className="preview-empty">
@@ -31,6 +21,30 @@ export default function MarkdownPreview({ markdown }: MarkdownPreviewProps) {
       </div>
     );
   }
+
+  const components: Components = {
+    a({ children, ...props }) {
+      return <a {...props} target="_blank" rel="noreferrer noopener">{children}</a>;
+    },
+    code({ className, children, node, ...props }) {
+      const language = /language-([^\s]+)/.exec(className ?? '')?.[1]?.toLowerCase();
+      const value = String(children).replace(/\n$/, '');
+      if (language === 'mermaid') {
+        const from = node?.position?.start.offset;
+        const to = node?.position?.end.offset;
+        const target = typeof from === 'number' && typeof to === 'number'
+          ? createMermaidTarget(markdown, from, to, value)
+          : null;
+        return (
+          <MermaidDiagram
+            code={value}
+            onEdit={target && onEditMermaid ? () => onEditMermaid(target) : undefined}
+          />
+        );
+      }
+      return <code className={className} {...props}>{children}</code>;
+    },
+  };
 
   return (
     <article className="markdown-body">

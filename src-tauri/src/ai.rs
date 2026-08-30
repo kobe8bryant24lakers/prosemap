@@ -46,9 +46,24 @@ pub struct AiRequest {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum AiEvent {
-    Delta { text: String },
+    Delta {
+        text: String,
+    },
+    #[serde(rename = "reasoning_delta")]
+    ReasoningDelta {
+        text: String,
+    },
     Done,
-    Error { message: String },
+    Error {
+        message: String,
+    },
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct AiResponseDelta {
+    text: String,
+    reasoning: String,
+    done: bool,
 }
 
 fn validate_request(request: &AiRequest) -> Result<(), String> {
@@ -322,14 +337,7 @@ fn request_error_message(error: &reqwest::Error, endpoint: &Url, api_key: &str) 
     redact_and_limit(&message, api_key)
 }
 
-fn extract_openai_text(payload: &Value) -> String {
-    let Some(content) = payload.pointer("/choices/0/delta/content") else {
-        return payload
-            .pointer("/choices/0/text")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-    };
+fn extract_text_content(content: &Value) -> String {
     if let Some(text) = content.as_str() {
         return text.to_string();
     }
@@ -339,6 +347,75 @@ fn extract_openai_text(payload: &Value) -> String {
         .flatten()
         .filter_map(|part| part.get("text").and_then(Value::as_str))
         .collect()
+}
+
+fn extract_openai_text(payload: &Value) -> String {
+    payload
+        .pointer("/choices/0/delta/content")
+        .map(extract_text_content)
+        .unwrap_or_else(|| {
+            payload
+                .pointer("/choices/0/text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        })
+}
+
+fn extract_display_text(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Array(parts) => parts.iter().map(extract_display_text).collect(),
+        _ => String::new(),
+    }
+}
+
+fn extract_reasoning_detail(value: &Value) -> String {
+    match value {
+        Value::Object(detail) => {
+            let kind = detail
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let allowed_keys: &[&str] = match kind.as_str() {
+                "reasoning.text" | "text" => &["text"],
+                "reasoning.summary" | "summary" => &["summary"],
+                "" => &["text", "summary"],
+                _ => return String::new(),
+            };
+            allowed_keys
+                .iter()
+                .filter_map(|key| detail.get(*key))
+                .map(extract_display_text)
+                .find(|text| !text.is_empty())
+                .unwrap_or_default()
+        }
+        _ => String::new(),
+    }
+}
+
+fn extract_reasoning_details(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Array(parts) => parts.iter().map(extract_reasoning_detail).collect(),
+        Value::Object(_) => extract_reasoning_detail(value),
+        _ => String::new(),
+    }
+}
+
+fn extract_openai_reasoning(container: &Value) -> String {
+    for key in ["reasoning_content", "reasoning"] {
+        if let Some(text) = container.get(key).and_then(Value::as_str) {
+            if !text.is_empty() {
+                return text.to_string();
+            }
+        }
+    }
+    container
+        .get("reasoning_details")
+        .map(extract_reasoning_details)
+        .unwrap_or_default()
 }
 
 fn extract_anthropic_text(payload: &Value) -> String {
@@ -352,9 +429,39 @@ fn extract_anthropic_text(payload: &Value) -> String {
         .to_string()
 }
 
-fn parse_sse_data(provider: Provider, data: &str) -> Result<(String, bool), String> {
+fn extract_anthropic_reasoning(payload: &Value) -> String {
+    match payload.get("type").and_then(Value::as_str) {
+        Some("content_block_delta")
+            if payload.pointer("/delta/type").and_then(Value::as_str) == Some("thinking_delta") =>
+        {
+            payload
+                .pointer("/delta/thinking")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        }
+        Some("content_block_start")
+            if payload
+                .pointer("/content_block/type")
+                .and_then(Value::as_str)
+                == Some("thinking") =>
+        {
+            payload
+                .pointer("/content_block/thinking")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        }
+        _ => String::new(),
+    }
+}
+
+fn parse_sse_data(provider: Provider, data: &str) -> Result<AiResponseDelta, String> {
     if data.trim() == "[DONE]" {
-        return Ok((String::new(), true));
+        return Ok(AiResponseDelta {
+            done: true,
+            ..Default::default()
+        });
     }
     let payload: Value =
         serde_json::from_str(data).map_err(|_| "模型返回了无效的流式数据".to_string())?;
@@ -374,29 +481,163 @@ fn parse_sse_data(provider: Provider, data: &str) -> Result<(String, bool), Stri
             .is_some_and(|value| !value.is_null()),
         Provider::Anthropic => payload.get("type").and_then(Value::as_str) == Some("message_stop"),
     };
-    let text = match provider {
-        Provider::Openai => extract_openai_text(&payload),
-        Provider::Anthropic => extract_anthropic_text(&payload),
+    let (text, reasoning) = match provider {
+        Provider::Openai => (
+            extract_openai_text(&payload),
+            payload
+                .pointer("/choices/0/delta")
+                .map(extract_openai_reasoning)
+                .unwrap_or_default(),
+        ),
+        Provider::Anthropic => (
+            extract_anthropic_text(&payload),
+            extract_anthropic_reasoning(&payload),
+        ),
     };
-    Ok((text, done))
+    Ok(AiResponseDelta {
+        text,
+        reasoning,
+        done,
+    })
 }
 
-fn extract_non_streaming_text(provider: Provider, payload: &Value) -> String {
+fn extract_non_streaming_content(provider: Provider, payload: &Value) -> AiResponseDelta {
     match provider {
-        Provider::Openai => payload
-            .pointer("/choices/0/message/content")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        Provider::Anthropic => payload
-            .get("content")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(|part| part.get("type").and_then(Value::as_str) == Some("text"))
-            .filter_map(|part| part.get("text").and_then(Value::as_str))
-            .collect(),
+        Provider::Openai => {
+            let message = payload.pointer("/choices/0/message");
+            AiResponseDelta {
+                text: message
+                    .and_then(|value| value.get("content"))
+                    .map(extract_text_content)
+                    .unwrap_or_default(),
+                reasoning: message.map(extract_openai_reasoning).unwrap_or_default(),
+                done: true,
+            }
+        }
+        Provider::Anthropic => {
+            let content = payload.get("content").and_then(Value::as_array);
+            AiResponseDelta {
+                text: content
+                    .into_iter()
+                    .flatten()
+                    .filter(|part| part.get("type").and_then(Value::as_str) == Some("text"))
+                    .filter_map(|part| part.get("text").and_then(Value::as_str))
+                    .collect(),
+                reasoning: content
+                    .into_iter()
+                    .flatten()
+                    .filter(|part| part.get("type").and_then(Value::as_str) == Some("thinking"))
+                    .filter_map(|part| part.get("thinking").and_then(Value::as_str))
+                    .collect(),
+                done: true,
+            }
+        }
     }
+}
+
+fn normalized_model_name(model: &str) -> String {
+    model
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+fn anthropic_thinking_config(model: &str, max_tokens: u32) -> Option<Value> {
+    let model = normalized_model_name(model);
+    if !model.contains("claude") {
+        return None;
+    }
+
+    let adaptive = [
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
+        "claude-4-6",
+        "claude-opus-4-7",
+        "claude-sonnet-4-7",
+        "claude-4-7",
+        "claude-opus-4-8",
+        "claude-sonnet-4-8",
+        "claude-4-8",
+        "claude-opus-5",
+        "claude-sonnet-5",
+        "claude-fable-5",
+        "claude-mythos",
+    ]
+    .iter()
+    .any(|marker| model.contains(marker));
+    if adaptive {
+        return Some(json!({ "type": "adaptive" }));
+    }
+
+    let manual = model.contains("claude-3-7")
+        || model.contains("claude-opus-4-")
+        || model.contains("claude-sonnet-4-")
+        || model.contains("claude-haiku-4-")
+        || model.contains("claude-4-");
+    if manual && max_tokens > 1_024 {
+        return Some(json!({
+            "type": "enabled",
+            "budget_tokens": 1_024,
+        }));
+    }
+
+    None
+}
+
+fn build_request_body(request: &AiRequest) -> Value {
+    match request.provider {
+        Provider::Openai => json!({
+            "model": request.model.as_str(),
+            "stream": true,
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens,
+            "messages": [
+                { "role": "system", "content": request.system.as_str() },
+                { "role": "user", "content": request.prompt.as_str() }
+            ]
+        }),
+        Provider::Anthropic => {
+            let mut body = json!({
+                "model": request.model.as_str(),
+                "stream": true,
+                "max_tokens": request.max_tokens,
+                "system": request.system.as_str(),
+                "messages": [{ "role": "user", "content": request.prompt.as_str() }]
+            });
+            if let Some(thinking) =
+                anthropic_thinking_config(request.model.as_str(), request.max_tokens)
+            {
+                body.as_object_mut()
+                    .expect("Anthropic request body must be an object")
+                    .insert("thinking".to_string(), thinking);
+            }
+            body
+        }
+    }
+}
+
+fn send_response_delta(channel: &Channel<AiEvent>, delta: AiResponseDelta) -> Result<bool, String> {
+    if !delta.reasoning.is_empty() {
+        channel
+            .send(AiEvent::ReasoningDelta {
+                text: delta.reasoning,
+            })
+            .map_err(|_| "无法向编辑器传递模型推理".to_string())?;
+    }
+    if !delta.text.is_empty() {
+        channel
+            .send(AiEvent::Delta { text: delta.text })
+            .map_err(|_| "无法向编辑器传递模型响应".to_string())?;
+    }
+    Ok(delta.done)
 }
 
 async fn read_limited_body(
@@ -440,26 +681,7 @@ async fn execute_stream(
         .build()
         .map_err(|error| request_error_message(&error, &endpoint, request.api_key.trim()))?;
 
-    let body = match request.provider {
-        Provider::Openai => json!({
-            "model": request.model.as_str(),
-            "stream": true,
-            "temperature": request.temperature,
-            "max_tokens": request.max_tokens,
-            "messages": [
-                { "role": "system", "content": request.system.as_str() },
-                { "role": "user", "content": request.prompt.as_str() }
-            ]
-        }),
-        Provider::Anthropic => json!({
-            "model": request.model.as_str(),
-            "stream": true,
-            "temperature": request.temperature,
-            "max_tokens": request.max_tokens,
-            "system": request.system.as_str(),
-            "messages": [{ "role": "user", "content": request.prompt.as_str() }]
-        }),
-    };
+    let body = build_request_body(request);
 
     let mut builder = client
         .post(endpoint.clone())
@@ -523,15 +745,13 @@ async fn execute_stream(
                 "模型服务返回了无法识别的内容（Content-Type: {response_content_type}）。请检查 API 地址与服务类型。请求地址：{endpoint}"
             )
         })?;
-        let text = extract_non_streaming_text(request.provider, &payload);
-        if text.is_empty() {
+        let delta = extract_non_streaming_content(request.provider, &payload);
+        if delta.text.is_empty() {
             return Err(format!(
                 "模型服务返回了空内容或不兼容的响应格式。请检查服务类型与模型接口。请求地址：{endpoint}"
             ));
         }
-        channel
-            .send(AiEvent::Delta { text })
-            .map_err(|_| "无法向编辑器传递模型响应".to_string())?;
+        send_response_delta(channel, delta)?;
         channel
             .send(AiEvent::Done)
             .map_err(|_| "无法完成模型响应".to_string())?;
@@ -579,13 +799,8 @@ async fn execute_stream(
                 }
                 let data = event_data.join("\n");
                 event_data.clear();
-                let (text, done) = parse_sse_data(request.provider, &data)?;
-                if !text.is_empty() {
-                    channel
-                        .send(AiEvent::Delta { text })
-                        .map_err(|_| "无法向编辑器传递模型响应".to_string())?;
-                }
-                completed |= done;
+                let delta = parse_sse_data(request.provider, &data)?;
+                completed |= send_response_delta(channel, delta)?;
             } else if let Some(data) = line.strip_prefix("data:") {
                 event_data.push(data.trim_start().to_string());
             }
@@ -601,13 +816,8 @@ async fn execute_stream(
             }
         }
         if !event_data.is_empty() {
-            let (text, done) = parse_sse_data(request.provider, &event_data.join("\n"))?;
-            if !text.is_empty() {
-                channel
-                    .send(AiEvent::Delta { text })
-                    .map_err(|_| "无法向编辑器传递模型响应".to_string())?;
-            }
-            completed |= done;
+            let delta = parse_sse_data(request.provider, &event_data.join("\n"))?;
+            completed |= send_response_delta(channel, delta)?;
         }
     }
 
@@ -667,6 +877,60 @@ pub fn cancel_ai(request_id: String, state: State<'_, AiState>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn request_for(provider: Provider, model: &str, max_tokens: u32) -> AiRequest {
+        AiRequest {
+            request_id: "test-request".to_string(),
+            provider,
+            base_url: "https://api.example.com/v1".to_string(),
+            model: model.to_string(),
+            api_key: "test-key".to_string(),
+            system: "System instruction".to_string(),
+            prompt: "User prompt".to_string(),
+            temperature: 0.3,
+            max_tokens,
+        }
+    }
+
+    #[test]
+    fn builds_provider_compatible_reasoning_requests() {
+        let openai = build_request_body(&request_for(Provider::Openai, "gpt-5", 4_096));
+        assert_eq!(openai.get("temperature"), Some(&json!(0.3)));
+        assert!(openai.get("thinking").is_none());
+
+        let adaptive =
+            build_request_body(&request_for(Provider::Anthropic, "claude-opus-4-7", 4_096));
+        assert!(adaptive.get("temperature").is_none());
+        assert_eq!(adaptive.pointer("/thinking/type"), Some(&json!("adaptive")));
+        assert!(adaptive.pointer("/thinking/budget_tokens").is_none());
+
+        let manual = build_request_body(&request_for(
+            Provider::Anthropic,
+            "claude-sonnet-4-5-20250929",
+            4_096,
+        ));
+        assert!(manual.get("temperature").is_none());
+        assert_eq!(manual.pointer("/thinking/type"), Some(&json!("enabled")));
+        assert_eq!(
+            manual.pointer("/thinking/budget_tokens"),
+            Some(&json!(1_024))
+        );
+
+        let compatible_alias = build_request_body(&request_for(
+            Provider::Anthropic,
+            "vendor-reasoning-model",
+            4_096,
+        ));
+        assert!(compatible_alias.get("temperature").is_none());
+        assert!(compatible_alias.get("thinking").is_none());
+
+        let insufficient_budget = build_request_body(&request_for(
+            Provider::Anthropic,
+            "claude-3-7-sonnet",
+            1_024,
+        ));
+        assert!(insufficient_budget.get("thinking").is_none());
+    }
 
     #[test]
     fn resolves_provider_endpoints_without_doubling_suffixes() {
@@ -794,25 +1058,128 @@ mod tests {
 
     #[test]
     fn parses_openai_and_anthropic_stream_events() {
-        let (text, done) = parse_sse_data(
+        let delta = parse_sse_data(
             Provider::Openai,
             r#"{"choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}"#,
         )
         .expect("OpenAI event");
-        assert_eq!(text, "Hello");
-        assert!(!done);
-        let (text, done) = parse_sse_data(
+        assert_eq!(delta.text, "Hello");
+        assert_eq!(delta.reasoning, "");
+        assert!(!delta.done);
+        let delta = parse_sse_data(
             Provider::Anthropic,
             r#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"Map"}}"#,
         )
         .expect("Anthropic event");
-        assert_eq!(text, "Map");
-        assert!(!done);
+        assert_eq!(delta.text, "Map");
+        assert_eq!(delta.reasoning, "");
+        assert!(!delta.done);
         assert!(
             parse_sse_data(Provider::Openai, "[DONE]")
                 .expect("done event")
-                .1
+                .done
         );
+    }
+
+    #[test]
+    fn parses_openai_reasoning_variants_without_exposing_private_details() {
+        let content = parse_sse_data(
+            Provider::Openai,
+            r#"{"choices":[{"delta":{"reasoning_content":"先分析输入"},"finish_reason":null}]}"#,
+        )
+        .expect("reasoning_content event");
+        assert_eq!(content.reasoning, "先分析输入");
+        assert!(content.text.is_empty());
+
+        let reasoning = parse_sse_data(
+            Provider::Openai,
+            r#"{"choices":[{"delta":{"reasoning":"再检查结果"},"finish_reason":null}]}"#,
+        )
+        .expect("reasoning event");
+        assert_eq!(reasoning.reasoning, "再检查结果");
+
+        let string_details = parse_sse_data(
+            Provider::Openai,
+            r#"{"choices":[{"delta":{"reasoning_details":"字符串推理"},"finish_reason":null}]}"#,
+        )
+        .expect("string reasoning_details event");
+        assert_eq!(string_details.reasoning, "字符串推理");
+
+        let secret = "sk-private-reasoning-signature";
+        let details = parse_sse_data(
+            Provider::Openai,
+            &format!(
+                r#"{{"choices":[{{"delta":{{"reasoning_details":[{{"type":"reasoning.text","text":"可展示步骤"}},{{"type":"reasoning.encrypted","data":"{secret}","signature":"{secret}"}},{{"type":"reasoning.summary","summary":"与摘要"}}]}},"finish_reason":null}}]}}"#
+            ),
+        )
+        .expect("reasoning_details event");
+        assert_eq!(details.reasoning, "可展示步骤与摘要");
+        assert!(!details.reasoning.contains(secret));
+
+        let opaque_details = parse_sse_data(
+            Provider::Openai,
+            &format!(
+                r#"{{"choices":[{{"delta":{{"reasoning_details":["{secret}",{{"content":"{secret}"}},{{"type":"reasoning.encrypted","text":"{secret}"}}]}}}}]}}"#
+            ),
+        )
+        .expect("opaque reasoning details event");
+        assert!(opaque_details.reasoning.is_empty());
+        let serialized = serde_json::to_string(&AiEvent::ReasoningDelta {
+            text: details.reasoning.clone(),
+        })
+        .expect("serialize safe reasoning details");
+        assert!(!serialized.contains(secret));
+
+        let non_streaming = extract_non_streaming_content(
+            Provider::Openai,
+            &json!({
+                "choices": [{
+                    "message": {
+                        "content": "最终答案",
+                        "reasoning_content": "非流式推理"
+                    }
+                }]
+            }),
+        );
+        assert_eq!(non_streaming.text, "最终答案");
+        assert_eq!(non_streaming.reasoning, "非流式推理");
+    }
+
+    #[test]
+    fn parses_anthropic_thinking_deltas_and_content_blocks() {
+        let thinking = parse_sse_data(
+            Provider::Anthropic,
+            r#"{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"分析问题"}}"#,
+        )
+        .expect("thinking delta");
+        assert_eq!(thinking.reasoning, "分析问题");
+        assert!(thinking.text.is_empty());
+
+        let start = parse_sse_data(
+            Provider::Anthropic,
+            r#"{"type":"content_block_start","content_block":{"type":"thinking","thinking":"建立计划"}}"#,
+        )
+        .expect("thinking content block");
+        assert_eq!(start.reasoning, "建立计划");
+
+        let signature = parse_sse_data(
+            Provider::Anthropic,
+            r#"{"type":"content_block_delta","delta":{"type":"signature_delta","signature":"private-signature"}}"#,
+        )
+        .expect("signature delta");
+        assert!(signature.reasoning.is_empty());
+
+        let non_streaming = extract_non_streaming_content(
+            Provider::Anthropic,
+            &json!({
+                "content": [
+                    { "type": "thinking", "thinking": "验证结论" },
+                    { "type": "text", "text": "最终答案" }
+                ]
+            }),
+        );
+        assert_eq!(non_streaming.reasoning, "验证结论");
+        assert_eq!(non_streaming.text, "最终答案");
     }
 
     #[test]
@@ -822,6 +1189,14 @@ mod tests {
         })
         .expect("serialize delta");
         assert_eq!(delta, json!({ "type": "delta", "text": "hello" }));
+        let reasoning_delta = serde_json::to_value(AiEvent::ReasoningDelta {
+            text: "consider this".into(),
+        })
+        .expect("serialize reasoning delta");
+        assert_eq!(
+            reasoning_delta,
+            json!({ "type": "reasoning_delta", "text": "consider this" })
+        );
         let error = serde_json::to_value(AiEvent::Error {
             message: "failed".into(),
         })

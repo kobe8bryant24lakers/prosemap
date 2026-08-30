@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { createMermaidTarget, findMermaidTarget, formatMermaidFence } from '../lib/editor.ts';
 import {
   MERMAID_TEMPLATES,
   parseMermaidVisualSource,
@@ -30,6 +31,155 @@ function requireParsed(source, context) {
   assert.ok(graph, `${context} should be visually editable`);
   return graph;
 }
+
+test('cursor offsets select the correct Mermaid fence when identical diagrams repeat', () => {
+  const repeatedSource = 'flowchart LR\n  A[相同源码] --> B[相同结果]';
+  const repeatedFence = `\`\`\`mermaid\n${repeatedSource}\n\`\`\``;
+  const ignoredFence = `\`\`\`text\n${repeatedSource}\n\`\`\``;
+  const markdown = [
+    '# 多图文档',
+    '第一张图前的说明。',
+    repeatedFence,
+    '中间包含相同内容的普通代码块：',
+    ignoredFence,
+    '第二张图前的说明。',
+    repeatedFence,
+    '文档结束。',
+  ].join('\n\n');
+
+  const firstFrom = markdown.indexOf(repeatedFence);
+  const secondFrom = markdown.indexOf(repeatedFence, firstFrom + repeatedFence.length);
+  assert.ok(firstFrom >= 0);
+  assert.ok(secondFrom > firstFrom);
+
+  const firstCursor = firstFrom + repeatedFence.indexOf('A[相同源码]') + 3;
+  const secondCursor = secondFrom + repeatedFence.indexOf('A[相同源码]') + 3;
+  const firstTarget = findMermaidTarget(markdown, firstCursor);
+  const secondTarget = findMermaidTarget(markdown, secondCursor);
+
+  assert.deepEqual(firstTarget, {
+    from: firstFrom,
+    to: firstFrom + repeatedFence.length,
+    source: repeatedSource,
+    fenced: repeatedFence,
+    linePrefix: '',
+    lineEnding: '\n',
+  });
+  assert.deepEqual(secondTarget, {
+    from: secondFrom,
+    to: secondFrom + repeatedFence.length,
+    source: repeatedSource,
+    fenced: repeatedFence,
+    linePrefix: '',
+    lineEnding: '\n',
+  });
+  assert.notEqual(firstTarget.from, secondTarget.from, 'identical source must still resolve to distinct document ranges');
+
+  const betweenDiagrams = markdown.indexOf('第二张图前的说明') + 2;
+  assert.equal(findMermaidTarget(markdown, betweenDiagrams), null);
+});
+
+test('editing a repeated Mermaid fence replaces only the target selected by offset', () => {
+  const repeatedSource = 'sequenceDiagram\n  Alice->>Bob: 相同消息';
+  const repeatedFence = `\`\`\`mermaid\n${repeatedSource}\n\`\`\``;
+  const markdown = `开头\n\n${repeatedFence}\n\n分隔内容\n\n${repeatedFence}\n\n结尾`;
+  const firstFrom = markdown.indexOf(repeatedFence);
+  const secondFrom = markdown.indexOf(repeatedFence, firstFrom + repeatedFence.length);
+  const secondCursor = secondFrom + repeatedFence.indexOf('Alice->>Bob') + 1;
+  const target = findMermaidTarget(markdown, secondCursor);
+  assert.ok(target, 'the cursor inside the second fence should find a target');
+  assert.equal(target.from, secondFrom);
+
+  const replacementSource = 'sequenceDiagram\n  Alice->>Bob: 仅修改第二张\n  Bob-->>Alice: 已确认';
+  const replacementFence = `\`\`\`mermaid\n${replacementSource}\n\`\`\``;
+  const updated = markdown.slice(0, target.from) + replacementFence + markdown.slice(target.to);
+  const expected = `开头\n\n${repeatedFence}\n\n分隔内容\n\n${replacementFence}\n\n结尾`;
+
+  assert.equal(updated, expected);
+  assert.equal(updated.slice(firstFrom, firstFrom + repeatedFence.length), repeatedFence, 'the first identical fence must remain byte-for-byte unchanged');
+  assert.equal(findMermaidTarget(updated, firstFrom + repeatedFence.indexOf('Alice->>Bob') + 1)?.source, repeatedSource);
+  assert.equal(findMermaidTarget(updated, secondFrom + replacementFence.indexOf('仅修改第二张') + 1)?.source, replacementSource);
+});
+
+test('preview offsets preserve blockquote and list containers when a Mermaid fence is replaced', () => {
+  const cases = [
+    {
+      name: 'blockquote',
+      lineEnding: '\n',
+      linePrefix: '> ',
+      source: 'flowchart LR\n  A-->B',
+      replacement: 'flowchart TD\n  A-->C\n  C-->D',
+      markdown: [
+        '> ```mermaid',
+        '> flowchart LR',
+        '>   A-->B',
+        '> ```',
+        '',
+        'After',
+      ].join('\n'),
+      expected: [
+        '> ```mermaid',
+        '> flowchart TD',
+        '>   A-->C',
+        '>   C-->D',
+        '> ```',
+        '',
+        'After',
+      ].join('\n'),
+    },
+    {
+      name: 'ordered list with CRLF',
+      lineEnding: '\r\n',
+      linePrefix: '   ',
+      source: 'sequenceDiagram\n  Alice->>Bob: old',
+      replacement: 'sequenceDiagram\n  Alice->>Bob: updated\n  Bob-->>Alice: done',
+      markdown: [
+        '1. ```mermaid',
+        '   sequenceDiagram',
+        '     Alice->>Bob: old',
+        '   ```',
+        '',
+        'After',
+      ].join('\r\n'),
+      expected: [
+        '1. ```mermaid',
+        '   sequenceDiagram',
+        '     Alice->>Bob: updated',
+        '     Bob-->>Alice: done',
+        '   ```',
+        '',
+        'After',
+      ].join('\r\n'),
+    },
+  ];
+
+  for (const entry of cases) {
+    const from = entry.markdown.indexOf('```mermaid');
+    const closing = entry.markdown.indexOf('```', from + '```mermaid'.length);
+    const to = closing + 3;
+    const target = createMermaidTarget(entry.markdown, from, to, entry.source);
+    assert.ok(target, `${entry.name} should create an editable target`);
+    assert.equal(target.linePrefix, entry.linePrefix);
+    assert.equal(target.lineEnding, entry.lineEnding);
+    const fenced = formatMermaidFence(entry.replacement, target);
+    const updated = entry.markdown.slice(0, target.from) + fenced + entry.markdown.slice(target.to);
+    assert.equal(updated, entry.expected, `${entry.name} container syntax must remain intact`);
+  }
+});
+
+test('cursor targeting preserves CRLF when a Mermaid fence is replaced', () => {
+  const source = 'flowchart LR\r\n  A-->B';
+  const markdown = `Before\r\n\r\n\`\`\`mermaid\r\n${source}\r\n\`\`\`\r\n\r\nAfter`;
+  const cursor = markdown.indexOf('A-->B') + 1;
+  const target = findMermaidTarget(markdown, cursor);
+  assert.ok(target);
+  assert.equal(target.lineEnding, '\r\n');
+
+  const fenced = formatMermaidFence('flowchart TD\n  A-->C', target);
+  const updated = markdown.slice(0, target.from) + fenced + markdown.slice(target.to);
+  assert.equal(updated, 'Before\r\n\r\n```mermaid\r\nflowchart TD\r\n  A-->C\r\n```\r\n\r\nAfter');
+  assert.equal(updated.replace(/\r\n/g, '').includes('\n'), false, 'the updated document must not introduce lone LF line endings');
+});
 
 test('all nine Mermaid templates survive a parse and serialize round trip', async (t) => {
   assert.equal(MERMAID_TEMPLATES.length, EXPECTED_TEMPLATE_KINDS.size);

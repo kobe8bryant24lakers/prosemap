@@ -9,6 +9,7 @@ import {
   Database,
   Diamond,
   Link2,
+  Maximize2,
   MousePointer2,
   Pencil,
   Plus,
@@ -39,6 +40,24 @@ import {
   type MermaidFlowNode,
   type MermaidNodeShape,
 } from '@/lib/mermaid-workbench';
+import {
+  graphLayoutSignature,
+  graphNodeGeometrySignature,
+  layoutMermaidGraph,
+  mermaidCanvasFitZoom,
+  mermaidCanvasLayoutBounds,
+  mermaidCanvasNodeSize,
+  mermaidSequenceMessageVisual,
+  MERMAID_STAGE_PADDING,
+  MIN_MERMAID_CANVAS_ZOOM,
+  MIN_MERMAID_STAGE_HEIGHT,
+  MIN_MERMAID_STAGE_WIDTH,
+  type MermaidCanvasEdgeRoute,
+  type MermaidCanvasLayout,
+  type MermaidCanvasNodePositions,
+  type MermaidCanvasPoint,
+  type MermaidSequenceMessageMarker,
+} from '@/lib/mermaid-canvas-layout';
 
 type MermaidCanvasEditorProps = {
   active?: boolean;
@@ -46,16 +65,49 @@ type MermaidCanvasEditorProps = {
   onChange: (graph: MermaidFlowGraph) => void;
 };
 
-type Point = { x: number; y: number };
-type NodePositions = Record<string, Point>;
+type Point = MermaidCanvasPoint;
+type NodePositions = MermaidCanvasNodePositions;
+
+function safeCanvasRecord<T>(source?: Record<string, T>): Record<string, T> {
+  return Object.assign(Object.create(null) as Record<string, T>, source);
+}
 type Selection = { kind: 'node' | 'edge'; id: string } | null;
-type DragState = { id: string; offsetX: number; offsetY: number };
-type ConnectionDrag = { from: string; pointer: Point };
+type DragState = {
+  id: string;
+  pointerId: number;
+  offsetX: number;
+  offsetY: number;
+  startClientX: number;
+  startClientY: number;
+  moved: boolean;
+};
+type ConnectionDrag = {
+  from: string;
+  pointerId: number;
+  pointer: Point;
+  startClientX: number;
+  startClientY: number;
+  moved: boolean;
+};
+type CanvasViewStyle = 'standard' | 'handdrawn';
+type PanState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  scrollLeft: number;
+  scrollTop: number;
+  captured: boolean;
+};
+type ViewportTarget =
+  | { kind: 'anchor'; canvasX: number; canvasY: number; viewportX: number; viewportY: number }
+  | { kind: 'center'; canvasX: number; canvasY: number };
+type PendingViewport = { target: ViewportTarget; expectedZoom: number };
 type NodeData = NonNullable<MermaidFlowNode['data']>;
 
-const STAGE_WIDTH = 1440;
-const STAGE_HEIGHT = 780;
-const STAGE_PADDING = 70;
+const STAGE_WIDTH = MIN_MERMAID_STAGE_WIDTH;
+const STAGE_HEIGHT = MIN_MERMAID_STAGE_HEIGHT;
+const MIN_ZOOM = MIN_MERMAID_CANVAS_ZOOM;
+const MAX_ZOOM = 2;
 
 const SHAPE_OPTIONS: Array<{ value: MermaidNodeShape; label: string; icon: typeof Square }> = [
   { value: 'rectangle', label: '矩形', icon: Square },
@@ -153,108 +205,144 @@ const GANTT_STATUS_OPTIONS = [
   { value: 'milestone', label: '里程碑' },
 ] as const;
 
-function nodeSize(node: MermaidFlowNode, kind: MermaidFlowGraph['kind']) {
-  if (kind === 'sequence') return { width: 174, height: 66 };
-  if (kind === 'state' && (node.data?.stateRole === 'start' || node.data?.stateRole === 'end')) return { width: 58, height: 58 };
-  if (kind === 'class' || kind === 'er') {
-    const detailCount = Math.min(6, node.data?.details?.length ?? 0);
-    return { width: 214, height: Math.max(78, 58 + detailCount * 18) };
-  }
-  if (kind === 'mindmap') return node.data?.mindRoot ? { width: 210, height: 70 } : { width: 176, height: 58 };
-  if (kind === 'gantt') return { width: 222, height: 92 };
-  if (node.shape === 'circle') return { width: 92, height: 92 };
-  if (node.shape === 'decision') return { width: 112, height: 92 };
-  if (node.shape === 'terminal') return { width: 166, height: 64 };
-  return { width: 176, height: 72 };
-}
+const nodeSize = mermaidCanvasNodeSize;
 
-function clampPosition(node: MermaidFlowNode, point: Point, kind: MermaidFlowGraph['kind']): Point {
+function clampPosition(
+  node: MermaidFlowNode,
+  point: Point,
+  kind: MermaidFlowGraph['kind'],
+  stageSize = { width: STAGE_WIDTH, height: STAGE_HEIGHT },
+): Point {
   const size = nodeSize(node, kind);
   return {
-    x: Math.max(18, Math.min(STAGE_WIDTH - size.width - 18, point.x)),
-    y: Math.max(18, Math.min(STAGE_HEIGHT - size.height - 18, point.y)),
+    x: Math.max(18, Math.min(stageSize.width - size.width - 18, point.x)),
+    y: Math.max(18, Math.min(stageSize.height - size.height - 18, point.y)),
   };
 }
 
-function autoLayout(graph: MermaidFlowGraph): NodePositions {
-  if (!graph.nodes.length) return {};
-
-  if (graph.kind === 'sequence') {
-    const available = STAGE_WIDTH - STAGE_PADDING * 2;
-    const step = graph.nodes.length > 1 ? Math.min(250, available / (graph.nodes.length - 1)) : 0;
-    const used = step * Math.max(0, graph.nodes.length - 1);
-    const start = STAGE_PADDING + (available - used) / 2;
-    return Object.fromEntries(graph.nodes.map((node, index) => {
-      const size = nodeSize(node, graph.kind);
-      const center = graph.nodes.length === 1 ? STAGE_WIDTH / 2 : start + index * step;
-      return [node.id, clampPosition(node, { x: center - size.width / 2, y: 58 }, graph.kind)];
-    }));
-  }
-
-  const nodeIds = new Set(graph.nodes.map((node) => node.id));
-  const incoming = new Map(graph.nodes.map((node) => [node.id, 0]));
-  const outgoing = new Map(graph.nodes.map((node) => [node.id, [] as string[]]));
-  for (const edge of graph.edges) {
-    if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to) || edge.from === edge.to) continue;
-    incoming.set(edge.to, (incoming.get(edge.to) ?? 0) + 1);
-    outgoing.get(edge.from)?.push(edge.to);
-  }
-
-  const ranks = new Map(graph.nodes.map((node) => [node.id, 0]));
-  const remainingIncoming = new Map(incoming);
-  const queue = graph.nodes.filter((node) => remainingIncoming.get(node.id) === 0).map((node) => node.id);
-  const processed = new Set<string>();
-  while (queue.length) {
-    const id = queue.shift()!;
-    if (processed.has(id)) continue;
-    processed.add(id);
-    for (const target of outgoing.get(id) ?? []) {
-      ranks.set(target, Math.max(ranks.get(target) ?? 0, (ranks.get(id) ?? 0) + 1));
-      const nextIncoming = (remainingIncoming.get(target) ?? 1) - 1;
-      remainingIncoming.set(target, nextIncoming);
-      if (nextIncoming === 0) queue.push(target);
-    }
-  }
-
-  let fallbackRank = Math.max(0, ...ranks.values());
-  for (const node of graph.nodes) {
-    if (processed.has(node.id)) continue;
-    ranks.set(node.id, fallbackRank);
-    fallbackRank += 1;
-  }
-
-  const groups = new Map<number, MermaidFlowNode[]>();
-  for (const node of graph.nodes) {
-    const rank = ranks.get(node.id) ?? 0;
-    groups.set(rank, [...(groups.get(rank) ?? []), node]);
-  }
-  const orderedRanks = Array.from(groups.keys()).sort((a, b) => a - b);
-  const horizontal = graph.kind === 'mindmap' || graph.direction === 'LR' || graph.direction === 'RL';
-  const reverse = graph.kind !== 'mindmap' && (graph.direction === 'BT' || graph.direction === 'RL');
-  const mainAvailable = (horizontal ? STAGE_WIDTH : STAGE_HEIGHT) - STAGE_PADDING * 2;
-  const mainStep = orderedRanks.length > 1 ? Math.min(horizontal ? 270 : 165, mainAvailable / (orderedRanks.length - 1)) : 0;
-  const mainStart = STAGE_PADDING + (mainAvailable - mainStep * Math.max(0, orderedRanks.length - 1)) / 2;
-  const positions: NodePositions = {};
-
-  orderedRanks.forEach((rank, rankIndex) => {
-    const nodes = groups.get(rank) ?? [];
-    const visualRank = reverse ? orderedRanks.length - rankIndex - 1 : rankIndex;
-    const main = orderedRanks.length === 1 ? STAGE_PADDING + mainAvailable / 2 : mainStart + visualRank * mainStep;
-    const crossAvailable = (horizontal ? STAGE_HEIGHT : STAGE_WIDTH) - STAGE_PADDING * 2;
-    const crossStep = nodes.length > 1 ? Math.min(horizontal ? 145 : 240, crossAvailable / (nodes.length - 1)) : 0;
-    const crossStart = STAGE_PADDING + (crossAvailable - crossStep * Math.max(0, nodes.length - 1)) / 2;
-    nodes.forEach((node, crossIndex) => {
-      const size = nodeSize(node, graph.kind);
-      const cross = nodes.length === 1 ? STAGE_PADDING + crossAvailable / 2 : crossStart + crossIndex * crossStep;
-      positions[node.id] = clampPosition(node, horizontal
-        ? { x: main - size.width / 2, y: cross - size.height / 2 }
-        : { x: cross - size.width / 2, y: main - size.height / 2 }, graph.kind);
-    });
-  });
-  return positions;
+function clampSequenceParticipantPosition(
+  graph: MermaidFlowGraph,
+  positions: NodePositions,
+  node: MermaidFlowNode,
+  desiredX: number,
+  stageSize: { width: number; height: number },
+): Point {
+  const current = positions[node.id] ?? { x: 18, y: 58 };
+  const index = graph.nodes.findIndex((candidate) => candidate.id === node.id);
+  const size = nodeSize(node, graph.kind);
+  const gap = 34;
+  const previous = index > 0 ? graph.nodes[index - 1] : null;
+  const next = index >= 0 && index < graph.nodes.length - 1 ? graph.nodes[index + 1] : null;
+  const previousPosition = previous ? positions[previous.id] : null;
+  const nextPosition = next ? positions[next.id] : null;
+  const minimum = previous && previousPosition
+    ? previousPosition.x + nodeSize(previous, graph.kind).width + gap
+    : 18;
+  const maximum = next && nextPosition
+    ? nextPosition.x - size.width - gap
+    : stageSize.width - size.width - 18;
+  if (maximum < minimum) return current;
+  return {
+    x: Math.max(minimum, Math.min(maximum, desiredX)),
+    y: current.y,
+  };
 }
 
-function edgeGeometry(edge: MermaidFlowEdge, graph: MermaidFlowGraph, positions: NodePositions, edgeIndex: number) {
+function clampZoom(value: number) {
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(value * 1000) / 1000));
+}
+
+function hasNodeCollisions(graph: MermaidFlowGraph, positions: NodePositions, gap = 14) {
+  for (let firstIndex = 0; firstIndex < graph.nodes.length; firstIndex += 1) {
+    const first = graph.nodes[firstIndex];
+    const firstPosition = positions[first.id];
+    if (!firstPosition) continue;
+    const firstSize = nodeSize(first, graph.kind);
+    for (let secondIndex = firstIndex + 1; secondIndex < graph.nodes.length; secondIndex += 1) {
+      const second = graph.nodes[secondIndex];
+      const secondPosition = positions[second.id];
+      if (!secondPosition) continue;
+      const secondSize = nodeSize(second, graph.kind);
+      const separated = firstPosition.x + firstSize.width + gap <= secondPosition.x
+        || secondPosition.x + secondSize.width + gap <= firstPosition.x
+        || firstPosition.y + firstSize.height + gap <= secondPosition.y
+        || secondPosition.y + secondSize.height + gap <= firstPosition.y;
+      if (!separated) return true;
+    }
+  }
+  return false;
+}
+
+function expandedStageForPositions(
+  graph: MermaidFlowGraph,
+  positions: NodePositions,
+  current: Pick<MermaidCanvasLayout, 'width' | 'height'>,
+) {
+  let maxX = 0;
+  let maxY = 0;
+  for (const node of graph.nodes) {
+    const position = positions[node.id];
+    if (!position) continue;
+    const size = nodeSize(node, graph.kind);
+    maxX = Math.max(maxX, position.x + size.width);
+    maxY = Math.max(maxY, position.y + size.height);
+  }
+  return {
+    width: Math.max(current.width, STAGE_WIDTH, Math.ceil(maxX + MERMAID_STAGE_PADDING)),
+    height: Math.max(current.height, STAGE_HEIGHT, Math.ceil(maxY + MERMAID_STAGE_PADDING)),
+  };
+}
+
+function layoutOffsetWithin(element: HTMLElement, ancestor: HTMLElement) {
+  let x = 0;
+  let y = 0;
+  let current: HTMLElement | null = element;
+  while (current && current !== ancestor) {
+    x += current.offsetLeft;
+    y += current.offsetTop;
+    current = current.offsetParent as HTMLElement | null;
+  }
+  if (current === ancestor) return { x, y };
+  const ancestorRect = ancestor.getBoundingClientRect();
+  const elementRect = element.getBoundingClientRect();
+  return {
+    x: elementRect.left - ancestorRect.left + ancestor.scrollLeft,
+    y: elementRect.top - ancestorRect.top + ancestor.scrollTop,
+  };
+}
+
+function applyViewportTarget(viewport: HTMLDivElement, stage: HTMLDivElement, target: ViewportTarget, zoom: number) {
+  const stageOffset = layoutOffsetWithin(stage, viewport);
+  viewport.scrollLeft = Math.max(0, stageOffset.x + target.canvasX * zoom
+    - (target.kind === 'anchor' ? target.viewportX : viewport.clientWidth / 2));
+  viewport.scrollTop = Math.max(0, stageOffset.y + target.canvasY * zoom
+    - (target.kind === 'anchor' ? target.viewportY : viewport.clientHeight / 2));
+}
+
+function routePath(points: Point[]) {
+  if (!points.length) return '';
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  let path = `M ${points[0].x} ${points[0].y}`;
+  for (let index = 1; index < points.length; index += 1) {
+    const point = points[index];
+    if (index === points.length - 1) {
+      path += ` L ${point.x} ${point.y}`;
+    } else {
+      const next = points[index + 1];
+      path += ` Q ${point.x} ${point.y} ${(point.x + next.x) / 2} ${(point.y + next.y) / 2}`;
+    }
+  }
+  return path;
+}
+
+function edgeGeometry(
+  edge: MermaidFlowEdge,
+  graph: MermaidFlowGraph,
+  positions: NodePositions,
+  edgeIndex: number,
+  routes: Record<string, MermaidCanvasEdgeRoute>,
+  stageHeight: number,
+) {
   const fromNode = graph.nodes.find((node) => node.id === edge.from);
   const toNode = graph.nodes.find((node) => node.id === edge.to);
   const fromPosition = positions[edge.from];
@@ -272,7 +360,7 @@ function edgeGeometry(edge: MermaidFlowEdge, graph: MermaidFlowGraph, positions:
       return position ? position.y + nodeSize(node, graph.kind).height : 0;
     }));
     const firstRow = Math.max(190, participantBottom + 58);
-    const available = Math.max(80, STAGE_HEIGHT - firstRow - 34);
+    const available = Math.max(80, stageHeight - firstRow - 34);
     const step = Math.min(62, available / Math.max(1, graph.edges.length));
     const y = firstRow + edgeIndex * step;
     if (edge.from === edge.to) {
@@ -287,6 +375,10 @@ function edgeGeometry(edge: MermaidFlowEdge, graph: MermaidFlowGraph, positions:
       path: `M ${fromCenter.x} ${y} L ${toCenter.x} ${y}`,
       label: { x: (fromCenter.x + toCenter.x) / 2, y: y - 10 },
     };
+  }
+  const routed = routes[edge.id];
+  if (routed?.points.length) {
+    return { path: routePath(routed.points), label: routed.label };
   }
   if (edge.from === edge.to) {
     const loopWidth = Math.max(70, fromSize.width * 0.48);
@@ -463,11 +555,16 @@ function ensureGanttStarts(graph: MermaidFlowGraph, nodes: MermaidFlowNode[], ed
 }
 
 export default function MermaidCanvasEditor({ active = true, graph, onChange }: MermaidCanvasEditorProps) {
-  const markerId = `canvas-arrow-${useId().replace(/:/g, '')}`;
+  const canvasId = useId().replace(/:/g, '');
+  const markerId = `canvas-arrow-${canvasId}`;
+  const crossMarkerId = `canvas-cross-${canvasId}`;
+  const asyncMarkerId = `canvas-async-${canvasId}`;
+  const sketchFilterId = `canvas-sketch-${canvasId}`;
   const viewportRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
-  const [positions, setPositions] = useState<NodePositions>(() => autoLayout(graph));
+  const [canvasLayout, setCanvasLayout] = useState<MermaidCanvasLayout>(() => layoutMermaidGraph(graph));
+  const { positions, routes, width: stageWidth, height: stageHeight } = canvasLayout;
   const [selection, setSelection] = useState<Selection>(null);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [editingEdgeId, setEditingEdgeId] = useState<string | null>(null);
@@ -476,20 +573,71 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
   const [connectMode, setConnectMode] = useState(false);
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0.9);
+  const [canvasStyle, setCanvasStyle] = useState<CanvasViewStyle>('standard');
+  const [spacePressed, setSpacePressed] = useState(false);
+  const [panning, setPanning] = useState(false);
   const nodeSignature = graph.nodes.map((node) => node.id).join('|');
-  const previousGraphShape = useRef({ kind: graph.kind, direction: graph.direction, nodeSignature });
+  const layoutSignature = graphLayoutSignature(graph);
+  const nodeGeometrySignature = graphNodeGeometrySignature(graph);
+  const previousGraphShape = useRef({
+    kind: graph.kind,
+    direction: graph.direction,
+    nodeSignature,
+    layoutSignature,
+    nodeGeometrySignature,
+  });
   const shouldCenterViewport = useRef(true);
+  const shouldAutoFitViewport = useRef(true);
   const wasActive = useRef(active);
   const lastNodePointerAt = useRef(0);
+  const zoomRef = useRef(zoom);
+  const spacePressedRef = useRef(false);
+  const panStateRef = useRef<PanState | null>(null);
+  const didPanRef = useRef(false);
+  const pendingViewportRef = useRef<PendingViewport | null>(null);
+  const zoomAtPointRef = useRef<(nextZoom: number, clientX: number, clientY: number) => void>(() => undefined);
+  zoomRef.current = zoom;
+  zoomAtPointRef.current = zoomAtPoint;
+
+  function setPositions(update: NodePositions | ((current: NodePositions) => NodePositions)) {
+    setCanvasLayout((current) => ({
+      ...current,
+      positions: safeCanvasRecord(typeof update === 'function' ? update(current.positions) : update),
+      routes: safeCanvasRecord(),
+    }));
+  }
+
+  function applyAutomaticLayout(nextGraph = graph, autoFit = true) {
+    setCanvasLayout(layoutMermaidGraph(nextGraph));
+    shouldCenterViewport.current = true;
+    if (autoFit) shouldAutoFitViewport.current = true;
+  }
+
+  useLayoutEffect(() => {
+    if (!active) return;
+    if (editorRef.current?.contains(document.activeElement)) return;
+    editorRef.current?.focus({ preventScroll: true });
+  }, [active]);
 
   useEffect(() => {
     const previous = previousGraphShape.current;
     const kindChanged = previous.kind !== graph.kind;
     const directionChanged = previous.direction !== graph.direction;
     const nodesChanged = previous.nodeSignature !== nodeSignature;
-    previousGraphShape.current = { kind: graph.kind, direction: graph.direction, nodeSignature };
+    const layoutChanged = previous.layoutSignature !== layoutSignature;
+    const nodeGeometryChanged = !nodesChanged && previous.nodeGeometrySignature !== nodeGeometrySignature;
+    previousGraphShape.current = {
+      kind: graph.kind,
+      direction: graph.direction,
+      nodeSignature,
+      layoutSignature,
+      nodeGeometrySignature,
+    };
     if (kindChanged || directionChanged || nodesChanged) {
       shouldCenterViewport.current = true;
+    }
+    if (kindChanged || directionChanged || (nodesChanged && graph.kind === 'sequence')) {
+      shouldAutoFitViewport.current = true;
     }
     if (kindChanged) {
       setSelection(null);
@@ -500,48 +648,164 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
       setConnectMode(false);
       setConnectingFrom(null);
     }
-    setPositions((current) => {
-      const laidOut = autoLayout(graph);
-      if (kindChanged || directionChanged || !Object.keys(current).length) return laidOut;
-      const next: NodePositions = {};
-      for (const node of graph.nodes) next[node.id] = current[node.id] ?? laidOut[node.id];
-      return next;
-    });
-    setSelection((current) => {
-      if (!current) return null;
-      if (current.kind === 'node' && !graph.nodes.some((node) => node.id === current.id)) return null;
-      if (current.kind === 'edge' && !graph.edges.some((edge) => edge.id === current.id)) return null;
-      return current;
-    });
-  }, [graph, nodeSignature]);
+    if (kindChanged || directionChanged) {
+      setCanvasLayout(layoutMermaidGraph(graph));
+    } else if (nodeGeometryChanged) {
+      const laidOut = layoutMermaidGraph(graph);
+      setCanvasLayout((current) => {
+        if (hasNodeCollisions(graph, current.positions)) {
+          shouldCenterViewport.current = true;
+          shouldAutoFitViewport.current = true;
+          return laidOut;
+        }
+        return {
+          ...current,
+          ...expandedStageForPositions(graph, current.positions, current),
+          routes: safeCanvasRecord(),
+        };
+      });
+    } else if (nodesChanged) {
+      const laidOut = layoutMermaidGraph(graph);
+      setCanvasLayout((current) => {
+        if (graph.kind === 'sequence') return laidOut;
+        const next = safeCanvasRecord<Point>();
+        for (const node of graph.nodes) next[node.id] = current.positions[node.id] ?? laidOut.positions[node.id];
+        if (hasNodeCollisions(graph, next)) {
+          shouldAutoFitViewport.current = true;
+          return laidOut;
+        }
+        return {
+          positions: next,
+          routes: safeCanvasRecord(),
+          width: Math.max(current.width, laidOut.width),
+          height: Math.max(current.height, laidOut.height),
+        };
+      });
+    } else if (layoutChanged) {
+      if (graph.kind === 'sequence') {
+        preserveViewportCenter();
+        const laidOut = layoutMermaidGraph(graph);
+        setCanvasLayout((current) => {
+          const next = safeCanvasRecord<Point>();
+          let maxX = 0;
+          for (const node of graph.nodes) {
+            const position = current.positions[node.id] ?? laidOut.positions[node.id];
+            if (!position) continue;
+            next[node.id] = position;
+            maxX = Math.max(maxX, position.x + nodeSize(node, graph.kind).width);
+          }
+          return {
+            positions: next,
+            routes: safeCanvasRecord(),
+            width: Math.max(laidOut.width, Math.ceil(maxX + MERMAID_STAGE_PADDING)),
+            height: laidOut.height,
+          };
+        });
+        return;
+      }
+      // Preserve manually arranged nodes during ordinary canvas edits. Routes
+      // are invalidated so changed edges fall back to live geometry until the
+      // user explicitly chooses “自动排列”.
+      setCanvasLayout((current) => ({ ...current, routes: safeCanvasRecord() }));
+    }
+  }, [graph, layoutSignature, nodeGeometrySignature, nodeSignature]);
 
   useLayoutEffect(() => {
-    if (active && !wasActive.current) shouldCenterViewport.current = true;
+    if (active && !wasActive.current) {
+      shouldCenterViewport.current = true;
+      shouldAutoFitViewport.current = true;
+    }
     wasActive.current = active;
-    if (!active || !shouldCenterViewport.current) return;
+    if (!active) return;
     const viewport = viewportRef.current;
-    if (!viewport || !viewport.clientWidth || !viewport.clientHeight) return;
-    const visibleNodes = graph.nodes.filter((node) => positions[node.id]);
-    if (!visibleNodes.length) {
-      viewport.scrollLeft = Math.max(0, (STAGE_WIDTH * zoom - viewport.clientWidth) / 2);
-      viewport.scrollTop = Math.max(0, (STAGE_HEIGHT * zoom - viewport.clientHeight) / 2);
+    const stage = stageRef.current;
+    if (!viewport || !stage || !viewport.clientWidth || !viewport.clientHeight) return;
+    const pendingViewport = pendingViewportRef.current;
+    if (pendingViewport) {
+      if (Math.abs(zoom - pendingViewport.expectedZoom) > 0.0005) return;
+      applyViewportTarget(viewport, stage, pendingViewport.target, pendingViewport.expectedZoom);
+      pendingViewportRef.current = null;
       shouldCenterViewport.current = false;
       return;
     }
-    const minX = Math.min(...visibleNodes.map((node) => positions[node.id].x));
-    const minY = Math.min(...visibleNodes.map((node) => positions[node.id].y));
-    const maxX = Math.max(...visibleNodes.map((node) => positions[node.id].x + nodeSize(node, graph.kind).width));
-    const maxY = Math.max(...visibleNodes.map((node) => positions[node.id].y + nodeSize(node, graph.kind).height));
-    const contentWidth = (maxX - minX) * zoom;
-    const contentHeight = (maxY - minY) * zoom;
-    viewport.scrollLeft = Math.max(0, contentWidth <= viewport.clientWidth - 40
-      ? ((minX + maxX) / 2) * zoom - viewport.clientWidth / 2
-      : minX * zoom - 32);
-    viewport.scrollTop = Math.max(0, contentHeight <= viewport.clientHeight - 40
-      ? ((minY + maxY) / 2) * zoom - viewport.clientHeight / 2
-      : minY * zoom - 26);
+    if (!shouldCenterViewport.current) return;
+    const visibleNodes = graph.nodes.filter((node) => positions[node.id]);
+    if (!visibleNodes.length) {
+      applyViewportTarget(viewport, stage, {
+        kind: 'center',
+        canvasX: stageWidth / 2,
+        canvasY: stageHeight / 2,
+      }, zoom);
+      shouldCenterViewport.current = false;
+      return;
+    }
+    const bounds = mermaidCanvasLayoutBounds(graph, canvasLayout);
+    if (shouldAutoFitViewport.current) {
+      shouldAutoFitViewport.current = false;
+      const nextZoom = mermaidCanvasFitZoom(bounds, viewport.clientWidth, viewport.clientHeight, 0.9);
+      const target: ViewportTarget = {
+        kind: 'center',
+        canvasX: (bounds.minX + bounds.maxX) / 2,
+        canvasY: (bounds.minY + bounds.maxY) / 2,
+      };
+      pendingViewportRef.current = { target, expectedZoom: nextZoom };
+      if (Math.abs(nextZoom - zoom) <= 0.0005) {
+        applyViewportTarget(viewport, stage, target, nextZoom);
+        pendingViewportRef.current = null;
+        shouldCenterViewport.current = false;
+      } else {
+        zoomRef.current = nextZoom;
+        setZoom(nextZoom);
+      }
+      return;
+    }
+    applyViewportTarget(viewport, stage, {
+      kind: 'center',
+      canvasX: (bounds.minX + bounds.maxX) / 2,
+      canvasY: (bounds.minY + bounds.maxY) / 2,
+    }, zoom);
     shouldCenterViewport.current = false;
-  }, [active, graph.kind, graph.nodes, positions, zoom]);
+  }, [active, canvasLayout, graph, positions, stageHeight, stageWidth, zoom]);
+
+  useEffect(() => {
+    if (!active) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    function handleWheel(event: WheelEvent) {
+      if (!event.deltaY) return;
+      event.preventDefault();
+      const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? 18
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? viewport!.clientHeight : 1;
+      const delta = Math.max(-180, Math.min(180, event.deltaY * unit));
+      const nextZoom = zoomRef.current * Math.exp(-delta * 0.0017);
+      zoomAtPointRef.current(nextZoom, event.clientX, event.clientY);
+    }
+    viewport.addEventListener('wheel', handleWheel, { passive: false });
+    return () => viewport.removeEventListener('wheel', handleWheel);
+  }, [active]);
+
+  useEffect(() => {
+    function releaseSpace(event: KeyboardEvent) {
+      if (event.code !== 'Space') return;
+      spacePressedRef.current = false;
+      setSpacePressed(false);
+    }
+    function resetTransientNavigation() {
+      spacePressedRef.current = false;
+      panStateRef.current = null;
+      setSpacePressed(false);
+      setPanning(false);
+      setDragging(null);
+      setConnectionDrag(null);
+    }
+    window.addEventListener('keyup', releaseSpace);
+    window.addEventListener('blur', resetTransientNavigation);
+    return () => {
+      window.removeEventListener('keyup', releaseSpace);
+      window.removeEventListener('blur', resetTransientNavigation);
+    };
+  }, []);
 
   useEffect(() => {
     if (!dragging && !connectionDrag) return;
@@ -554,21 +818,52 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
 
     function handlePointerMove(event: PointerEvent) {
       const point = canvasPoint(event.clientX, event.clientY);
-      if (dragging) {
+      if (dragging && event.pointerId === dragging.pointerId) {
+        const moved = dragging.moved
+          || Math.hypot(event.clientX - dragging.startClientX, event.clientY - dragging.startClientY) > 3;
+        if (!moved) return;
+        if (!dragging.moved) setDragging((current) => current ? { ...current, moved: true } : null);
         lastNodePointerAt.current = performance.now();
         const node = graph.nodes.find((candidate) => candidate.id === dragging.id);
-        if (!node) return;
-        setPositions((current) => ({
-          ...current,
-          [dragging.id]: clampPosition(node, { x: point.x - dragging.offsetX, y: point.y - dragging.offsetY }, graph.kind),
-        }));
+        if (node) {
+          setPositions((current) => ({
+            ...current,
+            [dragging.id]: graph.kind === 'sequence'
+              ? clampSequenceParticipantPosition(
+                graph,
+                current,
+                node,
+                point.x - dragging.offsetX,
+                { width: stageWidth, height: stageHeight },
+              )
+              : clampPosition(
+                node,
+                { x: point.x - dragging.offsetX, y: point.y - dragging.offsetY },
+                graph.kind,
+                { width: stageWidth, height: stageHeight },
+              ),
+          }));
+        }
       }
-      if (connectionDrag) setConnectionDrag((current) => current ? { ...current, pointer: point } : null);
+      if (connectionDrag && event.pointerId === connectionDrag.pointerId) {
+        const moved = connectionDrag.moved
+          || Math.hypot(event.clientX - connectionDrag.startClientX, event.clientY - connectionDrag.startClientY) > 4;
+        setConnectionDrag((current) => current && current.pointerId === event.pointerId
+          ? { ...current, pointer: point, moved }
+          : current);
+      }
     }
 
     function handlePointerUp(event: PointerEvent) {
-      setDragging(null);
-      if (!connectionDrag) return;
+      if (dragging?.pointerId === event.pointerId) setDragging(null);
+      if (!connectionDrag || connectionDrag.pointerId !== event.pointerId) return;
+      const moved = connectionDrag.moved
+        || Math.hypot(event.clientX - connectionDrag.startClientX, event.clientY - connectionDrag.startClientY) > 4;
+      if (!moved) {
+        beginConnectionFrom(connectionDrag.from);
+        setConnectionDrag(null);
+        return;
+      }
       const element = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
       const target = element?.closest<HTMLElement>('[data-mermaid-node-id]')?.dataset.mermaidNodeId;
       if (target && (target !== connectionDrag.from || (graph.kind !== 'mindmap' && graph.kind !== 'gantt'))) {
@@ -577,18 +872,24 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
       setConnectionDrag(null);
     }
 
+    function handlePointerCancel(event: PointerEvent) {
+      if (dragging?.pointerId === event.pointerId) setDragging(null);
+      if (connectionDrag?.pointerId === event.pointerId) setConnectionDrag(null);
+    }
+
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
-    window.addEventListener('pointercancel', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerCancel);
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerCancel);
     };
   });
 
   const selectedNode = selection?.kind === 'node' ? graph.nodes.find((node) => node.id === selection.id) ?? null : null;
   const selectedEdge = selection?.kind === 'edge' ? graph.edges.find((edge) => edge.id === selection.id) ?? null : null;
+  const connectingNode = connectingFrom ? graph.nodes.find((node) => node.id === connectingFrom) ?? null : null;
   const copy = KIND_COPY[graph.kind];
   const selectedErRelation = selectedEdge && graph.kind === 'er' ? parseErToken(selectedEdge.data?.token) : null;
   const selectedSequenceIndex = selectedEdge && graph.kind === 'sequence' ? graph.edges.findIndex((edge) => edge.id === selectedEdge.id) : -1;
@@ -610,11 +911,23 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
     && !(graph.kind === 'mindmap' && selectedEdge.from === mindmapRoot?.id)
     && !selectedEdgeTouchesStatePseudo);
   const edgeSupportsLabel = graph.kind === 'flowchart' || graph.kind === 'sequence' || graph.kind === 'state' || graph.kind === 'class' || graph.kind === 'er';
-  const edgeGeometries = useMemo(() => new Map(graph.edges.map((edge, index) => [edge.id, edgeGeometry(edge, graph, positions, index)])), [graph, positions]);
+  const edgeGeometries = useMemo(
+    () => new Map(graph.edges.map((edge, index) => [
+      edge.id,
+      edgeGeometry(edge, graph, positions, index, routes, stageHeight),
+    ])),
+    [graph, positions, routes, stageHeight],
+  );
+
+  function sequenceMarkerUrl(marker: MermaidSequenceMessageMarker) {
+    if (marker === 'none') return undefined;
+    const id = marker === 'cross' ? crossMarkerId : marker === 'async' ? asyncMarkerId : markerId;
+    return `url(#${id})`;
+  }
 
   function pointFromEvent(event: { clientX: number; clientY: number }): Point {
     const rect = stageRef.current?.getBoundingClientRect();
-    if (!rect) return { x: STAGE_WIDTH / 2, y: STAGE_HEIGHT / 2 };
+    if (!rect) return { x: stageWidth / 2, y: stageHeight / 2 };
     return { x: (event.clientX - rect.left) / zoom, y: (event.clientY - rect.top) / zoom };
   }
 
@@ -641,6 +954,7 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
       : graph.nodes;
     onChange({ ...graph, nodes, edges });
     setSelection({ kind: 'edge', id: edge.id });
+    if (graph.kind === 'sequence') setEditingEdgeId(edge.id);
     setConnectingFrom(connectMode ? to : null);
   }
 
@@ -665,15 +979,25 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
     const size = nodeSize(node, graph.kind);
     const fallback = parentPosition
       ? { x: parentPosition.x + 250, y: parentPosition.y + ((fallbackIndex % 3) - 1) * 92 }
-      : { x: STAGE_WIDTH / 2 - size.width / 2 + (fallbackIndex % 4) * 18, y: STAGE_HEIGHT / 2 - size.height / 2 + (fallbackIndex % 4) * 18 };
+      : { x: stageWidth / 2 - size.width / 2 + (fallbackIndex % 4) * 18, y: stageHeight / 2 - size.height / 2 + (fallbackIndex % 4) * 18 };
     const nextGraph: MermaidFlowGraph = {
       ...graph,
       nodes: [...graph.nodes, node],
       edges: parentId ? [...graph.edges, defaultEdge(graph.kind, nextEdgeId(graph.edges), parentId, id)] : graph.edges,
     };
-    setPositions((current) => graph.kind === 'sequence'
-      ? autoLayout(nextGraph)
-      : { ...current, [id]: clampPosition(node, point ? { x: point.x - size.width / 2, y: point.y - size.height / 2 } : fallback, graph.kind) });
+    if (graph.kind === 'sequence') {
+      applyAutomaticLayout(nextGraph, false);
+    } else {
+      setPositions((current) => ({
+        ...current,
+        [id]: clampPosition(
+          node,
+          point ? { x: point.x - size.width / 2, y: point.y - size.height / 2 } : fallback,
+          graph.kind,
+          { width: stageWidth, height: stageHeight },
+        ),
+      }));
+    }
     onChange(nextGraph);
     setSelection({ kind: 'node', id });
     setEditingNodeId(id);
@@ -856,19 +1180,25 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
   }
 
   function handleNodePointerDown(event: ReactPointerEvent<HTMLDivElement>, node: MermaidFlowNode) {
-    if (event.button !== 0 || editingNodeId === node.id || connectMode) return;
-    lastNodePointerAt.current = performance.now();
+    if (event.button !== 0 || editingNodeId === node.id || connectMode || spacePressedRef.current) return;
     event.stopPropagation();
     editorRef.current?.focus({ preventScroll: true });
     const point = pointFromEvent(event);
     const position = positions[node.id] ?? { x: 0, y: 0 };
     setSelection({ kind: 'node', id: node.id });
     setEditingEdgeId(null);
-    setDragging({ id: node.id, offsetX: point.x - position.x, offsetY: point.y - position.y });
+    setDragging({
+      id: node.id,
+      pointerId: event.pointerId,
+      offsetX: point.x - position.x,
+      offsetY: point.y - position.y,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      moved: false,
+    });
   }
 
-  function handleNodeClick(event: ReactMouseEvent<HTMLDivElement>, node: MermaidFlowNode) {
-    event.stopPropagation();
+  function activateNode(node: MermaidFlowNode) {
     if (connectMode) {
       if (connectingFrom && (connectingFrom !== node.id || (graph.kind !== 'mindmap' && graph.kind !== 'gantt'))) {
         addConnection(connectingFrom, node.id);
@@ -877,6 +1207,20 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
       setConnectingFrom(node.id);
     }
     setSelection({ kind: 'node', id: node.id });
+    setEditingEdgeId(null);
+  }
+
+  function handleNodeClick(event: ReactMouseEvent<HTMLDivElement>, node: MermaidFlowNode) {
+    event.stopPropagation();
+    if (connectMode && event.detail > 1) return;
+    activateNode(node);
+  }
+
+  function beginConnectionFrom(nodeId: string) {
+    setConnectMode(true);
+    setConnectingFrom(nodeId);
+    setSelection({ kind: 'node', id: nodeId });
+    setEditingNodeId(null);
     setEditingEdgeId(null);
   }
 
@@ -890,15 +1234,63 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
   function handleEditorKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement;
     const isControl = target.matches('input, textarea, select, button') || target.isContentEditable;
-    if (event.key === 'Escape' && isControl) {
+    if (event.metaKey || event.ctrlKey) {
+      if (event.key === '+' || event.key === '=' || event.code === 'NumpadAdd') {
+        event.preventDefault();
+        zoomAroundViewportCenter(zoomRef.current + 0.1);
+        return;
+      }
+      if (event.key === '-' || event.key === '_' || event.code === 'NumpadSubtract') {
+        event.preventDefault();
+        zoomAroundViewportCenter(zoomRef.current - 0.1);
+        return;
+      }
+      if (event.key === '0' || event.code === 'Numpad0') {
+        event.preventDefault();
+        zoomAroundViewportCenter(1);
+        return;
+      }
+    }
+    if (!isControl && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      fitContent();
+      return;
+    }
+    if (!isControl && !event.metaKey && !event.ctrlKey && !event.altKey && event.key === '0') {
+      event.preventDefault();
+      zoomAroundViewportCenter(1);
+      return;
+    }
+    if (!isControl && event.code === 'Space') {
+      event.preventDefault();
+      spacePressedRef.current = true;
+      setSpacePressed(true);
+      return;
+    }
+    if (event.key === 'Escape') {
       const isFormControl = target.matches('input, textarea, select') || target.isContentEditable;
-      const hasCanvasState = Boolean(connectionDrag || connectingFrom || connectMode || editingNodeId || editingEdgeId || selection);
+      const hasCanvasState = Boolean(
+        dragging || connectionDrag || panStateRef.current || panning
+        || connectingFrom || connectMode || editingNodeId || editingEdgeId || selection,
+      );
       if (!isFormControl && !hasCanvasState) return;
       event.preventDefault();
       event.stopPropagation();
-      target.blur();
+      if (isFormControl) target.blur();
+      const activePan = panStateRef.current;
+      const viewport = viewportRef.current;
+      if (activePan && viewport?.hasPointerCapture(activePan.pointerId)) {
+        viewport.releasePointerCapture(activePan.pointerId);
+      }
+      panStateRef.current = null;
+      setPanning(false);
+      setDragging(null);
+      setConnectionDrag(null);
+      setConnectingFrom(null);
+      setConnectMode(false);
       setEditingNodeId(null);
       setEditingEdgeId(null);
+      setSelection(null);
       return;
     }
     if (isControl) return;
@@ -909,50 +1301,192 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
       && !(graph.kind === 'state' && selectedNode?.data?.stateRole !== 'state')) {
       event.preventDefault();
       setEditingNodeId(selection.id);
-    } else if (event.key === 'Enter' && selection?.kind === 'edge') {
+    } else if (event.key === 'Enter' && selection?.kind === 'edge' && edgeSupportsLabel) {
       event.preventDefault();
       setEditingEdgeId(selection.id);
-    } else if (event.key === 'Escape') {
-      const hasCanvasState = Boolean(connectionDrag || connectingFrom || connectMode || editingNodeId || editingEdgeId || selection);
-      if (!hasCanvasState) return;
-      event.preventDefault();
-      event.stopPropagation();
-      setConnectionDrag(null);
-      setConnectingFrom(null);
-      setConnectMode(false);
-      setEditingNodeId(null);
-      setEditingEdgeId(null);
-      setSelection(null);
     }
   }
 
   function startConnectionDrag(event: ReactPointerEvent<HTMLButtonElement>, nodeId: string) {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || spacePressedRef.current) return;
     event.preventDefault();
     event.stopPropagation();
     setSelection({ kind: 'node', id: nodeId });
-    setConnectionDrag({ from: nodeId, pointer: pointFromEvent(event) });
+    setConnectionDrag({
+      from: nodeId,
+      pointerId: event.pointerId,
+      pointer: pointFromEvent(event),
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      moved: false,
+    });
   }
 
-  function changeZoom(nextZoom: number) {
-    shouldCenterViewport.current = true;
-    setZoom(Math.max(0.55, Math.min(1.4, Math.round(nextZoom * 10) / 10)));
+  function setZoomWithTarget(nextZoom: number, target: ViewportTarget) {
+    const viewport = viewportRef.current;
+    const stage = stageRef.current;
+    if (!viewport || !stage) return;
+    const normalized = clampZoom(nextZoom);
+    pendingViewportRef.current = { target, expectedZoom: normalized };
+    if (Math.abs(normalized - zoom) <= 0.0005) {
+      applyViewportTarget(viewport, stage, target, normalized);
+      pendingViewportRef.current = null;
+      shouldCenterViewport.current = false;
+      return;
+    }
+    zoomRef.current = normalized;
+    setZoom(normalized);
+  }
+
+  function preserveViewportCenter() {
+    const viewport = viewportRef.current;
+    const stage = stageRef.current;
+    if (!viewport || !stage || !zoomRef.current) return;
+    const viewportRect = viewport.getBoundingClientRect();
+    const stageRect = stage.getBoundingClientRect();
+    const viewportX = viewport.clientWidth / 2;
+    const viewportY = viewport.clientHeight / 2;
+    pendingViewportRef.current = {
+      expectedZoom: zoomRef.current,
+      target: {
+        kind: 'anchor',
+        canvasX: (viewportRect.left + viewportX - stageRect.left) / zoomRef.current,
+        canvasY: (viewportRect.top + viewportY - stageRect.top) / zoomRef.current,
+        viewportX,
+        viewportY,
+      },
+    };
+    shouldCenterViewport.current = false;
+  }
+
+  function zoomAtPoint(nextZoom: number, clientX: number, clientY: number) {
+    const viewport = viewportRef.current;
+    const stage = stageRef.current;
+    if (!viewport || !stage) return;
+    const viewportRect = viewport.getBoundingClientRect();
+    const stageRect = stage.getBoundingClientRect();
+    const viewportX = Math.max(0, Math.min(viewport.clientWidth, clientX - viewportRect.left));
+    const viewportY = Math.max(0, Math.min(viewport.clientHeight, clientY - viewportRect.top));
+    const currentZoom = zoomRef.current;
+    setZoomWithTarget(nextZoom, {
+      kind: 'anchor',
+      canvasX: Math.max(0, Math.min(stageWidth, (clientX - stageRect.left) / currentZoom)),
+      canvasY: Math.max(0, Math.min(stageHeight, (clientY - stageRect.top) / currentZoom)),
+      viewportX,
+      viewportY,
+    });
+  }
+
+  function zoomAroundViewportCenter(nextZoom: number) {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const rect = viewport.getBoundingClientRect();
+    zoomAtPoint(nextZoom, rect.left + viewport.clientWidth / 2, rect.top + viewport.clientHeight / 2);
+  }
+
+  function fitContent(maxZoom = MAX_ZOOM) {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const bounds = mermaidCanvasLayoutBounds(graph, canvasLayout);
+    const nextZoom = mermaidCanvasFitZoom(bounds, viewport.clientWidth, viewport.clientHeight, maxZoom);
+    setZoomWithTarget(nextZoom, {
+      kind: 'center',
+      canvasX: (bounds.minX + bounds.maxX) / 2,
+      canvasY: (bounds.minY + bounds.maxY) / 2,
+    });
+  }
+
+  function handleViewportPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button === 0 || event.button === 1) editorRef.current?.focus({ preventScroll: true });
+    const target = event.target as Element;
+    const directPan = event.button === 0 && !target.closest(
+      '[data-mermaid-node-id], [data-mermaid-edge-id], button, input, textarea, select, a, [contenteditable="true"]',
+    );
+    const shouldPan = event.button === 1 || (event.button === 0 && (spacePressedRef.current || directPan));
+    if (!shouldPan || dragging || connectionDrag) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const captureImmediately = event.button === 1 || spacePressedRef.current;
+    // Keep an ordinary blank click/double-click available for clearing the
+    // selection or adding a node. Direct left-button panning is captured only
+    // after the pointer crosses the movement threshold below.
+    if (captureImmediately) event.preventDefault();
+    event.stopPropagation();
+    didPanRef.current = false;
+    panStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: viewport.scrollLeft,
+      scrollTop: viewport.scrollTop,
+      captured: captureImmediately,
+    };
+    if (captureImmediately) {
+      viewport.setPointerCapture(event.pointerId);
+      setPanning(true);
+    }
+  }
+
+  function handleViewportPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const pan = panStateRef.current;
+    const viewport = viewportRef.current;
+    if (!pan || pan.pointerId !== event.pointerId || !viewport) return;
+    const deltaX = event.clientX - pan.startX;
+    const deltaY = event.clientY - pan.startY;
+    const crossedThreshold = Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3;
+    if (!pan.captured && !crossedThreshold) return;
+    event.preventDefault();
+    if (!pan.captured) {
+      pan.captured = true;
+      viewport.setPointerCapture(event.pointerId);
+      setPanning(true);
+    }
+    if (crossedThreshold) didPanRef.current = true;
+    viewport.scrollLeft = pan.scrollLeft - deltaX;
+    viewport.scrollTop = pan.scrollTop - deltaY;
+  }
+
+  function finishViewportPan(event: ReactPointerEvent<HTMLDivElement>) {
+    const pan = panStateRef.current;
+    if (!pan || pan.pointerId !== event.pointerId) return;
+    const viewport = viewportRef.current;
+    if (viewport?.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+    panStateRef.current = null;
+    setPanning(false);
+    window.setTimeout(() => { didPanRef.current = false; }, 0);
   }
 
   return (
-    <div className="mermaid-canvas-editor" ref={editorRef} tabIndex={0} onKeyDown={handleEditorKeyDown}>
+    <div
+      className={`mermaid-canvas-editor canvas-style-${canvasStyle}`}
+      ref={editorRef}
+      role="region"
+      aria-label="Mermaid 可视化画布编辑器"
+      tabIndex={0}
+      onKeyDown={handleEditorKeyDown}
+    >
       <div className="canvas-editor-toolbar">
         <div className="canvas-tool-group primary-tools">
           <button type="button" onClick={() => addNode()}><Plus size={15} /> {copy.add}</button>
           <button
             type="button"
             className={connectMode ? 'active' : ''}
-            onClick={() => { setConnectMode((value) => !value); setConnectingFrom(null); }}
+            onClick={() => {
+              if (connectMode) {
+                setConnectMode(false);
+                setConnectingFrom(null);
+              } else if (selectedNode) {
+                beginConnectionFrom(selectedNode.id);
+              } else {
+                setConnectMode(true);
+                setConnectingFrom(null);
+              }
+            }}
             aria-pressed={connectMode}
           >
             <Link2 size={15} /> {copy.connect}
           </button>
-          <button type="button" onClick={() => { shouldCenterViewport.current = true; setPositions(autoLayout(graph)); }} title={`重新排列${copy.nodes}`}><RefreshCcw size={14} /> 自动排列</button>
+          <button type="button" onClick={() => applyAutomaticLayout()} title={`重新排列${copy.nodes}`}><RefreshCcw size={14} /> 自动排列</button>
         </div>
 
         {graph.kind === 'flowchart' || graph.kind === 'state' ? (
@@ -972,15 +1506,33 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
           </div>
         ) : null}
 
-        <div className="canvas-zoom-tools">
-          <button type="button" onClick={() => changeZoom(zoom - 0.1)} aria-label="缩小画布"><ZoomOut size={15} /></button>
-          <button type="button" onClick={() => changeZoom(1)} title="恢复 100%">{Math.round(zoom * 100)}%</button>
-          <button type="button" onClick={() => changeZoom(zoom + 0.1)} aria-label="放大画布"><ZoomIn size={15} /></button>
+        <div className="canvas-style-tools" role="group" aria-label="画布风格">
+          <button type="button" className={canvasStyle === 'standard' ? 'active' : ''} onClick={() => setCanvasStyle('standard')} aria-pressed={canvasStyle === 'standard'}><Square size={13} /> 标准</button>
+          <button type="button" className={canvasStyle === 'handdrawn' ? 'active' : ''} onClick={() => setCanvasStyle('handdrawn')} aria-pressed={canvasStyle === 'handdrawn'}><Pencil size={13} /> 手绘</button>
+        </div>
+
+        <div className="canvas-zoom-tools" role="group" aria-label="画布缩放">
+          <button type="button" onClick={() => zoomAroundViewportCenter(zoomRef.current - 0.1)} aria-label="缩小画布" title="缩小（⌘/Ctrl -）"><ZoomOut size={15} /></button>
+          <button type="button" className="canvas-zoom-value" onClick={() => zoomAroundViewportCenter(1)} aria-label={`当前缩放 ${Math.round(zoom * 100)}%，点击重置`} title="重置为 100%（0 或 ⌘/Ctrl 0）">{Math.round(zoom * 100)}%</button>
+          <button type="button" onClick={() => zoomAroundViewportCenter(zoomRef.current + 0.1)} aria-label="放大画布" title="放大（⌘/Ctrl +）"><ZoomIn size={15} /></button>
+          <button type="button" className="canvas-fit-button" onClick={() => fitContent()} title="适配全部内容（F）"><Maximize2 size={14} /> 适配</button>
         </div>
       </div>
 
       <div className="canvas-context-bar" aria-live="polite">
-        {selectedNode ? (
+        {connectMode ? (
+          <>
+            <span className="canvas-selection-title"><Link2 size={13} /><b>{connectingNode ? `起点：${connectingNode.label || connectingNode.id}` : `添加${copy.edge}`}</b></span>
+            <span className="canvas-context-divider" />
+            <span className="canvas-connect-guidance">
+              {connectingNode
+                ? `点击目标${copy.node}${graph.kind === 'sequence' ? '或其生命线' : ''}完成${copy.edge}；可连续添加`
+                : `先点击一个${copy.node}作为起点`}
+            </span>
+            {connectingNode ? <button type="button" onClick={() => { setConnectingFrom(null); setSelection(null); }}>重选起点</button> : null}
+            <button type="button" onClick={() => { setConnectMode(false); setConnectingFrom(null); }}>完成</button>
+          </>
+        ) : selectedNode ? (
           <>
             <span className="canvas-selection-title"><MousePointer2 size={13} /><b>{selectedNode.label || selectedNode.id}</b></span>
             <span className="canvas-context-divider" />
@@ -1005,6 +1557,7 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
               <div className="canvas-semantic-tools" role="group" aria-label="参与者类型">
                 <button type="button" className={selectedNode.data?.sequenceType === 'actor' ? 'active' : ''} onClick={() => updateNodeData(selectedNode.id, { sequenceType: 'actor' })}>角色</button>
                 <button type="button" className={selectedNode.data?.sequenceType !== 'actor' ? 'active' : ''} onClick={() => updateNodeData(selectedNode.id, { sequenceType: 'participant' })}>参与者</button>
+                <button type="button" onClick={() => beginConnectionFrom(selectedNode.id)}><Link2 size={13} /> 从这里发消息</button>
               </div>
             ) : null}
             {graph.kind === 'state' ? (
@@ -1034,6 +1587,7 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
             ) : null}
             {graph.kind === 'sequence' ? (
               <div className="canvas-semantic-tools" role="group" aria-label="消息顺序">
+                <label className="canvas-context-select"><span>类型</span><select value={selectedEdge.data?.token ?? '->>'} onChange={(event) => updateEdgeToken(selectedEdge.id, event.target.value)}>{SEQUENCE_MESSAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
                 <button type="button" disabled={selectedSequenceIndex <= 0} onClick={() => moveEdge(selectedEdge.id, -1)}><ArrowUp size={13} /> 提前</button>
                 <button type="button" disabled={selectedSequenceIndex < 0 || selectedSequenceIndex >= graph.edges.length - 1} onClick={() => moveEdge(selectedEdge.id, 1)}><ArrowDown size={13} /> 延后</button>
               </div>
@@ -1080,13 +1634,6 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
         </div>
       ) : null}
 
-      {selectedEdge && graph.kind === 'sequence' ? (
-        <div className="canvas-semantic-inspector canvas-edge-inspector">
-          <label><span>消息类型</span><select value={selectedEdge.data?.token ?? '->>'} onChange={(event) => updateEdgeToken(selectedEdge.id, event.target.value)}>{SEQUENCE_MESSAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-          <span className="canvas-inspector-note">第 {selectedSequenceIndex + 1} 条消息 · “提前 / 延后”可调整发送顺序</span>
-        </div>
-      ) : null}
-
       {selectedEdge && graph.kind === 'class' ? (
         <div className="canvas-semantic-inspector canvas-edge-inspector">
           <label><span>关系类型</span><select value={parseClassToken(selectedEdge.data?.token).relation} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassRelation(selectedEdge.data?.token, event.target.value))}>{CLASS_RELATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
@@ -1102,65 +1649,115 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
         </div>
       ) : null}
 
-      <div className={`canvas-editor-viewport${connectMode ? ' connect-mode' : ''}`} ref={viewportRef}>
-        <div className="canvas-editor-scaled-stage" style={{ width: STAGE_WIDTH * zoom, height: STAGE_HEIGHT * zoom }}>
-          <div
-            className="canvas-editor-stage"
-            ref={stageRef}
-            style={{ width: STAGE_WIDTH, height: STAGE_HEIGHT, transform: `scale(${zoom})` }}
-            onClick={(event) => {
-              const target = event.target as HTMLElement;
-              if (performance.now() - lastNodePointerAt.current < 750
-                || target.closest('[data-mermaid-node-id], [data-mermaid-edge-id], .canvas-edge-label')) return;
-              setSelection(null);
-              setEditingNodeId(null);
-              setEditingEdgeId(null);
-            }}
-            onDoubleClick={handleCanvasDoubleClick}
+      <div
+        className={`canvas-editor-viewport${connectMode ? ' connect-mode' : ''}${spacePressed && !panning ? ' pan-ready' : ''}${panning ? ' is-panning' : ''}`}
+        ref={viewportRef}
+        onPointerDown={handleViewportPointerDown}
+        onPointerMove={handleViewportPointerMove}
+        onPointerUp={finishViewportPan}
+        onPointerCancel={finishViewportPan}
+        onLostPointerCapture={finishViewportPan}
+        onClickCapture={(event) => {
+          if (!didPanRef.current) return;
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onClick={(event) => {
+          const target = event.target as HTMLElement;
+          if (performance.now() - lastNodePointerAt.current < 750
+            || target.closest('[data-mermaid-node-id], [data-mermaid-edge-id], .canvas-edge-label')) return;
+          setSelection(null);
+          setEditingNodeId(null);
+          setEditingEdgeId(null);
+        }}
+        onDoubleClick={handleCanvasDoubleClick}
+        onAuxClick={(event) => { if (event.button === 1) event.preventDefault(); }}
+      >
+        <div className="canvas-editor-stage-center">
+          <div className="canvas-editor-scaled-stage" style={{ width: stageWidth * zoom, height: stageHeight * zoom }}>
+            <div
+              className="canvas-editor-stage"
+              ref={stageRef}
+              style={{ width: stageWidth, height: stageHeight, transform: `scale(${zoom})` }}
           >
-            <svg className="canvas-edge-layer" width={STAGE_WIDTH} height={STAGE_HEIGHT} aria-hidden="true">
+            <svg className="canvas-edge-layer" width={stageWidth} height={stageHeight} aria-hidden="true">
               <defs>
-                <marker id={markerId} markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="strokeWidth">
+                <marker id={markerId} markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto-start-reverse" markerUnits="strokeWidth">
                   <path d="M 0 0 L 9 4.5 L 0 9 z" />
                 </marker>
+                <marker id={crossMarkerId} markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+                  <path className="canvas-marker-cross" d="M 1 1 L 8 8 M 8 1 L 1 8" />
+                </marker>
+                <marker id={asyncMarkerId} markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+                  <path className="canvas-marker-async" d="M 1 1 L 8 5 L 1 9" />
+                </marker>
+                <filter id={sketchFilterId} filterUnits="userSpaceOnUse" x={-120} y={-120} width={stageWidth + 240} height={stageHeight + 240} colorInterpolationFilters="sRGB">
+                  <feTurbulence type="fractalNoise" baseFrequency="0.015 0.075" numOctaves="1" seed="7" result="sketchNoise" />
+                  <feDisplacementMap in="SourceGraphic" in2="sketchNoise" scale="1.35" xChannelSelector="R" yChannelSelector="G" />
+                </filter>
               </defs>
-              {graph.kind === 'sequence' ? graph.nodes.map((node) => {
-                const position = positions[node.id];
-                if (!position) return null;
-                const size = nodeSize(node, graph.kind);
-                const x = position.x + size.width / 2;
-                return <line key={`lifeline-${node.id}`} className="canvas-sequence-lifeline" x1={x} x2={x} y1={position.y + size.height} y2={STAGE_HEIGHT - 25} />;
-              }) : null}
-              {graph.edges.map((edge) => {
-                const geometry = edgeGeometries.get(edge.id);
-                if (!geometry) return null;
-                const selected = selection?.kind === 'edge' && selection.id === edge.id;
-                const rawRelation = graph.kind === 'class' ? parseClassToken(edge.data?.token).relation : edge.data?.token ?? '';
-                const tokenDashed = rawRelation.includes('--') && graph.kind === 'sequence' || rawRelation.startsWith('..');
-                const markerEnd = graph.kind === 'flowchart'
-                  ? edge.style !== 'line'
-                  : graph.kind === 'sequence' || graph.kind === 'state' || graph.kind === 'gantt'
-                    || (graph.kind === 'class' && rawRelation.endsWith('>') && !rawRelation.startsWith('<|'));
-                return (
-                  <g key={edge.id} className={`canvas-edge kind-${graph.kind} ${edge.style}${tokenDashed ? ' token-dashed' : ''}${selected ? ' selected' : ''}`} data-mermaid-edge-id={edge.id}>
-                    <path className="canvas-edge-visible" d={geometry.path} markerEnd={markerEnd ? `url(#${markerId})` : undefined} />
-                    <path
-                      className="canvas-edge-hit"
-                      d={geometry.path}
-                      onClick={(event) => { event.stopPropagation(); setSelection({ kind: 'edge', id: edge.id }); setEditingNodeId(null); }}
-                      onDoubleClick={(event) => { event.stopPropagation(); setSelection({ kind: 'edge', id: edge.id }); if (edgeSupportsLabel) setEditingEdgeId(edge.id); }}
-                    />
-                  </g>
-                );
-              })}
-              {connectionDrag ? (() => {
-                const sourceNode = graph.nodes.find((node) => node.id === connectionDrag.from);
-                const position = positions[connectionDrag.from];
-                if (!sourceNode || !position) return null;
-                const size = nodeSize(sourceNode, graph.kind);
-                const start = { x: position.x + size.width, y: position.y + size.height / 2 };
-                return <path className="canvas-edge-preview" d={`M ${start.x} ${start.y} L ${connectionDrag.pointer.x} ${connectionDrag.pointer.y}`} markerEnd={`url(#${markerId})`} />;
-              })() : null}
+              <g className="canvas-drawing-layer" style={canvasStyle === 'handdrawn' ? { filter: `url(#${sketchFilterId})` } : undefined}>
+                {graph.kind === 'sequence' ? graph.nodes.map((node) => {
+                  const position = positions[node.id];
+                  if (!position) return null;
+                  const size = nodeSize(node, graph.kind);
+                  const x = position.x + size.width / 2;
+                  return (
+                    <g key={`lifeline-${node.id}`}>
+                      <line className="canvas-sequence-lifeline" x1={x} x2={x} y1={position.y + size.height} y2={stageHeight - 25} />
+                      <line
+                        className="canvas-sequence-lifeline-hit"
+                        data-mermaid-node-id={node.id}
+                        x1={x}
+                        x2={x}
+                        y1={position.y + size.height}
+                        y2={stageHeight - 25}
+                        vectorEffect="non-scaling-stroke"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (connectMode && event.detail > 1) return;
+                          activateNode(node);
+                        }}
+                      />
+                    </g>
+                  );
+                }) : null}
+                {graph.edges.map((edge) => {
+                  const geometry = edgeGeometries.get(edge.id);
+                  if (!geometry) return null;
+                  const selected = selection?.kind === 'edge' && selection.id === edge.id;
+                  const rawRelation = graph.kind === 'class' ? parseClassToken(edge.data?.token).relation : edge.data?.token ?? '';
+                  const sequenceVisual = graph.kind === 'sequence' ? mermaidSequenceMessageVisual(rawRelation) : null;
+                  const tokenDashed = sequenceVisual?.dashed ?? rawRelation.startsWith('..');
+                  const markerEnd = graph.kind === 'flowchart'
+                    ? edge.style !== 'line'
+                    : graph.kind === 'state' || graph.kind === 'gantt'
+                      || (graph.kind === 'class' && rawRelation.endsWith('>') && !rawRelation.startsWith('<|'));
+                  const markerStartUrl = sequenceVisual ? sequenceMarkerUrl(sequenceVisual.startMarker) : undefined;
+                  const markerEndUrl = sequenceVisual
+                    ? sequenceMarkerUrl(sequenceVisual.endMarker)
+                    : markerEnd ? `url(#${markerId})` : undefined;
+                  return (
+                    <g key={edge.id} className={`canvas-edge kind-${graph.kind} ${edge.style}${tokenDashed ? ' token-dashed' : ''}${selected ? ' selected' : ''}`} data-mermaid-edge-id={edge.id}>
+                      <path className="canvas-edge-visible" d={geometry.path} markerStart={markerStartUrl} markerEnd={markerEndUrl} />
+                      <path
+                        className="canvas-edge-hit"
+                        d={geometry.path}
+                        onClick={(event) => { event.stopPropagation(); setSelection({ kind: 'edge', id: edge.id }); setEditingNodeId(null); }}
+                        onDoubleClick={(event) => { event.stopPropagation(); setSelection({ kind: 'edge', id: edge.id }); if (edgeSupportsLabel) setEditingEdgeId(edge.id); }}
+                      />
+                    </g>
+                  );
+                })}
+                {connectionDrag ? (() => {
+                  const sourceNode = graph.nodes.find((node) => node.id === connectionDrag.from);
+                  const position = positions[connectionDrag.from];
+                  if (!sourceNode || !position) return null;
+                  const size = nodeSize(sourceNode, graph.kind);
+                  const start = { x: position.x + size.width, y: position.y + size.height / 2 };
+                  return <path className="canvas-edge-preview" d={`M ${start.x} ${start.y} L ${connectionDrag.pointer.x} ${connectionDrag.pointer.y}`} markerEnd={`url(#${markerId})`} />;
+                })() : null}
+              </g>
             </svg>
 
             {graph.edges.map((edge, edgeIndex) => {
@@ -1230,6 +1827,7 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
                   onClick={(event) => handleNodeClick(event, node)}
                   onDoubleClick={(event) => {
                     event.stopPropagation();
+                    if (connectMode) return;
                     setSelection({ kind: 'node', id: node.id });
                     if (!(graph.kind === 'state' && node.data?.stateRole !== 'state')) setEditingNodeId(node.id);
                   }}
@@ -1275,8 +1873,8 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
                       className="canvas-node-connector"
                       onPointerDown={(event) => startConnectionDrag(event, node.id)}
                       onClick={(event) => event.stopPropagation()}
-                      aria-label={`从 ${node.label} 拖出${copy.edge}`}
-                      title={`拖到另一${copy.node}建立${copy.edge}`}
+                      aria-label={`从 ${node.label} 创建${copy.edge}`}
+                      title={`点击后再选目标，或直接拖到另一${copy.node}${graph.kind === 'sequence' ? ' / 生命线' : ''}`}
                     >
                       <Plus size={13} />
                     </button>
@@ -1290,12 +1888,13 @@ export default function MermaidCanvasEditor({ active = true, graph, onChange }: 
                 <Plus size={22} /><strong>{copy.empty}</strong><span>也可以双击画布任意位置</span>
               </button>
             ) : null}
+            </div>
           </div>
         </div>
       </div>
       <div className="canvas-editor-status">
         <span>{graph.nodes.length} 个{copy.nodes} · {graph.edges.length} 条{copy.edges}</span>
-        <span>{copy.node}位置仅用于本次画布编排；应用时由 Mermaid 按图种结构自动布局</span>
+        <span>{graph.kind === 'sequence' ? '点击参与者或生命线选择 · “从这里发消息”后点目标生命线 · ' : ''}拖动空白平移 · 滚轮缩放 · F 适配内容 · {copy.node}位置仅用于本次编排</span>
       </div>
     </div>
   );

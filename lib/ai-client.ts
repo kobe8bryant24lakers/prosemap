@@ -13,8 +13,14 @@ export type AiStreamInput = {
 
 type DesktopStreamEvent =
   | { type: 'delta'; text: string }
+  | { type: 'reasoning_delta'; text: string }
   | { type: 'done' }
   | { type: 'error'; message: string };
+
+export type AiStreamHandlers = {
+  onContentDelta: (text: string) => void;
+  onReasoningDelta?: (text: string) => void;
+};
 
 function modelErrorMessage(reason: unknown, fallback = '本地模型请求失败'): string {
   const message = typeof reason === 'string'
@@ -29,7 +35,7 @@ function modelErrorMessage(reason: unknown, fallback = '本地模型请求失败
 
 async function streamFromDesktop(
   input: AiStreamInput,
-  onDelta: (text: string) => void,
+  handlers: AiStreamHandlers,
   signal: AbortSignal,
 ) {
   const { Channel, invoke } = await import('@tauri-apps/api/core');
@@ -38,7 +44,8 @@ async function streamFromDesktop(
   let streamError = '';
 
   channel.onmessage = (event) => {
-    if (event.type === 'delta') onDelta(event.text);
+    if (event.type === 'delta') handlers.onContentDelta(event.text);
+    if (event.type === 'reasoning_delta') handlers.onReasoningDelta?.(event.text);
     if (event.type === 'error') streamError = modelErrorMessage(event.message);
   };
 
@@ -67,9 +74,12 @@ export async function isDesktopRuntime(): Promise<boolean> {
 
 export async function streamAi(
   input: AiStreamInput,
-  onDelta: (text: string) => void,
+  onDeltaOrHandlers: ((text: string) => void) | AiStreamHandlers,
   signal: AbortSignal,
 ) {
   if (!(await isDesktopRuntime())) throw new Error('模型调用只能在 ProseMap 桌面应用中使用');
-  return streamFromDesktop(input, onDelta, signal);
+  const handlers = typeof onDeltaOrHandlers === 'function'
+    ? { onContentDelta: onDeltaOrHandlers }
+    : onDeltaOrHandlers;
+  return streamFromDesktop(input, handlers, signal);
 }

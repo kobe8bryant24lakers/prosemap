@@ -16,6 +16,7 @@ use url::Host;
 const MAX_INPUT_CHARS: usize = 140_000;
 const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ERROR_CHARS: usize = 700;
+const TLS_FAILURE_SUMMARY: &str = "TLS 握手或证书校验失败，请检查服务证书链或企业代理证书";
 
 #[derive(Default)]
 pub struct AiState {
@@ -119,6 +120,10 @@ fn resolve_endpoint(provider: Provider, base_url: &str) -> Result<Url, String> {
     };
     url.set_path(&endpoint_path);
     Ok(url)
+}
+
+fn should_skip_certificate_verification(endpoint: &Url) -> bool {
+    endpoint.scheme() == "https" && matches!(endpoint.host(), Some(Host::Ipv4(_) | Host::Ipv6(_)))
 }
 
 fn validate_address_policy(scheme: &str, addresses: &[SocketAddr]) -> Result<(), String> {
@@ -242,7 +247,7 @@ fn transport_source_summary(details: &str) -> Option<&'static str> {
         || details.contains("tls")
         || details.contains("ssl")
     {
-        return Some("TLS 握手或证书校验失败，请检查服务证书链或企业代理证书");
+        return Some(TLS_FAILURE_SUMMARY);
     }
     if details.contains("connection refused")
         || details.contains("actively refused")
@@ -670,10 +675,18 @@ async fn execute_stream(
         .map_err(|message| format!("{message}。请求地址：{endpoint}"))?;
 
     let mut client_builder = Client::builder()
+        .use_native_tls()
         .redirect(Policy::none())
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(180))
         .user_agent("ProseMap/0.1");
+    if should_skip_certificate_verification(&endpoint) {
+        // Literal-IP endpoints are an explicit compatibility mode. Domain endpoints retain
+        // native certificate-chain and hostname verification.
+        client_builder = client_builder
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true);
+    }
     if let Some(domain) = endpoint_domain {
         client_builder = client_builder.resolve_to_addrs(&domain, &resolved_addresses);
     }
@@ -1045,6 +1058,23 @@ mod tests {
             );
         }
         assert!(transport_source_summary("an uncommon transport failure").is_none());
+    }
+
+    #[test]
+    fn skips_certificate_verification_only_for_https_ip_endpoints() {
+        let ipv4_endpoint =
+            Url::parse("https://192.0.2.10:8443/v1/messages").expect("valid IPv4 endpoint");
+        let ipv6_endpoint =
+            Url::parse("https://[2001:db8::10]:8443/v1/messages").expect("valid IPv6 endpoint");
+        let domain_endpoint = Url::parse("https://gateway.example.com:8443/v1/messages")
+            .expect("valid domain endpoint");
+        let plain_http_endpoint =
+            Url::parse("http://192.168.1.20:8080/v1/messages").expect("valid HTTP endpoint");
+
+        assert!(should_skip_certificate_verification(&ipv4_endpoint));
+        assert!(should_skip_certificate_verification(&ipv6_endpoint));
+        assert!(!should_skip_certificate_verification(&domain_endpoint));
+        assert!(!should_skip_certificate_verification(&plain_http_endpoint));
     }
 
     #[test]

@@ -99,7 +99,7 @@ export default function SettingsModal({ config, onSave, onClose }: SettingsModal
                 aria-describedby="base-url-help"
                 spellCheck={false}
               />
-              <small id="base-url-help">支持域名、IPv4/IPv6 与可选端口；公网请使用 HTTPS，本机或私网可使用 HTTP（如 http://127.0.0.1:11434/v1）。</small>
+              <small id="base-url-help">HTTPS 域名会严格校验证书；HTTPS IP 会跳过证书校验，仅用于可信网络。端口不参与证书校验。本机或私网也可使用 HTTP（如 http://127.0.0.1:11434/v1）。</small>
             </div>
             <div className="field-group">
               <label htmlFor="model-name">模型名称</label>

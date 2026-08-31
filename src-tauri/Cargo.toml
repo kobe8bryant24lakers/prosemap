@@ -1,6 +1,6 @@
 [package]
 name = "prosemap"
-version = "0.5.0"
+version = "0.6.0"
 description = "ProseMap desktop Markdown editor"
 license = "MIT"
 repository = "https://github.com/kobe8bryant24lakers/prosemap"

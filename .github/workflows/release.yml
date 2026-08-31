@@ -1,4 +1,4 @@
-name: Release Windows packages
+name: Release desktop packages
 
 on:
   push:
@@ -104,9 +104,9 @@ jobs:
             $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
             $checksums += "$hash  $([System.IO.Path]::GetFileName($asset))"
           }
-          $checksums | Set-Content -LiteralPath "artifacts/SHA256SUMS.txt" -Encoding utf8NoBOM
+          $checksums | Set-Content -LiteralPath "artifacts/SHA256SUMS-Windows.txt" -Encoding utf8NoBOM
 
-      - name: Create or update the GitHub pre-release
+      - name: Create or update the GitHub pre-release with Windows assets
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -120,7 +120,7 @@ jobs:
           $notes = "docs/releases/$tag.md"
           $exe = "artifacts/ProseMap-Windows-x64-v$version-setup.exe"
           $msi = "artifacts/ProseMap-Windows-x64-v$version.msi"
-          $checksums = "artifacts/SHA256SUMS.txt"
+          $checksums = "artifacts/SHA256SUMS-Windows.txt"
 
           if (-not (Test-Path -LiteralPath $notes)) { throw "Missing release notes: $notes" }
 
@@ -128,11 +128,126 @@ jobs:
           $releaseExists = $LASTEXITCODE -eq 0
 
           if ($releaseExists) {
-            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title "ProseMap v$version for Windows 10/11" --notes-file $notes --prerelease
+            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title "ProseMap v$version for Windows and macOS" --notes-file $notes --prerelease
             if ($LASTEXITCODE -ne 0) { throw "Failed to update release metadata" }
             gh release upload $tag $exe $msi $checksums --repo $env:GITHUB_REPOSITORY --clobber
             if ($LASTEXITCODE -ne 0) { throw "Failed to upload Windows release assets" }
           } else {
-            gh release create $tag $exe $msi $checksums --repo $env:GITHUB_REPOSITORY --verify-tag --title "ProseMap v$version for Windows 10/11" --notes-file $notes --prerelease
+            gh release create $tag $exe $msi $checksums --repo $env:GITHUB_REPOSITORY --verify-tag --title "ProseMap v$version for Windows and macOS" --notes-file $notes --prerelease
             if ($LASTEXITCODE -ne 0) { throw "Failed to create the GitHub pre-release" }
           }
+
+  macos:
+    name: macOS universal
+    needs: windows
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.13.0"
+          cache: npm
+
+      - name: Set up Rust with universal macOS targets
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        with:
+          toolchain: "1.98.0"
+          components: rustfmt
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Verify tag and application versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $tag" >&2
+            exit 1
+          fi
+          tag_version="${tag#v}"
+          package_version="$(node -p "require('./package.json').version")"
+          tauri_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          cargo_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' src-tauri/Cargo.toml | head -n 1)"
+
+          if [[ "$tag_version" != "$package_version" || "$tag_version" != "$tauri_version" || "$tag_version" != "$cargo_version" ]]; then
+            echo "Tag version $tag_version does not match package=$package_version, tauri=$tauri_version, cargo=$cargo_version" >&2
+            exit 1
+          fi
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run TypeScript checks
+        run: npm run typecheck
+
+      - name: Run Mermaid workbench tests
+        run: npm run test:mermaid
+
+      - name: Build universal macOS application and DMG
+        run: npm run desktop:build -- --target universal-apple-darwin --bundles app,dmg --no-sign
+
+      - name: Normalize and verify macOS assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          version="${tag#v}"
+          bundle_root="src-tauri/target/universal-apple-darwin/release/bundle"
+          app="$bundle_root/macos/ProseMap.app"
+          binary="$app/Contents/MacOS/prosemap"
+          shopt -s nullglob
+          dmg_files=("$bundle_root"/dmg/*.dmg)
+
+          if [[ ! -d "$app" ]]; then
+            echo "Missing macOS application bundle: $app" >&2
+            exit 1
+          fi
+          if [[ ! -x "$binary" ]]; then
+            echo "Missing macOS application binary: $binary" >&2
+            exit 1
+          fi
+          if [[ ${#dmg_files[@]} -ne 1 ]]; then
+            echo "Expected exactly one DMG, found ${#dmg_files[@]}" >&2
+            exit 1
+          fi
+
+          archs="$(lipo -archs "$binary")"
+          if [[ "$archs" != *"arm64"* || "$archs" != *"x86_64"* ]]; then
+            echo "Expected a universal macOS binary, found: $archs" >&2
+            exit 1
+          fi
+          hdiutil verify "${dmg_files[0]}"
+
+          mkdir -p artifacts
+          dmg_target="artifacts/ProseMap-macOS-universal-v$version.dmg"
+          cp "${dmg_files[0]}" "$dmg_target"
+          if [[ ! -s "$dmg_target" ]]; then
+            echo "Release asset is empty: $dmg_target" >&2
+            exit 1
+          fi
+          hash="$(shasum -a 256 "$dmg_target" | awk '{print $1}')"
+          printf '%s  %s\n' "$hash" "$(basename "$dmg_target")" > artifacts/SHA256SUMS-macOS.txt
+
+      - name: Add macOS assets to the GitHub pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          version="${tag#v}"
+          notes="docs/releases/$tag.md"
+          dmg="artifacts/ProseMap-macOS-universal-v$version.dmg"
+          checksums="artifacts/SHA256SUMS-macOS.txt"
+
+          test -f "$notes"
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json id >/dev/null
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "ProseMap v$version for Windows and macOS" --notes-file "$notes" --prerelease
+          gh release upload "$tag" "$dmg" "$checksums" --repo "$GITHUB_REPOSITORY" --clobber

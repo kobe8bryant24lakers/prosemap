@@ -246,6 +246,19 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .settings-header h2, .diff-header h2 { margin: 0; color: var(--ink); font-size: 14px; letter-spacing: -.01em; }
 .settings-header p, .diff-header p { margin: 4px 0 0; color: var(--muted); font-size: 9px; }
 .modal-close { margin-left: auto; flex: none; }
+
+.confirmation-backdrop { z-index: 120; position: fixed; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(12 29 21 / 55%); backdrop-filter: blur(6px); animation: fade-in .12s ease-out; }
+.confirmation-dialog { width: min(430px, 100%); overflow: hidden; border: 1px solid rgb(255 255 255 / 70%); border-radius: 15px; background: #fff; box-shadow: 0 24px 70px rgb(12 29 21 / 28%); animation: modal-in .16s ease-out; }
+.confirmation-dialog > header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 11px; padding: 18px 18px 15px; }
+.confirmation-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: #fff3df; color: #ad6a13; }
+.confirmation-dialog h2 { margin: 1px 0 0; color: var(--ink); font-size: 14px; }
+.confirmation-dialog p { margin: 6px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.65; }
+.confirmation-dialog > header > .icon-button { margin-top: -4px; margin-right: -4px; }
+.confirmation-dialog > footer { display: flex; justify-content: flex-end; gap: 8px; padding: 11px 18px 15px; border-top: 1px solid var(--line); background: #fafbfa; }
+.confirmation-submit { min-height: 34px; padding: 0 13px; border: 1px solid var(--green); border-radius: 8px; background: var(--green); color: #fff; font-size: 10px; font-weight: 760; }
+.confirmation-submit:hover { background: var(--green-dark); }
+.confirmation-submit.destructive { border-color: #a94f48; background: #a94f48; }
+.confirmation-submit.destructive:hover { border-color: #8e3f39; background: #8e3f39; }
 .settings-body { padding: 20px; }
 .field-group > label { display: block; margin-bottom: 7px; color: var(--ink-soft); font-size: 9px; font-weight: 750; }
 .provider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -306,7 +319,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .drop-overlay { z-index: 60; position: fixed; inset: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 2px dashed #61a282; border-radius: 18px; background: rgb(237 247 242 / 94%); color: var(--green); backdrop-filter: blur(6px); pointer-events: none; }
 .drop-overlay > span { width: 62px; height: 62px; display: grid; place-items: center; border-radius: 18px; background: #fff; box-shadow: var(--shadow-sm); }
 .drop-overlay strong { margin-top: 15px; font-size: 15px; }.drop-overlay p { margin: 7px 0; color: var(--muted); font-size: 10px; }
-.toast { z-index: 80; position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); min-height: 38px; max-width: calc(100% - 32px); display: flex; align-items: center; gap: 7px; padding: 0 13px; border: 1px solid #cad8d0; border-radius: 10px; background: #fff; color: var(--ink-soft); box-shadow: 0 10px 34px rgb(17 45 31 / 18%); font-size: 9px; font-weight: 700; animation: toast-in .2s ease-out; }
+.toast { z-index: 80; position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); min-height: 38px; max-width: calc(100% - 32px); display: flex; align-items: center; gap: 7px; padding: 0 13px; border: 1px solid #cad8d0; border-radius: 10px; background: #fff; color: var(--ink-soft); box-shadow: 0 10px 34px rgb(17 45 31 / 18%); font-size: 9px; font-weight: 700; pointer-events: none; animation: toast-in .2s ease-out; }
 .toast.success { border-color: #b8d8c8; color: var(--green); }.toast.error { border-color: #e9c7c4; color: var(--red); }.toast.info { color: #56675e; }
 
 @keyframes spin { to { transform: rotate(360deg); } }

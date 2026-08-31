@@ -33,6 +33,7 @@ import {
 } from '@/lib/mermaid-workbench';
 import MermaidCanvasEditor from './MermaidCanvasEditor';
 import MermaidDiagram from './MermaidDiagram';
+import type { ConfirmationRequest } from './ConfirmDialog';
 import './MermaidWorkbench.css';
 
 type WorkbenchTab = 'ai' | 'templates' | 'visual' | 'source';
@@ -43,13 +44,17 @@ type AiDraftValidation = {
 };
 
 type MermaidWorkbenchProps = {
+  sessionId: number;
   config: ModelConfig;
   initialSource?: string;
   inactive?: boolean;
+  interactionSuspended?: boolean;
   mode: 'create' | 'edit';
   onApply: (source: string) => void;
   onClose: () => void;
   onOpenSettings: () => void;
+  onPendingChangesChange?: (sessionId: number, pending: boolean) => void;
+  onRequestConfirmation: (request: ConfirmationRequest) => Promise<boolean>;
 };
 
 const TABS: Array<{ id: WorkbenchTab; label: string; icon: typeof Sparkles }> = [
@@ -98,7 +103,19 @@ function isEditingTarget(target: EventTarget | null): boolean {
     || target.isContentEditable;
 }
 
-export default function MermaidWorkbench({ config, initialSource = '', inactive = false, mode, onApply, onClose, onOpenSettings }: MermaidWorkbenchProps) {
+export default function MermaidWorkbench({
+  sessionId,
+  config,
+  initialSource = '',
+  inactive = false,
+  interactionSuspended = false,
+  mode,
+  onApply,
+  onClose,
+  onOpenSettings,
+  onPendingChangesChange,
+  onRequestConfirmation,
+}: MermaidWorkbenchProps) {
   const startingSource = initialSource.trim() ? initialSource : MERMAID_TEMPLATES[0].source;
   const startingGraph = useMemo(() => safelyParseVisualSource(startingSource), [startingSource]);
   const [source, setSource] = useState(startingSource);
@@ -115,30 +132,86 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
   const [formError, setFormError] = useState('');
   const [applying, setApplying] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const aiOperationRef = useRef(0);
+  const applyingRef = useRef(false);
+  const applyOperationRef = useRef(0);
+  const draftRevisionRef = useRef(0);
+  const mountedRef = useRef(true);
+  const closeRequestPendingRef = useRef(false);
   const configured = Boolean(config.apiKey && config.model);
   const aiRunning = aiStatus.kind === 'running';
   const draftChanged = source.trim() !== startingSource.trim();
+  const hasPendingChanges = aiRunning || draftChanged || applying;
 
-  const requestClose = useCallback(() => {
-    if ((aiRunning || draftChanged) && !window.confirm(aiRunning
-      ? 'AI 仍在生成，关闭会停止生成并丢弃尚未应用的图表草稿。确定关闭吗？'
-      : '图表草稿尚未应用到文档。确定放弃这些修改吗？')) return;
+  useEffect(() => {
+    onPendingChangesChange?.(sessionId, hasPendingChanges);
+  }, [hasPendingChanges, onPendingChangesChange, sessionId]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      aiOperationRef.current += 1;
+      applyOperationRef.current += 1;
+      applyingRef.current = false;
+      abortRef.current?.abort();
+      onPendingChangesChange?.(sessionId, false);
+    };
+  }, [onPendingChangesChange, sessionId]);
+
+  const discardAndClose = useCallback(() => {
+    aiOperationRef.current += 1;
+    applyOperationRef.current += 1;
+    applyingRef.current = false;
     abortRef.current?.abort();
     onClose();
-  }, [aiRunning, draftChanged, onClose]);
+  }, [onClose]);
+
+  const requestClose = useCallback(async () => {
+    if (closeRequestPendingRef.current || inactive || interactionSuspended) return;
+    const applyingNow = applyingRef.current;
+    if (!hasPendingChanges && !applyingNow) {
+      discardAndClose();
+      return;
+    }
+    if (applyingNow) {
+      applyOperationRef.current += 1;
+      applyingRef.current = false;
+      if (mountedRef.current) setApplying(false);
+    }
+    closeRequestPendingRef.current = true;
+    try {
+      const confirmed = await onRequestConfirmation({
+        title: aiRunning
+          ? '停止生成并关闭？'
+          : applyingNow
+            ? '停止应用并关闭？'
+            : '放弃图表草稿？',
+        message: aiRunning
+          ? 'AI 仍在生成。继续后将停止生成，并丢弃尚未应用到文档的图表草稿。'
+          : applyingNow
+            ? '图表正在校验并应用。继续后将取消本次应用并关闭工作台。'
+            : '当前图表的修改尚未应用到文档。放弃后，这些修改将无法恢复。',
+        confirmLabel: aiRunning ? '停止并关闭' : applyingNow ? '取消应用并关闭' : '放弃草稿',
+        cancelLabel: '继续编辑',
+        destructive: true,
+      });
+      if (confirmed && mountedRef.current) discardAndClose();
+    } finally {
+      closeRequestPendingRef.current = false;
+    }
+  }, [aiRunning, discardAndClose, hasPendingChanges, inactive, interactionSuspended, onRequestConfirmation]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (inactive || event.key !== 'Escape' || event.defaultPrevented) return;
+      if (inactive || interactionSuspended || event.key !== 'Escape' || event.defaultPrevented) return;
       if (isEditingTarget(event.target) || isEditingTarget(document.activeElement)) return;
       event.preventDefault();
-      requestClose();
+      void requestClose();
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [inactive, requestClose]);
-
-  useEffect(() => () => abortRef.current?.abort(), []);
+  }, [inactive, interactionSuspended, requestClose]);
 
   useEffect(() => {
     if (tab !== 'ai' || aiRunning || !source.trim()) return;
@@ -161,7 +234,24 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
     };
   }, [aiRunning, source, tab]);
 
+  function invalidatePendingApplyForDraftChange() {
+    draftRevisionRef.current += 1;
+    applyOperationRef.current += 1;
+    applyingRef.current = false;
+    setApplying(false);
+  }
+
+  function invalidateActiveAiForDraftChange() {
+    const activeController = abortRef.current;
+    aiOperationRef.current += 1;
+    activeController?.abort();
+    abortRef.current = null;
+    if (activeController) setAiStatus({ kind: 'idle', message: '已停止生成，保留当前草稿' });
+  }
+
   function updateDraft(nextSource: string, templateId = '') {
+    invalidateActiveAiForDraftChange();
+    invalidatePendingApplyForDraftChange();
     setSource(nextSource);
     setGraph(safelyParseVisualSource(nextSource));
     setAiDraftValidation(nextSource.trim()
@@ -195,6 +285,8 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
   function commitGraph(next: MermaidVisualGraph) {
     try {
       const nextSource = serializeMermaidVisualGraph(next);
+      invalidateActiveAiForDraftChange();
+      invalidatePendingApplyForDraftChange();
       setGraph(next);
       setSource(nextSource);
       setSelectedTemplateId('');
@@ -218,6 +310,8 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
     }
 
     abortRef.current?.abort();
+    const operation = ++aiOperationRef.current;
+    if (applyingRef.current) invalidatePendingApplyForDraftChange();
     const controller = new AbortController();
     abortRef.current = controller;
     setAiPreviewEditing(false);
@@ -241,10 +335,12 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
         },
         {
           onContentDelta: (chunk) => {
+            if (controller.signal.aborted || aiOperationRef.current !== operation) return;
             generated += chunk;
             setAiStatus({ kind: 'running', message: `正在生成 · 已接收 ${generated.length} 个字符` });
           },
           onReasoningDelta: (chunk) => {
+            if (controller.signal.aborted || aiOperationRef.current !== operation) return;
             setAiReasoning((current) => current + chunk);
           },
         },
@@ -253,11 +349,11 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
       const nextSource = extractMermaidSource(generated);
       if (!nextSource) throw new Error('模型返回了空内容');
       await validateMermaid(nextSource);
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || aiOperationRef.current !== operation) return;
       updateDraft(nextSource);
       setAiStatus({ kind: 'success', message: '图表草稿已生成，可继续编辑或应用到文档' });
     } catch (reason) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || aiOperationRef.current !== operation) return;
       setAiDraftValidation(source.trim()
         ? { kind: 'checking', message: '正在重新校验当前草稿…' }
         : { kind: 'error', message: '图表源码不能为空' });
@@ -268,6 +364,7 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
   }
 
   function stopAi() {
+    aiOperationRef.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
     setAiDraftValidation(source.trim()
@@ -277,24 +374,43 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
   }
 
   async function applySource() {
+    if (applyingRef.current) return;
     const normalized = source.trim();
+    const draftRevision = draftRevisionRef.current;
+    const operation = ++applyOperationRef.current;
+    applyingRef.current = true;
     setApplying(true);
     setFormError('');
     try {
       await validateMermaid(normalized);
+      if (
+        !mountedRef.current
+        || applyOperationRef.current !== operation
+        || draftRevisionRef.current !== draftRevision
+      ) return;
       onApply(normalized);
     } catch (reason) {
+      if (
+        !mountedRef.current
+        || applyOperationRef.current !== operation
+        || draftRevisionRef.current !== draftRevision
+      ) return;
       setFormError(reason instanceof Error ? reason.message.replace(/^Error:\s*/i, '').split('\n')[0] : 'Mermaid 语法校验失败');
     } finally {
-      setApplying(false);
+      if (applyOperationRef.current === operation) {
+        applyingRef.current = false;
+        if (mountedRef.current) setApplying(false);
+      }
     }
   }
 
   const sourceLines = source ? source.split(/\r?\n/).length : 0;
 
   return (
-    <div className="modal-backdrop mermaid-workbench-backdrop" role="presentation" onMouseDown={(event) => { if (!inactive && event.target === event.currentTarget) requestClose(); }}>
-      <section className="mermaid-workbench" role="dialog" aria-modal="true" aria-labelledby="mermaid-workbench-title">
+    <div className="modal-backdrop mermaid-workbench-backdrop" role="presentation" onMouseDown={(event) => {
+      if (!inactive && !interactionSuspended && event.target === event.currentTarget) void requestClose();
+    }}>
+      <section className="mermaid-workbench" role="dialog" aria-modal="true" aria-labelledby="mermaid-workbench-title" inert={inactive || interactionSuspended}>
         <header className="workbench-header">
           <span className="workbench-heading-icon"><Workflow size={20} /></span>
           <div>
@@ -304,7 +420,7 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
             </div>
             <p>在画布上直接拖拽、改名和连线，AI、模板与源码作为辅助</p>
           </div>
-          <button type="button" className="icon-button" onClick={requestClose} aria-label="关闭图表工作台"><X size={19} /></button>
+          <button type="button" className="icon-button" onClick={() => void requestClose()} aria-label="关闭图表工作台"><X size={19} /></button>
         </header>
 
         <div className={`workbench-main${tab === 'visual' ? ' visual-mode' : ''}`}>
@@ -403,7 +519,12 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
 
               <div className="workbench-visual-panel" hidden={tab !== 'visual'}>
                 {graph && tab === 'visual' ? (
-                  <MermaidCanvasEditor active={tab === 'visual' && !inactive} graph={graph} onChange={commitGraph} />
+                  <MermaidCanvasEditor
+                    active={tab === 'visual' && !inactive}
+                    suspended={interactionSuspended}
+                    graph={graph}
+                    onChange={commitGraph}
+                  />
                 ) : tab === 'visual' ? (
                   <section className="workbench-preview" style={{ height: '100%' }} aria-label="只读图表预览">
                     <header>
@@ -481,7 +602,7 @@ export default function MermaidWorkbench({ config, initialSource = '', inactive 
 
         <footer className="workbench-footer">
           <div className={formError ? 'error' : ''}>{formError ? <><CircleAlert size={14} /> {formError}</> : <><Check size={14} /> 应用前会校验语法，文档不会被静默覆盖</>}</div>
-          <button type="button" className="secondary-button" onClick={requestClose}>取消</button>
+          <button type="button" className="secondary-button" onClick={() => void requestClose()}>取消</button>
           <button type="button" className="confirm-button" onClick={() => void applySource()} disabled={applying || aiStatus.kind === 'running'}>{applying ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />} 应用到文档</button>
         </footer>
       </section>

@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AssistantPanel from '@/components/AssistantPanel';
+import ConfirmDialog, { type ConfirmationRequest } from '@/components/ConfirmDialog';
 import DiffModal from '@/components/DiffModal';
 import MarkdownPreview from '@/components/MarkdownPreview';
 import MermaidWorkbench from '@/components/MermaidWorkbench';
@@ -70,9 +71,18 @@ import {
 type ViewMode = 'split' | 'editor' | 'preview';
 
 type MermaidWorkbenchSession = {
+  id: number;
+  documentRevision: number;
   sourceDocument: string;
   insertAt: number;
   target: NonNullable<MermaidTarget> | null;
+};
+
+type ReplaceableDocument = Omit<LocalDocument, 'path'> & { path: string | null };
+
+type ActiveConfirmation = {
+  id: number;
+  request: ConfirmationRequest;
 };
 
 const editorExtensions = [markdownLanguage(), EditorView.lineWrapping];
@@ -136,13 +146,24 @@ export default function Home() {
   const [fileExplorerOpen, setFileExplorerOpen] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [confirmation, setConfirmation] = useState<ActiveConfirmation | null>(null);
   const editorRef = useRef<ReactCodeMirrorRef>(null);
   const abortRef = useRef<AbortController | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const proposalIdRef = useRef(0);
+  const documentSessionRef = useRef(0);
+  const documentRevisionRef = useRef(0);
+  const documentOpenRequestRef = useRef(0);
+  const saveRequestIdRef = useRef(0);
+  const workbenchSessionIdRef = useRef(0);
   const dirtyRef = useRef(false);
   const configChangedRef = useRef(false);
   const configLoadRef = useRef<Promise<ModelConfig | null> | null>(null);
+  const confirmationIdRef = useRef(0);
+  const confirmationResolverRef = useRef<{ id: number; resolve: (confirmed: boolean) => void } | null>(null);
+  const closeConfirmationPendingRef = useRef(false);
+  const activeWorkbenchSessionRef = useRef<number | null>(null);
+  const workbenchPendingRef = useRef(false);
 
   const readableCharacters = useMemo(() => countReadableCharacters(content), [content]);
   const mermaidTarget = useMemo(() => findMermaidTarget(content, selection.from), [content, selection.from]);
@@ -153,6 +174,49 @@ export default function Home() {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     toastTimerRef.current = window.setTimeout(() => setToast(null), 2800);
   }, []);
+
+  const updateDirtyState = useCallback((dirty: boolean) => {
+    dirtyRef.current = dirty;
+    setIsDirty(dirty);
+  }, []);
+
+  const askConfirmation = useCallback((request: ConfirmationRequest) => new Promise<boolean>((resolve) => {
+    const id = ++confirmationIdRef.current;
+    const previous = confirmationResolverRef.current;
+    confirmationResolverRef.current = { id, resolve };
+    setConfirmation({ id, request });
+    previous?.resolve(false);
+  }), []);
+
+  const resolveConfirmation = useCallback((id: number, confirmed: boolean) => {
+    const pending = confirmationResolverRef.current;
+    if (!pending || pending.id !== id) return;
+    confirmationResolverRef.current = null;
+    setConfirmation((current) => current?.id === id ? null : current);
+    pending.resolve(confirmed);
+  }, []);
+
+  const handleWorkbenchPendingChanges = useCallback((sessionId: number, pending: boolean) => {
+    if (activeWorkbenchSessionRef.current !== sessionId) return;
+    workbenchPendingRef.current = pending;
+  }, []);
+
+  const confirmDocumentReplacement = useCallback(async () => {
+    const documentPending = dirtyRef.current;
+    const workbenchPending = workbenchPendingRef.current;
+    if (!documentPending && !workbenchPending) return true;
+    return askConfirmation({
+      title: '放弃未保存的修改？',
+      message: documentPending && workbenchPending
+        ? '当前文档和图表草稿都有尚未保存的修改。继续打开其他文档后，这些修改将无法恢复。'
+        : workbenchPending
+          ? '当前图表草稿尚未应用到文档。继续打开其他文档后，这份草稿将无法恢复。'
+          : '当前文档的修改尚未保存。继续打开其他文档后，这些修改将无法恢复。',
+      confirmLabel: '放弃并打开',
+      cancelLabel: '继续编辑',
+      destructive: true,
+    });
+  }, [askConfirmation]);
 
   useEffect(() => {
     let active = true;
@@ -167,31 +231,68 @@ export default function Home() {
     return () => { active = false; };
   }, [showToast]);
 
-  const applyLocalDocument = useCallback((document: LocalDocument, announce = true) => {
+  const applyLocalDocument = useCallback((document: ReplaceableDocument, announcement: string | false = `已打开 ${document.name}`) => {
     abortRef.current?.abort();
     abortRef.current = null;
     proposalIdRef.current += 1;
+    documentSessionRef.current += 1;
+    documentRevisionRef.current += 1;
     setProposal(null);
     setContent(document.content);
     setDocumentName(safeDocumentName(document.name));
     setLocalPath(document.path);
     setSelection({ from: 0, to: 0, text: '' });
-    setIsDirty(false);
-    if (announce) showToast('success', `已打开 ${document.name}`);
-  }, [showToast]);
+    updateDirtyState(false);
+    activeWorkbenchSessionRef.current = null;
+    workbenchPendingRef.current = false;
+    setMermaidWorkbench(null);
+    if (announcement) showToast('success', announcement);
+  }, [showToast, updateDirtyState]);
+
+  const commitDocumentReplacement = useCallback(async (
+    requestId: number,
+    document: ReplaceableDocument,
+    announcement?: string | false,
+  ) => {
+    if (requestId !== documentOpenRequestRef.current) return false;
+    if (!(await confirmDocumentReplacement())) return false;
+    if (requestId !== documentOpenRequestRef.current) return false;
+    applyLocalDocument(document, announcement);
+    return true;
+  }, [applyLocalDocument, confirmDocumentReplacement]);
 
   const saveDocument = useCallback(async (saveAs = false) => {
+    const requestId = ++saveRequestIdRef.current;
+    const documentSession = documentSessionRef.current;
+    const documentRevision = documentRevisionRef.current;
+    const path = saveAs ? null : localPath;
+    const suggestedName = `${safeDocumentName(documentName)}.md`;
+    const snapshot = content;
     try {
-      const saved = await saveLocalMarkdown(saveAs ? null : localPath, `${safeDocumentName(documentName)}.md`, content);
+      const saved = await saveLocalMarkdown(path, suggestedName, snapshot);
       if (!saved) return;
+      if (
+        requestId !== saveRequestIdRef.current
+        || documentSession !== documentSessionRef.current
+      ) return;
       setLocalPath(saved.path);
       setDocumentName(safeDocumentName(saved.name));
-      setIsDirty(false);
-      showToast('success', !saveAs && localPath ? '文件已保存' : `已保存为 ${saved.name}`);
+      const savedLatestRevision = documentRevision === documentRevisionRef.current;
+      if (savedLatestRevision) updateDirtyState(false);
+      showToast(
+        savedLatestRevision ? 'success' : 'info',
+        savedLatestRevision
+          ? !saveAs && localPath ? '文件已保存' : `已保存为 ${saved.name}`
+          : `已保存到 ${saved.name}，保存期间产生的新修改仍待保存`,
+      );
     } catch (reason) {
+      if (
+        requestId !== saveRequestIdRef.current
+        || documentSession !== documentSessionRef.current
+      ) return;
       showToast('error', reason instanceof Error ? reason.message : '文件保存失败，请重试');
     }
-  }, [content, documentName, localPath, showToast]);
+  }, [content, documentName, localPath, showToast, updateDirtyState]);
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -219,11 +320,12 @@ export default function Home() {
       if (!desktop) return;
 
       try {
+        const launchRequestId = ++documentOpenRequestRef.current;
         unlisten = await listenLocalOpened((target) => {
           if (!active) return;
           if (target.kind === 'file') {
-            if (dirtyRef.current && !window.confirm('当前文档有未保存的修改。确定要放弃这些修改吗？')) return;
-            applyLocalDocument(target.document);
+            const requestId = ++documentOpenRequestRef.current;
+            void commitDocumentReplacement(requestId, target.document);
           } else {
             setLocalWorkspace(target.workspace);
             setFileExplorerOpen(true);
@@ -233,7 +335,7 @@ export default function Home() {
         const target = await readLaunchTarget();
         if (!active || !target) return;
         if (target.kind === 'file') {
-          applyLocalDocument(target.document, false);
+          await commitDocumentReplacement(launchRequestId, target.document, false);
         } else {
           setLocalWorkspace(target.workspace);
           setFileExplorerOpen(true);
@@ -243,25 +345,33 @@ export default function Home() {
       }
     })();
     return () => { active = false; unlisten?.(); };
-  }, [applyLocalDocument, showToast]);
+  }, [commitDocumentReplacement, showToast]);
 
   useEffect(() => () => {
     abortRef.current?.abort();
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    confirmationResolverRef.current?.resolve(false);
+    confirmationResolverRef.current = null;
   }, []);
 
   useEffect(() => {
-    dirtyRef.current = isDirty;
-  }, [isDirty]);
-
-  useEffect(() => {
+    let active = true;
+    let listening = false;
     function warnBeforeClose(event: BeforeUnloadEvent) {
-      if (!isDirty) return;
+      if (!dirtyRef.current && !workbenchPendingRef.current) return;
       event.preventDefault();
+      event.returnValue = '';
     }
-    window.addEventListener('beforeunload', warnBeforeClose);
-    return () => window.removeEventListener('beforeunload', warnBeforeClose);
-  }, [isDirty]);
+    void isDesktopRuntime().then((desktop) => {
+      if (!active || desktop) return;
+      window.addEventListener('beforeunload', warnBeforeClose);
+      listening = true;
+    });
+    return () => {
+      active = false;
+      if (listening) window.removeEventListener('beforeunload', warnBeforeClose);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -269,16 +379,41 @@ export default function Home() {
     void (async () => {
       if (!(await isDesktopRuntime()) || !active) return;
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      const stopListening = await getCurrentWindow().onCloseRequested((event) => {
-        if (dirtyRef.current && !window.confirm('当前文档有未保存的修改。确定要关闭 ProseMap 吗？')) {
-          event.preventDefault();
+      const currentWindow = getCurrentWindow();
+      const stopListening = await currentWindow.onCloseRequested(async (event) => {
+        const documentPending = dirtyRef.current;
+        const workbenchPending = workbenchPendingRef.current;
+        if (!documentPending && !workbenchPending) return;
+        event.preventDefault();
+        if (closeConfirmationPendingRef.current) return;
+        closeConfirmationPendingRef.current = true;
+        try {
+          const confirmed = await askConfirmation({
+            title: '关闭 ProseMap？',
+            message: documentPending && workbenchPending
+              ? '当前文档和图表草稿都有尚未保存的修改。关闭后，这些修改将无法恢复。'
+              : workbenchPending
+                ? '当前图表草稿尚未应用到文档。关闭后，这些修改将无法恢复。'
+                : '当前文档有未保存的修改。关闭后，这些修改将无法恢复。',
+            confirmLabel: '放弃并关闭',
+            cancelLabel: '继续编辑',
+            destructive: true,
+          });
+          if (confirmed) await currentWindow.destroy();
+        } catch (reason) {
+          if (active) showToast('error', reason instanceof Error ? reason.message : '无法关闭应用，请先保存文档后重试');
+        } finally {
+          closeConfirmationPendingRef.current = false;
         }
       });
       if (!active) stopListening();
       else unlisten = stopListening;
-    })().catch(() => undefined);
+    })().catch((reason: unknown) => {
+      console.error('无法初始化窗口关闭保护', reason);
+      if (active) showToast('error', '窗口关闭保护初始化失败，请先保存文档再退出');
+    });
     return () => { active = false; unlisten?.(); };
-  }, []);
+  }, [askConfirmation, showToast]);
 
   function focusRange(from: number, to: number) {
     window.setTimeout(() => {
@@ -290,8 +425,9 @@ export default function Home() {
   }
 
   function replaceRange(from: number, to: number, replacement: string, selectInside = false) {
+    documentRevisionRef.current += 1;
     setContent((current) => `${current.slice(0, from)}${replacement}${current.slice(to)}`);
-    setIsDirty(true);
+    updateDirtyState(true);
     const anchor = selectInside ? from : from + replacement.length;
     const head = selectInside ? from + replacement.length : anchor;
     setSelection({ from: anchor, to: head, text: selectInside ? replacement : '' });
@@ -302,8 +438,9 @@ export default function Home() {
     const selected = content.slice(selection.from, selection.to);
     const body = selected || placeholder;
     const replacement = `${before}${body}${after}`;
+    documentRevisionRef.current += 1;
     setContent(`${content.slice(0, selection.from)}${replacement}${content.slice(selection.to)}`);
-    setIsDirty(true);
+    updateDirtyState(true);
     const from = selection.from + before.length;
     const to = from + body.length;
     setSelection({ from, to, text: body });
@@ -316,12 +453,7 @@ export default function Home() {
     replaceRange(selection.from, selection.to, `${prefix}${block}${suffix}`, true);
   }
 
-  function canReplaceCurrentDocument() {
-    return !isDirty || window.confirm('当前文档有未保存的修改。确定要放弃这些修改吗？');
-  }
-
   async function loadFile(file: File) {
-    if (!canReplaceCurrentDocument()) return;
     if (!/\.(md|markdown|txt)$/i.test(file.name)) {
       showToast('error', '请选择 .md、.markdown 或 .txt 文件');
       return;
@@ -330,26 +462,24 @@ export default function Home() {
       showToast('error', '文件不能超过 2 MB');
       return;
     }
+    const requestId = ++documentOpenRequestRef.current;
     try {
       const text = await file.text();
-      abortRef.current?.abort();
-      abortRef.current = null;
-      setProposal(null);
-      setContent(text);
-      setDocumentName(safeDocumentName(file.name));
-      setLocalPath(null);
-      setSelection({ from: 0, to: 0, text: '' });
-      setIsDirty(false);
-      showToast('success', `已导入 ${file.name}`);
+      await commitDocumentReplacement(
+        requestId,
+        { path: null, name: file.name, content: text },
+        `已导入 ${file.name}`,
+      );
     } catch {
       showToast('error', '文件读取失败，请重试');
     }
   }
 
   async function openFile() {
+    const requestId = ++documentOpenRequestRef.current;
     try {
       const document = await pickLocalMarkdown();
-      if (document && canReplaceCurrentDocument()) applyLocalDocument(document);
+      if (document) await commitDocumentReplacement(requestId, document);
     } catch (reason) {
       showToast('error', reason instanceof Error ? reason.message : '文件打开失败，请重试');
     }
@@ -368,10 +498,11 @@ export default function Home() {
   }
 
   async function openWorkspaceFile(entry: LocalFileEntry) {
-    if (entry.path === localPath || !canReplaceCurrentDocument()) return;
+    if (entry.path === localPath) return;
+    const requestId = ++documentOpenRequestRef.current;
     try {
       const document = await readLocalMarkdown(entry.path);
-      applyLocalDocument(document);
+      await commitDocumentReplacement(requestId, document);
     } catch (reason) {
       showToast('error', reason instanceof Error ? reason.message : '文件读取失败，请重试');
     }
@@ -388,16 +519,32 @@ export default function Home() {
 
   function openMermaidTarget(target: MermaidTarget) {
     setAssistantOpen(false);
+    const id = ++workbenchSessionIdRef.current;
+    activeWorkbenchSessionRef.current = id;
+    workbenchPendingRef.current = false;
     setMermaidWorkbench({
+      id,
+      documentRevision: documentRevisionRef.current,
       sourceDocument: content,
       insertAt: target?.from ?? selection.from,
       target,
     });
   }
 
-  function applyMermaidWorkbench(source: string) {
-    if (!mermaidWorkbench) return;
-    if (content !== mermaidWorkbench.sourceDocument) {
+  function closeMermaidWorkbench(sessionId: number) {
+    if (activeWorkbenchSessionRef.current === sessionId) {
+      activeWorkbenchSessionRef.current = null;
+      workbenchPendingRef.current = false;
+    }
+    setMermaidWorkbench((current) => current?.id === sessionId ? null : current);
+  }
+
+  function applyMermaidWorkbench(sessionId: number, source: string) {
+    if (!mermaidWorkbench || mermaidWorkbench.id !== sessionId) return;
+    if (
+      documentRevisionRef.current !== mermaidWorkbench.documentRevision
+      || content !== mermaidWorkbench.sourceDocument
+    ) {
       showToast('error', '文档已发生变化，请重新打开图表工作台');
       return;
     }
@@ -410,7 +557,7 @@ export default function Home() {
       const suffix = at < content.length && content[at] !== '\n' ? '\n\n' : '\n';
       replaceRange(at, at, `${prefix}${fenced}${suffix}`);
     }
-    setMermaidWorkbench(null);
+    closeMermaidWorkbench(sessionId);
     showToast('success', mermaidWorkbench.target ? '图表已更新' : '图表已插入文档');
   }
 
@@ -530,6 +677,7 @@ export default function Home() {
   return (
     <main
       className={`app-shell view-${viewMode}`}
+      inert={Boolean(confirmation)}
       onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
       onDragOver={(event) => event.preventDefault()}
       onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
@@ -647,7 +795,11 @@ export default function Home() {
                 closeBrackets: true,
                 history: true,
               }}
-              onChange={(value) => { setContent(value); setIsDirty(true); }}
+              onChange={(value) => {
+                documentRevisionRef.current += 1;
+                setContent(value);
+                updateDirtyState(true);
+              }}
               onUpdate={(update) => {
                 if (!update.selectionSet && !update.docChanged) return;
                 const main = update.state.selection.main;
@@ -693,13 +845,18 @@ export default function Home() {
       {dragging ? <div className="drop-overlay"><span><FileDown size={28} /></span><strong>松开即可导入 Markdown</strong><p>支持 .md、.markdown 与 .txt，最大 2 MB</p></div> : null}
       {mermaidWorkbench ? (
         <MermaidWorkbench
+          key={mermaidWorkbench.id}
+          sessionId={mermaidWorkbench.id}
           config={config}
           initialSource={mermaidWorkbench.target?.source}
           inactive={settingsOpen}
           mode={mermaidWorkbench.target ? 'edit' : 'create'}
-          onApply={applyMermaidWorkbench}
-          onClose={() => setMermaidWorkbench(null)}
+          onApply={(source) => applyMermaidWorkbench(mermaidWorkbench.id, source)}
+          onClose={() => closeMermaidWorkbench(mermaidWorkbench.id)}
           onOpenSettings={() => setSettingsOpen(true)}
+          onPendingChangesChange={handleWorkbenchPendingChanges}
+          onRequestConfirmation={askConfirmation}
+          interactionSuspended={Boolean(confirmation)}
         />
       ) : null}
       {settingsOpen ? (
@@ -725,6 +882,13 @@ export default function Home() {
         />
       ) : null}
       {proposal ? <DiffModal key={proposal.id} proposal={proposal} onAccept={acceptProposal} onReject={rejectProposal} onStop={stopGeneration} /> : null}
+      {confirmation ? (
+        <ConfirmDialog
+          {...confirmation.request}
+          onConfirm={() => resolveConfirmation(confirmation.id, true)}
+          onCancel={() => resolveConfirmation(confirmation.id, false)}
+        />
+      ) : null}
       {toast ? <div className={`toast ${toast.kind}`} role="status">{toast.kind === 'success' ? <Check size={15} /> : toast.kind === 'error' ? <X size={15} /> : <FileText size={15} />}{toast.message}</div> : null}
     </main>
   );

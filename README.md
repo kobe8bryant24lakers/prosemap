@@ -108,6 +108,7 @@ AI features require network access to the provider selected by the user. Local e
 
 - API endpoints may use hostnames, IPv4 addresses, or bracketed IPv6 addresses, with an optional explicit port.
 - HTTPS is supported for public and private destinations. Plain HTTP is limited to loopback, private-network, carrier-grade NAT, or link-local destinations and is checked again after hostname resolution.
+- HTTPS verification trusts both the bundled public CA roots and the operating system trust store, including administrator-installed enterprise or private roots.
 - Credentials in URLs, query strings, fragments, redirects, and unusable network destinations are rejected.
 - Validated hostname results are pinned to the outgoing model request to prevent DNS rebinding between validation and connection.
 - Upstream errors are size-limited and API keys are redacted.

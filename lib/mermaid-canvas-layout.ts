@@ -8,6 +8,7 @@ import type {
 
 export type MermaidCanvasPoint = { x: number; y: number };
 export type MermaidCanvasNodePositions = Record<string, MermaidCanvasPoint>;
+export type MermaidCanvasAlignmentGuides = { x?: number; y?: number };
 export type MermaidCanvasEdgeRoute = {
   points: MermaidCanvasPoint[];
   label: MermaidCanvasPoint;
@@ -112,6 +113,56 @@ export function mermaidCanvasNodeSize(node: MermaidFlowNode, kind: MermaidFlowGr
   if (node.shape === 'decision') return { width: 112, height: 92 };
   if (node.shape === 'terminal') return { width: 166, height: 64 };
   return { width: 176, height: 72 };
+}
+
+export function snapMermaidCanvasNode(
+  graph: MermaidFlowGraph,
+  positions: MermaidCanvasNodePositions,
+  node: MermaidFlowNode,
+  point: MermaidCanvasPoint,
+  gridEnabled: boolean,
+): { point: MermaidCanvasPoint; guides: MermaidCanvasAlignmentGuides } {
+  const size = mermaidCanvasNodeSize(node, graph.kind);
+  const snapped = gridEnabled
+    ? { x: Math.round(point.x / 10) * 10, y: Math.round(point.y / 10) * 10 }
+    : { ...point };
+  const threshold = 9;
+  let bestX: { delta: number; position: number; guide: number } | null = null;
+  let bestY: { delta: number; position: number; guide: number } | null = null;
+  const candidateXs = [
+    { coordinate: snapped.x, offset: 0 },
+    { coordinate: snapped.x + size.width / 2, offset: size.width / 2 },
+    { coordinate: snapped.x + size.width, offset: size.width },
+  ];
+  const candidateYs = [
+    { coordinate: snapped.y, offset: 0 },
+    { coordinate: snapped.y + size.height / 2, offset: size.height / 2 },
+    { coordinate: snapped.y + size.height, offset: size.height },
+  ];
+  for (const other of graph.nodes) {
+    if (other.id === node.id) continue;
+    const otherPosition = positions[other.id];
+    if (!otherPosition) continue;
+    const otherSize = mermaidCanvasNodeSize(other, graph.kind);
+    const targetXs = [otherPosition.x, otherPosition.x + otherSize.width / 2, otherPosition.x + otherSize.width];
+    const targetYs = [otherPosition.y, otherPosition.y + otherSize.height / 2, otherPosition.y + otherSize.height];
+    for (const candidate of candidateXs) {
+      for (const target of targetXs) {
+        const delta = Math.abs(candidate.coordinate - target);
+        if (delta <= threshold && (!bestX || delta < bestX.delta)) bestX = { delta, position: target - candidate.offset, guide: target };
+      }
+    }
+    for (const candidate of candidateYs) {
+      for (const target of targetYs) {
+        const delta = Math.abs(candidate.coordinate - target);
+        if (delta <= threshold && (!bestY || delta < bestY.delta)) bestY = { delta, position: target - candidate.offset, guide: target };
+      }
+    }
+  }
+  return {
+    point: { x: bestX?.position ?? snapped.x, y: bestY?.position ?? snapped.y },
+    guides: { x: bestX?.guide, y: bestY?.guide },
+  };
 }
 
 function edgeLayoutText(edge: MermaidFlowEdge, kind: MermaidFlowGraph['kind']) {

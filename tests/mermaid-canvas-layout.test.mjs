@@ -10,6 +10,7 @@ import {
   mermaidCanvasNodeSize,
   mermaidSequenceMessageVisual,
   MIN_MERMAID_SEQUENCE_STAGE_HEIGHT,
+  snapMermaidCanvasNode,
 } from '../lib/mermaid-canvas-layout.ts';
 
 function node(id, shape = 'rectangle', data) {
@@ -400,4 +401,54 @@ test('reserved object property names remain valid Dagre node and edge IDs', () =
     assert.ok(Object.hasOwn(layout.routes, id), `${id} must be stored as an own route key`);
     assert.ok(layout.routes[id].points.length >= 2, `${id} must retain its routed path`);
   }
+});
+
+test('drag snapping rounds to the grid when no alignment target is nearby', () => {
+  const graph = {
+    kind: 'flowchart',
+    direction: 'LR',
+    nodes: [node('Dragged')],
+    edges: [],
+  };
+
+  assert.deepEqual(
+    snapMermaidCanvasNode(graph, { Dragged: { x: 0, y: 0 } }, graph.nodes[0], { x: 123, y: 147 }, true),
+    { point: { x: 120, y: 150 }, guides: { x: undefined, y: undefined } },
+  );
+});
+
+test('drag snapping aligns object edges and centers with nearby objects', () => {
+  const graph = {
+    kind: 'flowchart',
+    direction: 'LR',
+    nodes: [node('Target'), node('Dragged')],
+    edges: [],
+  };
+  const positions = {
+    Target: { x: 400, y: 200 },
+    Dragged: { x: 0, y: 0 },
+  };
+
+  assert.deepEqual(
+    snapMermaidCanvasNode(graph, positions, graph.nodes[1], { x: 219, y: 201 }, false),
+    { point: { x: 224, y: 200 }, guides: { x: 400, y: 200 } },
+  );
+});
+
+test('drag snapping preserves free movement when the grid is disabled and no object is nearby', () => {
+  const graph = {
+    kind: 'flowchart',
+    direction: 'LR',
+    nodes: [node('Target'), node('Dragged')],
+    edges: [],
+  };
+  const positions = {
+    Target: { x: 700, y: 500 },
+    Dragged: { x: 0, y: 0 },
+  };
+
+  assert.deepEqual(
+    snapMermaidCanvasNode(graph, positions, graph.nodes[1], { x: 123.5, y: 147.25 }, false),
+    { point: { x: 123.5, y: 147.25 }, guides: { x: undefined, y: undefined } },
+  );
 });

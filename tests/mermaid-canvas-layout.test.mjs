@@ -9,6 +9,11 @@ import {
   mermaidCanvasLayoutBounds,
   mermaidCanvasNodeSize,
   mermaidSequenceMessageVisual,
+  resizeMermaidSequenceParticipant,
+  MAX_MERMAID_SEQUENCE_NODE_HEIGHT,
+  MAX_MERMAID_SEQUENCE_NODE_WIDTH,
+  MIN_MERMAID_SEQUENCE_NODE_HEIGHT,
+  MIN_MERMAID_SEQUENCE_NODE_WIDTH,
   MIN_MERMAID_SEQUENCE_STAGE_HEIGHT,
   snapMermaidCanvasNode,
 } from '../lib/mermaid-canvas-layout.ts';
@@ -451,4 +456,104 @@ test('drag snapping preserves free movement when the grid is disabled and no obj
     snapMermaidCanvasNode(graph, positions, graph.nodes[1], { x: 123.5, y: 147.25 }, false),
     { point: { x: 123.5, y: 147.25 }, guides: { x: undefined, y: undefined } },
   );
+});
+
+test('sequence participant canvas dimensions are rounded and clamped to usable bounds', () => {
+  assert.deepEqual(
+    mermaidCanvasNodeSize(node('Default', 'rectangle', { sequenceType: 'participant' }), 'sequence'),
+    { width: 174, height: 66 },
+  );
+  assert.deepEqual(
+    mermaidCanvasNodeSize(node('Custom', 'rectangle', {
+      sequenceType: 'participant',
+      canvasWidth: 210.26,
+      canvasHeight: 88.84,
+    }), 'sequence'),
+    { width: 210.3, height: 88.8 },
+  );
+  assert.deepEqual(
+    mermaidCanvasNodeSize(node('TooSmall', 'rectangle', {
+      canvasWidth: 1,
+      canvasHeight: -10,
+    }), 'sequence'),
+    { width: MIN_MERMAID_SEQUENCE_NODE_WIDTH, height: MIN_MERMAID_SEQUENCE_NODE_HEIGHT },
+  );
+  assert.deepEqual(
+    mermaidCanvasNodeSize(node('TooLarge', 'rectangle', {
+      canvasWidth: 10_000,
+      canvasHeight: 10_000,
+    }), 'sequence'),
+    { width: MAX_MERMAID_SEQUENCE_NODE_WIDTH, height: MAX_MERMAID_SEQUENCE_NODE_HEIGHT },
+  );
+  assert.deepEqual(
+    mermaidCanvasNodeSize(node('Invalid', 'rectangle', {
+      canvasWidth: Number.NaN,
+      canvasHeight: Number.POSITIVE_INFINITY,
+    }), 'sequence'),
+    { width: 174, height: 66 },
+  );
+});
+
+test('sequence participant dimensions invalidate both topology and geometry signatures', () => {
+  const compact = {
+    kind: 'sequence',
+    direction: 'LR',
+    nodes: [node('Client', 'rectangle', { sequenceType: 'participant' })],
+    edges: [],
+  };
+  const resized = {
+    ...compact,
+    nodes: [node('Client', 'rectangle', {
+      sequenceType: 'participant',
+      canvasWidth: 260,
+      canvasHeight: 96,
+    })],
+  };
+
+  assert.notEqual(graphLayoutSignature(compact), graphLayoutSignature(resized));
+  assert.notEqual(graphNodeGeometrySignature(compact), graphNodeGeometrySignature(resized));
+});
+
+test('all four sequence resize handles keep their opposite corner anchored', () => {
+  const position = { x: 100, y: 80 };
+  const size = { width: 200, height: 100 };
+  const delta = { x: 40, y: 20 };
+  const fixtures = [
+    ['north-west', { position: { x: 140, y: 100 }, size: { width: 160, height: 80 } }],
+    ['north-east', { position: { x: 100, y: 100 }, size: { width: 240, height: 80 } }],
+    ['south-east', { position: { x: 100, y: 80 }, size: { width: 240, height: 120 } }],
+    ['south-west', { position: { x: 140, y: 80 }, size: { width: 160, height: 120 } }],
+  ];
+
+  for (const [handle, expected] of fixtures) {
+    assert.deepEqual(resizeMermaidSequenceParticipant(position, size, handle, delta), expected, handle);
+  }
+});
+
+test('sequence resize enforces min/max dimensions and the 18px canvas inset', () => {
+  const position = { x: 100, y: 80 };
+  const size = { width: 174, height: 66 };
+  assert.deepEqual(
+    resizeMermaidSequenceParticipant(position, size, 'south-east', { x: -1_000, y: -1_000 }),
+    {
+      position,
+      size: { width: MIN_MERMAID_SEQUENCE_NODE_WIDTH, height: MIN_MERMAID_SEQUENCE_NODE_HEIGHT },
+    },
+  );
+  assert.deepEqual(
+    resizeMermaidSequenceParticipant(position, size, 'south-east', { x: 1_000, y: 1_000 }),
+    {
+      position,
+      size: { width: MAX_MERMAID_SEQUENCE_NODE_WIDTH, height: MAX_MERMAID_SEQUENCE_NODE_HEIGHT },
+    },
+  );
+
+  const nearInset = { x: 20, y: 20 };
+  const bounded = resizeMermaidSequenceParticipant(nearInset, size, 'north-west', { x: -100, y: -100 });
+  assert.deepEqual(bounded, {
+    position: { x: 18, y: 18 },
+    size: { width: 176, height: 68 },
+  });
+  assert.equal(bounded.position.x + bounded.size.width, nearInset.x + size.width, 'right edge stays anchored');
+  assert.equal(bounded.position.y + bounded.size.height, nearInset.y + size.height, 'bottom edge stays anchored');
 });

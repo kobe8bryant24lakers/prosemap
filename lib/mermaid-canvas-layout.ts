@@ -25,12 +25,17 @@ export type MermaidCanvasBounds = {
   maxX: number;
   maxY: number;
 };
+export type MermaidCanvasResizeHandle = 'north-west' | 'north-east' | 'south-east' | 'south-west';
 
 export const MIN_MERMAID_STAGE_WIDTH = 1440;
 export const MIN_MERMAID_STAGE_HEIGHT = 780;
 export const MIN_MERMAID_SEQUENCE_STAGE_HEIGHT = 460;
 export const MERMAID_STAGE_PADDING = 70;
 export const MIN_MERMAID_CANVAS_ZOOM = 0.02;
+export const MIN_MERMAID_SEQUENCE_NODE_WIDTH = 112;
+export const MIN_MERMAID_SEQUENCE_NODE_HEIGHT = 48;
+export const MAX_MERMAID_SEQUENCE_NODE_WIDTH = 640;
+export const MAX_MERMAID_SEQUENCE_NODE_HEIGHT = 220;
 
 export type MermaidSequenceMessageMarker = 'none' | 'arrow' | 'cross' | 'async';
 export type MermaidSequenceMessageVisual = {
@@ -100,8 +105,28 @@ function createSafeRecord<T>(): Record<string, T> {
   return Object.create(null) as Record<string, T>;
 }
 
+function canvasDimension(value: number | undefined, fallback: number, minimum: number, maximum: number) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(minimum, Math.min(maximum, roundCoordinate(value!)));
+}
+
 export function mermaidCanvasNodeSize(node: MermaidFlowNode, kind: MermaidFlowGraph['kind']): Size {
-  if (kind === 'sequence') return { width: 174, height: 66 };
+  if (kind === 'sequence') {
+    return {
+      width: canvasDimension(
+        node.data?.canvasWidth,
+        174,
+        MIN_MERMAID_SEQUENCE_NODE_WIDTH,
+        MAX_MERMAID_SEQUENCE_NODE_WIDTH,
+      ),
+      height: canvasDimension(
+        node.data?.canvasHeight,
+        66,
+        MIN_MERMAID_SEQUENCE_NODE_HEIGHT,
+        MAX_MERMAID_SEQUENCE_NODE_HEIGHT,
+      ),
+    };
+  }
   if (kind === 'state' && (node.data?.stateRole === 'start' || node.data?.stateRole === 'end')) return { width: 58, height: 58 };
   if (kind === 'class' || kind === 'er') {
     const detailCount = Math.min(6, node.data?.details?.length ?? 0);
@@ -113,6 +138,45 @@ export function mermaidCanvasNodeSize(node: MermaidFlowNode, kind: MermaidFlowGr
   if (node.shape === 'decision') return { width: 112, height: 92 };
   if (node.shape === 'terminal') return { width: 166, height: 64 };
   return { width: 176, height: 72 };
+}
+
+/**
+ * Resizes a sequence participant from one of its four corner handles while
+ * keeping the opposite corner anchored. The top/left canvas inset remains
+ * reachable and the right/bottom sides may grow the stage afterwards.
+ */
+export function resizeMermaidSequenceParticipant(
+  position: MermaidCanvasPoint,
+  size: Size,
+  handle: MermaidCanvasResizeHandle,
+  delta: MermaidCanvasPoint,
+): { position: MermaidCanvasPoint; size: Size } {
+  const west = handle === 'north-west' || handle === 'south-west';
+  const north = handle === 'north-west' || handle === 'north-east';
+  let width = Math.max(
+    MIN_MERMAID_SEQUENCE_NODE_WIDTH,
+    Math.min(MAX_MERMAID_SEQUENCE_NODE_WIDTH, size.width + (west ? -delta.x : delta.x)),
+  );
+  let height = Math.max(
+    MIN_MERMAID_SEQUENCE_NODE_HEIGHT,
+    Math.min(MAX_MERMAID_SEQUENCE_NODE_HEIGHT, size.height + (north ? -delta.y : delta.y)),
+  );
+  let x = west ? position.x + size.width - width : position.x;
+  let y = north ? position.y + size.height - height : position.y;
+
+  if (x < 18) {
+    width = Math.min(MAX_MERMAID_SEQUENCE_NODE_WIDTH, width + x - 18);
+    x = 18;
+  }
+  if (y < 18) {
+    height = Math.min(MAX_MERMAID_SEQUENCE_NODE_HEIGHT, height + y - 18);
+    y = 18;
+  }
+
+  return {
+    position: { x: roundCoordinate(x), y: roundCoordinate(y) },
+    size: { width: roundCoordinate(width), height: roundCoordinate(height) },
+  };
 }
 
 export function snapMermaidCanvasNode(
@@ -196,6 +260,8 @@ export function graphLayoutSignature(graph: MermaidFlowGraph) {
       node.data?.stateRole ?? '',
       node.data?.mindRoot ? 1 : 0,
       Math.min(6, node.data?.details?.length ?? 0),
+      node.data?.canvasWidth ?? '',
+      node.data?.canvasHeight ?? '',
     ]),
     edges: graph.edges.map((edge) => [
       edge.id,

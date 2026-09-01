@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createMermaidTarget, findMermaidTarget, formatMermaidFence } from '../lib/editor.ts';
+import {
+  createMermaidDocumentEdit,
+  createMermaidTarget,
+  findMermaidTarget,
+  formatMermaidFence,
+} from '../lib/editor.ts';
 import {
   MERMAID_TEMPLATES,
   parseMermaidVisualSource,
@@ -179,6 +184,65 @@ test('cursor targeting preserves CRLF when a Mermaid fence is replaced', () => {
   const updated = markdown.slice(0, target.from) + fenced + markdown.slice(target.to);
   assert.equal(updated, 'Before\r\n\r\n```mermaid\r\nflowchart TD\r\n  A-->C\r\n```\r\n\r\nAfter');
   assert.equal(updated.replace(/\r\n/g, '').includes('\n'), false, 'the updated document must not introduce lone LF line endings');
+});
+
+test('new Mermaid diagrams use the captured cursor head and focus the inserted fence', () => {
+  const markdown = '第一段仍在这里。\n\n第二段从这里开始。';
+  const insertAt = markdown.indexOf('第二段');
+  const source = 'sequenceDiagram\n  Alice->>Bob: hello';
+  const edit = createMermaidDocumentEdit(markdown, source, null, insertAt);
+  const updated = markdown.slice(0, edit.from) + edit.replacement + markdown.slice(edit.to);
+  const fenced = `\`\`\`mermaid\n${source}\n\`\`\``;
+
+  assert.equal(edit.from, insertAt);
+  assert.equal(edit.to, insertAt);
+  assert.equal(edit.diagramFrom, insertAt);
+  assert.equal(updated, `第一段仍在这里。\n\n${fenced}\n\n第二段从这里开始。`);
+  assert.equal(updated.slice(edit.diagramFrom, edit.diagramTo), fenced);
+  assert.equal(findMermaidTarget(updated, edit.diagramFrom)?.source, source);
+});
+
+test('mid-line Mermaid insertion accounts for surrounding spacing without shifting its captured offset', () => {
+  const markdown = '光标前|光标后';
+  const insertAt = markdown.indexOf('|');
+  const source = 'flowchart LR\n  A-->B';
+  const edit = createMermaidDocumentEdit(markdown, source, null, insertAt);
+  const updated = markdown.slice(0, edit.from) + edit.replacement + markdown.slice(edit.to);
+
+  assert.equal(edit.from, insertAt);
+  assert.equal(edit.diagramFrom, insertAt + 2, 'the focus offset must include the two newlines before the fence');
+  assert.equal(updated, '光标前\n\n```mermaid\nflowchart LR\n  A-->B\n```\n\n|光标后');
+  assert.equal(updated[edit.from], '\n', 'the original insertion offset remains the start of the edit');
+  assert.equal(updated.slice(edit.diagramFrom, edit.diagramTo), '```mermaid\nflowchart LR\n  A-->B\n```');
+});
+
+test('new Mermaid insertion preserves CRLF and clamps stale cursor offsets', () => {
+  const markdown = 'Before\r\nAfter';
+  const source = 'flowchart TD\n  A-->B';
+  const edit = createMermaidDocumentEdit(markdown, source, null, Number.MAX_SAFE_INTEGER);
+  const updated = markdown.slice(0, edit.from) + edit.replacement + markdown.slice(edit.to);
+
+  assert.equal(edit.from, markdown.length);
+  assert.equal(updated, 'Before\r\nAfter\r\n\r\n```mermaid\r\nflowchart TD\r\n  A-->B\r\n```\r\n');
+  assert.equal(updated.replace(/\r\n/g, '').includes('\n'), false);
+});
+
+test('editing an existing Mermaid diagram focuses its stable document start', () => {
+  const source = 'flowchart LR\n  A-->B';
+  const fenced = `\`\`\`mermaid\n${source}\n\`\`\``;
+  const markdown = `Before\n\n${fenced}\n\nAfter`;
+  const target = findMermaidTarget(markdown, markdown.indexOf('A-->B'));
+  assert.ok(target);
+
+  const replacement = 'flowchart TD\n  A-->C\n  C-->D';
+  const edit = createMermaidDocumentEdit(markdown, replacement, target, 0);
+  const updated = markdown.slice(0, edit.from) + edit.replacement + markdown.slice(edit.to);
+
+  assert.equal(edit.from, target.from);
+  assert.equal(edit.diagramFrom, target.from);
+  assert.equal(edit.diagramTo, target.from + edit.replacement.length);
+  assert.equal(findMermaidTarget(updated, edit.diagramFrom)?.source, replacement);
+  assert.equal(updated.slice(0, edit.diagramFrom), 'Before\n\n');
 });
 
 test('all nine Mermaid templates survive a parse and serialize round trip', async (t) => {

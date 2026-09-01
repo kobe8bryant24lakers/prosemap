@@ -37,6 +37,14 @@ export type MermaidTarget = {
   lineEnding?: '\n' | '\r\n';
 } | null;
 
+export type MermaidDocumentEdit = {
+  from: number;
+  to: number;
+  replacement: string;
+  diagramFrom: number;
+  diagramTo: number;
+};
+
 export const OPENAI_BASE_URL = 'https://api.openai.com/v1';
 export const ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1';
 
@@ -126,6 +134,62 @@ export function formatMermaidFence(source: string, target: MermaidTarget = null)
   return ['```mermaid', ...sourceLines, '```']
     .map((line, index) => index === 0 ? line : `${linePrefix}${line}`)
     .join(lineEnding);
+}
+
+/**
+ * Plans one complete Mermaid document edit without depending on React or
+ * CodeMirror timing. New diagrams are inserted at the exact editor head that
+ * was captured when the workbench opened. The returned diagram range excludes
+ * any spacing added around the fence, so callers can restore the editor to the
+ * diagram itself instead of scrolling past it.
+ */
+export function createMermaidDocumentEdit(
+  markdown: string,
+  source: string,
+  target: MermaidTarget,
+  insertAt: number,
+): MermaidDocumentEdit {
+  if (target) {
+    const replacement = formatMermaidFence(source, target);
+    return {
+      from: target.from,
+      to: target.to,
+      replacement,
+      diagramFrom: target.from,
+      diagramTo: target.from + replacement.length,
+    };
+  }
+
+  const normalizedInsertAt = Number.isFinite(insertAt)
+    ? Math.max(0, Math.min(markdown.length, Math.trunc(insertAt)))
+    : 0;
+  const lineEnding: '\n' | '\r\n' = markdown.includes('\r\n') ? '\r\n' : '\n';
+  const fenceTarget = {
+    from: 0,
+    to: 1,
+    source: '',
+    fenced: '',
+    linePrefix: '',
+    lineEnding,
+  };
+  const fenced = formatMermaidFence(source, fenceTarget);
+  const previousCharacter = markdown[normalizedInsertAt - 1];
+  const nextCharacter = markdown[normalizedInsertAt];
+  const prefix = normalizedInsertAt > 0 && previousCharacter !== '\n'
+    ? lineEnding.repeat(2)
+    : '';
+  const suffix = normalizedInsertAt < markdown.length && nextCharacter !== '\n' && nextCharacter !== '\r'
+    ? lineEnding.repeat(2)
+    : lineEnding;
+  const replacement = `${prefix}${fenced}${suffix}`;
+  const diagramFrom = normalizedInsertAt + prefix.length;
+  return {
+    from: normalizedInsertAt,
+    to: normalizedInsertAt,
+    replacement,
+    diagramFrom,
+    diagramTo: diagramFrom + fenced.length,
+  };
 }
 
 export function stripCodeFence(value: string): string {

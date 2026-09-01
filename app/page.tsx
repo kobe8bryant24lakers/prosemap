@@ -46,8 +46,8 @@ import {
   INITIAL_MARKDOWN,
   OPENAI_BASE_URL,
   countReadableCharacters,
+  createMermaidDocumentEdit,
   findMermaidTarget,
-  formatMermaidFence,
   safeDocumentName,
   stripCodeFence,
   type AssistAction,
@@ -83,6 +83,17 @@ type ReplaceableDocument = Omit<LocalDocument, 'path'> & { path: string | null }
 type ActiveConfirmation = {
   id: number;
   request: ConfirmationRequest;
+};
+
+type EditorSnapshot = {
+  document: string;
+  anchor: number;
+  head: number;
+};
+
+type EditorSelection = {
+  anchor: number;
+  head: number;
 };
 
 const editorExtensions = [markdownLanguage(), EditorView.lineWrapping];
@@ -415,36 +426,85 @@ export default function Home() {
     return () => { active = false; unlisten?.(); };
   }, [askConfirmation, showToast]);
 
-  function focusRange(from: number, to: number) {
-    window.setTimeout(() => {
-      const view = editorRef.current?.view;
-      if (!view) return;
-      view.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true });
-      view.focus();
-    }, 0);
+  function readEditorSnapshot(): EditorSnapshot {
+    const view = editorRef.current?.view;
+    if (!view) {
+      return { document: content, anchor: selection.from, head: selection.to };
+    }
+    const main = view.state.selection.main;
+    return {
+      document: view.state.doc.toString(),
+      anchor: main.anchor,
+      head: main.head,
+    };
   }
 
-  function replaceRange(from: number, to: number, replacement: string, selectInside = false) {
+  function focusRange(from: number, to: number, expectedDocument?: string) {
+    let attempts = 0;
+    function restore() {
+      const view = editorRef.current?.view;
+      if (!view) return;
+      if (expectedDocument !== undefined && view.state.doc.toString() !== expectedDocument && attempts < 20) {
+        attempts += 1;
+        window.requestAnimationFrame(restore);
+        return;
+      }
+      const length = view.state.doc.length;
+      const anchor = Math.max(0, Math.min(length, from));
+      const head = Math.max(0, Math.min(length, to));
+      view.dispatch({
+        selection: { anchor, head },
+        effects: EditorView.scrollIntoView(head, { y: 'center' }),
+      });
+      view.focus();
+    }
+    window.setTimeout(restore, 0);
+  }
+
+  function replaceRange(
+    from: number,
+    to: number,
+    replacement: string,
+    selectInside = false,
+    restoredSelection?: EditorSelection,
+  ) {
+    const nextDocument = `${content.slice(0, from)}${replacement}${content.slice(to)}`;
+    const defaultAnchor = selectInside ? from : from + replacement.length;
+    const defaultHead = selectInside ? from + replacement.length : defaultAnchor;
+    const anchor = restoredSelection?.anchor ?? defaultAnchor;
+    const head = restoredSelection?.head ?? defaultHead;
+    const view = editorRef.current?.view;
+
+    if (view && view.state.doc.toString() === content) {
+      view.dispatch({
+        changes: { from, to, insert: replacement },
+        selection: { anchor, head },
+        effects: EditorView.scrollIntoView(head, { y: 'center' }),
+      });
+      view.focus();
+      return;
+    }
+
     documentRevisionRef.current += 1;
-    setContent((current) => `${current.slice(0, from)}${replacement}${current.slice(to)}`);
+    setContent(nextDocument);
     updateDirtyState(true);
-    const anchor = selectInside ? from : from + replacement.length;
-    const head = selectInside ? from + replacement.length : anchor;
-    setSelection({ from: anchor, to: head, text: selectInside ? replacement : '' });
-    focusRange(anchor, head);
+    const normalizedFrom = Math.min(anchor, head);
+    const normalizedTo = Math.max(anchor, head);
+    setSelection({
+      from: normalizedFrom,
+      to: normalizedTo,
+      text: nextDocument.slice(normalizedFrom, normalizedTo),
+    });
+    focusRange(anchor, head, nextDocument);
   }
 
   function formatSelection(before: string, after = before, placeholder = '文字') {
     const selected = content.slice(selection.from, selection.to);
     const body = selected || placeholder;
     const replacement = `${before}${body}${after}`;
-    documentRevisionRef.current += 1;
-    setContent(`${content.slice(0, selection.from)}${replacement}${content.slice(selection.to)}`);
-    updateDirtyState(true);
     const from = selection.from + before.length;
     const to = from + body.length;
-    setSelection({ from, to, text: body });
-    focusRange(from, to);
+    replaceRange(selection.from, selection.to, replacement, false, { anchor: from, head: to });
   }
 
   function insertBlock(block: string) {
@@ -514,10 +574,11 @@ export default function Home() {
   }
 
   function openMermaidWorkbench() {
-    openMermaidTarget(mermaidTarget);
+    const snapshot = readEditorSnapshot();
+    openMermaidTarget(findMermaidTarget(snapshot.document, snapshot.head), snapshot);
   }
 
-  function openMermaidTarget(target: MermaidTarget) {
+  function openMermaidTarget(target: MermaidTarget, editorSnapshot = readEditorSnapshot()) {
     setAssistantOpen(false);
     const id = ++workbenchSessionIdRef.current;
     activeWorkbenchSessionRef.current = id;
@@ -525,8 +586,8 @@ export default function Home() {
     setMermaidWorkbench({
       id,
       documentRevision: documentRevisionRef.current,
-      sourceDocument: content,
-      insertAt: target?.from ?? selection.from,
+      sourceDocument: editorSnapshot.document,
+      insertAt: target?.from ?? editorSnapshot.head,
       target,
     });
   }
@@ -541,22 +602,27 @@ export default function Home() {
 
   function applyMermaidWorkbench(sessionId: number, source: string) {
     if (!mermaidWorkbench || mermaidWorkbench.id !== sessionId) return;
+    const currentDocument = editorRef.current?.view?.state.doc.toString() ?? content;
     if (
       documentRevisionRef.current !== mermaidWorkbench.documentRevision
-      || content !== mermaidWorkbench.sourceDocument
+      || currentDocument !== mermaidWorkbench.sourceDocument
     ) {
       showToast('error', '文档已发生变化，请重新打开图表工作台');
       return;
     }
-    const fenced = formatMermaidFence(source, mermaidWorkbench.target);
-    if (mermaidWorkbench.target) {
-      replaceRange(mermaidWorkbench.target.from, mermaidWorkbench.target.to, fenced);
-    } else {
-      const at = mermaidWorkbench.insertAt;
-      const prefix = at > 0 && content[at - 1] !== '\n' ? '\n\n' : '';
-      const suffix = at < content.length && content[at] !== '\n' ? '\n\n' : '\n';
-      replaceRange(at, at, `${prefix}${fenced}${suffix}`);
-    }
+    const edit = createMermaidDocumentEdit(
+      mermaidWorkbench.sourceDocument,
+      source,
+      mermaidWorkbench.target,
+      mermaidWorkbench.insertAt,
+    );
+    replaceRange(
+      edit.from,
+      edit.to,
+      edit.replacement,
+      false,
+      { anchor: edit.diagramFrom, head: edit.diagramFrom },
+    );
     closeMermaidWorkbench(sessionId);
     showToast('success', mermaidWorkbench.target ? '图表已更新' : '图表已插入文档');
   }

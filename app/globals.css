@@ -178,16 +178,34 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .diagram-actions .diagram-edit-action { width: auto; display: inline-flex; gap: 5px; padding: 0 8px; border: 1px solid #c6ddcf; background: var(--green-soft); color: var(--green); font-size: 9.5px; font-weight: 760; }
 .diagram-actions .diagram-edit-action:hover { border-color: #8fbea7; background: #dff0e7; }
 .diagram-actions .diagram-zoom-value { width: 42px; color: #607169; font-size: 8.5px; font-weight: 750; }
-.mermaid-canvas { min-height: 220px; max-height: 610px; display: block; overflow: auto; padding: 30px; background-color: #fff; background-image: radial-gradient(#dbe5df 0.6px, transparent 0.6px); background-size: 14px 14px; }
+.mermaid-canvas { display: block; overflow-x: auto; overflow-y: hidden; padding: 30px; background-color: #fff; background-image: radial-gradient(#dbe5df 0.6px, transparent 0.6px); background-size: 14px 14px; }
 .mermaid-canvas.editable { cursor: pointer; }
-.mermaid-svg { width: max-content; min-width: 100%; display: block; transform-origin: top center; transition: transform .16s ease; }
-.mermaid-svg > svg { max-width: none!important; height: auto; display: block; margin: 0 auto; }
+.mermaid-svg { display: block; margin-inline: auto; transition: width .16s ease; }
+.mermaid-svg > svg { width: 100%!important; max-width: none!important; height: auto!important; display: block; margin: 0 auto; }
 .mermaid-loading { min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 11px; color: var(--muted); font-size: 10px; }
 .mermaid-loading i { width: 23px; height: 23px; border: 2px solid #d7e5de; border-top-color: var(--green); border-radius: 50%; animation: spin .8s linear infinite; }
 .mermaid-error { display: flex; flex-direction: column; padding: 20px; background: #fff8f7; color: var(--red); }
 .mermaid-error strong { color: var(--red); font-size: 12px; }
 .mermaid-error > span { margin-top: 5px; font-size: 10px; }
 .mermaid-error code { max-height: 170px; margin-top: 14px; overflow: auto; padding: 12px; border: 1px solid #f0d2cf; background: #fff; color: #774b48; white-space: pre-wrap; }
+
+.mermaid-fullscreen-backdrop { position: fixed; inset: 0; z-index: 80; display: flex; padding: 16px; background: rgb(8 23 16 / 74%); backdrop-filter: blur(7px); animation: modal-in .16s ease-out; }
+.mermaid-fullscreen-dialog { width: 100%; min-width: 0; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgb(255 255 255 / 62%); border-radius: 17px; background: #fff; box-shadow: 0 28px 90px rgb(0 0 0 / 34%); }
+.mermaid-fullscreen-header { min-height: 50px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 0 11px 0 17px; border-bottom: 1px solid var(--line); background: rgb(251 253 251 / 96%); }
+.mermaid-fullscreen-header > div { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.mermaid-fullscreen-header strong { color: var(--ink-soft); font-size: 12px; }
+.mermaid-fullscreen-header small { overflow: hidden; color: var(--muted-light); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.mermaid-fullscreen-actions { flex: none; display: flex; align-items: center; gap: 3px; }
+.mermaid-fullscreen-actions button { width: 31px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--muted); }
+.mermaid-fullscreen-actions button:hover { background: var(--green-soft); color: var(--green); }
+.mermaid-fullscreen-actions .diagram-zoom-value { width: 48px; font-size: 9px; font-weight: 750; }
+.mermaid-fullscreen-actions .mermaid-fullscreen-close { margin-left: 5px; border-left: 1px solid var(--line); border-radius: 0 7px 7px 0; }
+.mermaid-fullscreen-stage { min-height: 0; flex: 1; overflow: auto; padding: clamp(22px, 4vw, 58px); background-color: #f5f8f6; background-image: radial-gradient(#cbd8d1 0.7px, transparent 0.7px); background-size: 15px 15px; }
+.mermaid-fullscreen-stage-inner { width: 100%; min-height: 100%; display: flex; }
+.mermaid-fullscreen-svg { flex: none; display: block; margin: auto; transition: width .16s ease; }
+.mermaid-fullscreen-svg > svg { width: 100%!important; max-width: none!important; height: auto!important; display: block; }
+.mermaid-fullscreen-loading { width: 100%; margin: auto; }
+.mermaid-fullscreen-error { width: min(640px, 100%); margin: auto; border: 1px solid #f0d2cf; border-radius: 12px; box-shadow: 0 9px 26px rgb(105 45 39 / 8%); }
 
 .assistant-panel { z-index: 4; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: #fff; box-shadow: -8px 0 26px rgb(25 49 38 / 5%); }
 .assistant-header { height: 58px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 12px 0 15px; border-bottom: 1px solid var(--line); }
@@ -385,6 +403,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .diff-footer { align-items: stretch; flex-direction: column; }.privacy-note { text-align: center; }.diff-buttons { display: grid; grid-template-columns: 1fr 1fr; }
   .diagram-ready { display: none; }
   .mermaid-canvas { padding: 20px 12px; }
+  .mermaid-fullscreen-backdrop { padding: 0; }
+  .mermaid-fullscreen-dialog { border: 0; border-radius: 0; }
+  .mermaid-fullscreen-header { min-height: 46px; padding-inline: 10px 7px; }
+  .mermaid-fullscreen-header small { display: none; }
+  .mermaid-fullscreen-stage { padding: 18px 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

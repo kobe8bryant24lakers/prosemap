@@ -1,8 +1,9 @@
 'use client';
 
 import DOMPurify from 'dompurify';
-import { Check, Copy, PencilRuler, ZoomIn, ZoomOut } from 'lucide-react';
-import { useEffect, useId, useState } from 'react';
+import { Check, Copy, Maximize2, PencilRuler, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { renderMermaid } from '@/lib/mermaid-runtime';
 
 type MermaidDiagramProps = {
@@ -18,8 +19,16 @@ type MermaidRenderState = {
 
 export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   const reactId = useId();
+  const fullscreenTitleId = `mermaid-fullscreen-${reactId.replace(/:/g, '')}`;
+  const fullscreenBackdropRef = useRef<HTMLDivElement>(null);
+  const fullscreenDialogRef = useRef<HTMLElement>(null);
+  const fullscreenCloseRef = useRef<HTMLButtonElement>(null);
+  const fullscreenRenderSequenceRef = useRef(0);
   const [renderState, setRenderState] = useState<MermaidRenderState>({ code: '', error: '', svg: '' });
+  const [fullscreenRenderState, setFullscreenRenderState] = useState<MermaidRenderState>({ code: '', error: '', svg: '' });
   const [zoom, setZoom] = useState(1);
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
+  const [fullscreenZoom, setFullscreenZoom] = useState(1);
   const [copied, setCopied] = useState(false);
   const currentRender = renderState.code === code ? renderState : null;
 
@@ -30,15 +39,7 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
         const id = `prosemap-mermaid-${reactId.replace(/:/g, '')}-${Date.now()}`;
         const rendered = await renderMermaid(id, code);
         if (!active) return;
-        const clean = DOMPurify.sanitize(rendered.svg, {
-          USE_PROFILES: { html: true, svg: true, svgFilters: true },
-          // Mermaid renders rich node and edge labels inside SVG foreignObject
-          // elements. Keep that integration point while DOMPurify continues to
-          // sanitize the nested XHTML and its attributes.
-          ADD_TAGS: ['foreignObject'],
-          ADD_ATTR: ['dominant-baseline'],
-          HTML_INTEGRATION_POINTS: { foreignobject: true },
-        });
+        const clean = sanitizeMermaidSvg(rendered.svg);
         setRenderState({ code, error: '', svg: clean });
       } catch (reason) {
         if (!active) return;
@@ -53,49 +54,213 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
     };
   }, [code, reactId]);
 
+  useEffect(() => {
+    if (!fullscreenOpen) return;
+
+    let active = true;
+    const renderSequence = ++fullscreenRenderSequenceRef.current;
+    const timer = window.setTimeout(async () => {
+      try {
+        const id = `prosemap-mermaid-fullscreen-${reactId.replace(/:/g, '')}-${Date.now()}-${renderSequence}`;
+        const rendered = await renderMermaid(id, code);
+        if (!active || fullscreenRenderSequenceRef.current !== renderSequence) return;
+        setFullscreenRenderState({ code, error: '', svg: sanitizeMermaidSvg(rendered.svg) });
+      } catch (reason) {
+        if (!active || fullscreenRenderSequenceRef.current !== renderSequence) return;
+        const message = reason instanceof Error ? reason.message : '图表语法无法解析';
+        setFullscreenRenderState({ code, error: message.replace(/^Error:\s*/i, '').split('\n')[0], svg: '' });
+      }
+    }, 0);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [code, fullscreenOpen, reactId]);
+
+  useEffect(() => {
+    if (!fullscreenOpen) return;
+
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const fullscreenRoot = fullscreenBackdropRef.current;
+    const inertRootSnapshots = Array.from(document.body.children)
+      .filter((element): element is HTMLElement => element instanceof HTMLElement && element !== fullscreenRoot)
+      .map((element) => ({
+        element,
+        hadAttribute: element.hasAttribute('inert'),
+        attributeValue: element.getAttribute('inert'),
+      }));
+
+    inertRootSnapshots.forEach(({ element }) => element.setAttribute('inert', ''));
+    fullscreenCloseRef.current?.focus({ preventScroll: true });
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        setFullscreenOpen(false);
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+      const dialog = fullscreenDialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>([
+        'a[href]',
+        'button:not([disabled])',
+        'input:not([disabled])',
+        'select:not([disabled])',
+        'textarea:not([disabled])',
+        '[tabindex]:not([tabindex="-1"])',
+      ].join(','))).filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true');
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeElement = document.activeElement;
+
+      if (!first || !last) {
+        event.preventDefault();
+        dialog.focus({ preventScroll: true });
+      } else if (event.shiftKey && (activeElement === first || !dialog.contains(activeElement))) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+      } else if (!event.shiftKey && (activeElement === last || !dialog.contains(activeElement))) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+      inertRootSnapshots.forEach(({ element, hadAttribute, attributeValue }) => {
+        if (hadAttribute) element.setAttribute('inert', attributeValue ?? '');
+        else element.removeAttribute('inert');
+      });
+      previouslyFocused?.focus({ preventScroll: true });
+    };
+  }, [fullscreenOpen]);
+
   async function copySource() {
     await navigator.clipboard.writeText(code);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
   }
 
+  function openFullscreen() {
+    setFullscreenZoom(1);
+    setFullscreenRenderState({ code: '', error: '', svg: '' });
+    setFullscreenOpen(true);
+  }
+
+  const diagramSvg = currentRender?.svg;
+  const currentFullscreenRender = fullscreenRenderState.code === code ? fullscreenRenderState : null;
+  const fullscreenSvg = currentFullscreenRender?.svg;
+
   return (
-    <span className="mermaid-diagram" role="figure" aria-label="Mermaid 图表">
-      <span className="mermaid-toolbar">
-        <span className="diagram-label"><span className="live-dot" />Mermaid</span>
-        <span className="diagram-actions">
-          {onEdit ? (
-            <button type="button" className="diagram-edit-action" onClick={onEdit} aria-label="在可视化画布中编辑图表" title="在可视化画布中编辑">
-              <PencilRuler size={13} /><span>画布编辑</span>
+    <>
+      <span className="mermaid-diagram" role="figure" aria-label="Mermaid 图表">
+        <span className="mermaid-toolbar">
+          <span className="diagram-label"><span className="live-dot" />Mermaid</span>
+          <span className="diagram-actions">
+            {onEdit ? (
+              <button type="button" className="diagram-edit-action" onClick={onEdit} aria-label="在可视化画布中编辑图表" title="在可视化画布中编辑">
+                <PencilRuler size={13} /><span>画布编辑</span>
+              </button>
+            ) : null}
+            <button type="button" onClick={() => setZoom((value) => Math.max(0.65, value - 0.15))} aria-label="缩小图表" title="缩小">
+              <ZoomOut size={14} />
             </button>
-          ) : null}
-          <button type="button" onClick={() => setZoom((value) => Math.max(0.65, value - 0.15))} aria-label="缩小图表" title="缩小">
-            <ZoomOut size={14} />
-          </button>
-          <button type="button" className="diagram-zoom-value" onClick={() => setZoom(1)} aria-label={`重置图表缩放，当前 ${Math.round(zoom * 100)}%`} title="重置为 100%">
-            {Math.round(zoom * 100)}%
-          </button>
-          <button type="button" onClick={() => setZoom((value) => Math.min(1.8, value + 0.15))} aria-label="放大图表" title="放大">
-            <ZoomIn size={14} />
-          </button>
-          <button type="button" onClick={copySource} aria-label="复制 Mermaid 源码" title="复制源码">
-            {copied ? <Check size={14} /> : <Copy size={14} />}
-          </button>
+            <button type="button" className="diagram-zoom-value" onClick={() => setZoom(1)} aria-label={`重置图表缩放，当前 ${Math.round(zoom * 100)}%`} title="重置为 100%">
+              {Math.round(zoom * 100)}%
+            </button>
+            <button type="button" onClick={() => setZoom((value) => Math.min(1.8, value + 0.15))} aria-label="放大图表" title="放大">
+              <ZoomIn size={14} />
+            </button>
+            <button type="button" onClick={openFullscreen} disabled={!diagramSvg} aria-label="全屏查看图表" title="全屏查看">
+              <Maximize2 size={14} />
+            </button>
+            <button type="button" onClick={copySource} aria-label="复制 Mermaid 源码" title="复制源码">
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+            </button>
+          </span>
         </span>
+        {currentRender?.error ? (
+          <span className="mermaid-error">
+            <strong>图表暂时无法渲染</strong>
+            <span>{currentRender.error}</span>
+            <code>{code}</code>
+          </span>
+        ) : diagramSvg ? (
+          <span className={`mermaid-canvas${onEdit ? ' editable' : ''}`} onDoubleClick={onEdit} title={onEdit ? '双击进入可视化画布编辑' : undefined}>
+            <span className="mermaid-svg" style={{ width: `${Math.round(zoom * 100)}%` }} dangerouslySetInnerHTML={{ __html: diagramSvg }} />
+          </span>
+        ) : (
+          <span className="mermaid-loading"><i /><span>正在绘制图表…</span></span>
+        )}
       </span>
-      {currentRender?.error ? (
-        <span className="mermaid-error">
-          <strong>图表暂时无法渲染</strong>
-          <span>{currentRender.error}</span>
-          <code>{code}</code>
-        </span>
-      ) : currentRender?.svg ? (
-        <span className={`mermaid-canvas${onEdit ? ' editable' : ''}`} onDoubleClick={onEdit} title={onEdit ? '双击进入可视化画布编辑' : undefined}>
-          <span className="mermaid-svg" style={{ transform: `scale(${zoom})` }} dangerouslySetInnerHTML={{ __html: currentRender.svg }} />
-        </span>
-      ) : (
-        <span className="mermaid-loading"><i /><span>正在绘制图表…</span></span>
-      )}
-    </span>
+
+      {fullscreenOpen && typeof document !== 'undefined' ? createPortal(
+        <div
+          ref={fullscreenBackdropRef}
+          className="mermaid-fullscreen-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setFullscreenOpen(false);
+          }}
+        >
+          <section ref={fullscreenDialogRef} className="mermaid-fullscreen-dialog" role="dialog" aria-modal="true" aria-labelledby={fullscreenTitleId} tabIndex={-1}>
+            <header className="mermaid-fullscreen-header">
+              <div>
+                <span className="live-dot" />
+                <strong id={fullscreenTitleId}>Mermaid 单图查看</strong>
+                <small>可缩放并滚动查看图表细节</small>
+              </div>
+              <div className="mermaid-fullscreen-actions">
+                <button type="button" onClick={() => setFullscreenZoom((value) => Math.max(0.5, value - 0.15))} disabled={!fullscreenSvg} aria-label="缩小全屏图表" title="缩小">
+                  <ZoomOut size={16} />
+                </button>
+                <button type="button" className="diagram-zoom-value" onClick={() => setFullscreenZoom(1)} disabled={!fullscreenSvg} aria-label={`重置全屏图表缩放，当前 ${Math.round(fullscreenZoom * 100)}%`} title="重置为 100%">
+                  {Math.round(fullscreenZoom * 100)}%
+                </button>
+                <button type="button" onClick={() => setFullscreenZoom((value) => Math.min(3, value + 0.15))} disabled={!fullscreenSvg} aria-label="放大全屏图表" title="放大">
+                  <ZoomIn size={16} />
+                </button>
+                <button ref={fullscreenCloseRef} type="button" className="mermaid-fullscreen-close" onClick={() => setFullscreenOpen(false)} aria-label="关闭全屏图表" title="关闭（Esc）">
+                  <X size={18} />
+                </button>
+              </div>
+            </header>
+            <div className="mermaid-fullscreen-stage">
+              <div className="mermaid-fullscreen-stage-inner">
+                {currentFullscreenRender?.error ? (
+                  <span className="mermaid-error mermaid-fullscreen-error" role="alert">
+                    <strong>图表暂时无法渲染</strong>
+                    <span>{currentFullscreenRender.error}</span>
+                    <code>{code}</code>
+                  </span>
+                ) : fullscreenSvg ? (
+                  <span className="mermaid-fullscreen-svg" style={{ width: `${Math.round(fullscreenZoom * 100)}%` }} dangerouslySetInnerHTML={{ __html: fullscreenSvg }} />
+                ) : (
+                  <span className="mermaid-loading mermaid-fullscreen-loading" role="status" aria-live="polite"><i aria-hidden="true" /><span>正在准备全屏图表…</span></span>
+                )}
+              </div>
+            </div>
+          </section>
+        </div>,
+        document.body,
+      ) : null}
+    </>
   );
+}
+
+function sanitizeMermaidSvg(svg: string) {
+  return DOMPurify.sanitize(svg, {
+    USE_PROFILES: { html: true, svg: true, svgFilters: true },
+    // Mermaid renders rich node and edge labels inside SVG foreignObject
+    // elements. Keep that integration point while DOMPurify continues to
+    // sanitize the nested XHTML and its attributes.
+    ADD_TAGS: ['foreignObject'],
+    ADD_ATTR: ['dominant-baseline'],
+    HTML_INTEGRATION_POINTS: { foreignobject: true },
+  });
 }

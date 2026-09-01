@@ -226,8 +226,11 @@
 .canvas-edge.selected .canvas-edge-visible { stroke: #16865d; filter: drop-shadow(0 0 3px rgb(22 134 93 / 28%)); }
 .canvas-edge-hit { fill: none; stroke: transparent; stroke-width: 18; cursor: pointer; pointer-events: stroke; }
 .canvas-edge-preview { stroke: #17865e; stroke-width: 2.5; stroke-dasharray: 7 5; pointer-events: none; }
-.canvas-sequence-lifeline { stroke: #a9bbb2; stroke-width: 1.2; stroke-dasharray: 6 6; }
-.canvas-sequence-lifeline-hit { stroke: transparent; stroke-width: 24; pointer-events: stroke; cursor: pointer; }
+.canvas-sequence-lifeline { stroke: #a9bbb2; stroke-width: 1.2; stroke-dasharray: 6 6; transition: stroke .12s ease, stroke-width .12s ease; }
+.canvas-sequence-lifeline.selected { stroke: #2c78c4; stroke-width: 1.8; }
+.canvas-sequence-lifeline.connection-target { stroke: #16865d; stroke-width: 2.6; filter: drop-shadow(0 0 3px rgb(22 134 93 / 34%)); }
+.canvas-sequence-lifeline-hit { stroke: transparent; stroke-width: 28; pointer-events: stroke; cursor: crosshair; }
+.canvas-sequence-lifeline-hit:hover, .canvas-sequence-lifeline-hit.connection-target { stroke: rgb(44 120 196 / 12%); }
 .canvas-editor-viewport.connect-mode .canvas-sequence-lifeline-hit { cursor: crosshair; }
 .canvas-edge-label { min-width: 20px; max-width: 190px; min-height: 22px; position: absolute; z-index: 4; display: grid; place-items: center; padding: 3px 7px; transform: translate(-50%, -50%); border: 1px solid #d6e3dc; border-radius: 99px; background: rgb(255 255 255 / 94%); box-shadow: 0 2px 7px rgb(25 58 43 / 8%); color: #50675c; font-size: 9px; cursor: text; }
 .canvas-edge-label > span { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -241,8 +244,11 @@
 .mermaid-canvas-node { position: absolute; z-index: 2; display: flex; align-items: center; justify-content: center; padding: 10px 13px; border: 1.5px solid #729b87; border-radius: 8px; background: #fff; box-shadow: 0 5px 14px rgb(31 69 51 / 10%); color: #244b3b; cursor: grab; touch-action: none; transition: border-color .12s ease, box-shadow .12s ease, background .12s ease; }
 .mermaid-canvas-node:hover { border-color: #3f8a69; box-shadow: 0 7px 19px rgb(31 86 59 / 14%); }
 .mermaid-canvas-node:active { cursor: grabbing; }
-.mermaid-canvas-node.selected { z-index: 3; border-color: #16865d; background: #f9fffb; box-shadow: 0 0 0 3px rgb(22 134 93 / 14%), 0 8px 20px rgb(31 86 59 / 14%); }
+.mermaid-canvas-node.selected { z-index: 3; border-color: #2c78c4; background: #f8fbff; box-shadow: 0 0 0 3px rgb(44 120 196 / 17%), 0 8px 20px rgb(31 86 59 / 14%); }
 .mermaid-canvas-node.connection-origin { border-color: #c78019; box-shadow: 0 0 0 3px rgb(199 128 25 / 16%); }
+.mermaid-canvas-node.connection-target { border-color: #16865d; background: #f5fff9; box-shadow: 0 0 0 4px rgb(22 134 93 / 22%), 0 8px 20px rgb(31 86 59 / 14%); }
+.mermaid-canvas-node.is-dragging, .mermaid-canvas-node.is-resizing { transition: none; }
+.mermaid-canvas-node.is-dragging { z-index: 8; cursor: grabbing; box-shadow: 0 0 0 3px rgb(44 120 196 / 20%), 0 13px 28px rgb(31 86 59 / 22%); }
 .mermaid-canvas-node.shape-rounded { border-radius: 22px; }
 .mermaid-canvas-node.shape-terminal { border-radius: 99px; background: #eaf6ef; }
 .mermaid-canvas-node.shape-circle { border-radius: 50%; padding: 10px; }
@@ -251,7 +257,7 @@
 .mermaid-canvas-node.shape-decision::before { content: ''; position: absolute; inset: 12px 22px; z-index: -1; transform: rotate(45deg); border: 1.5px solid #729b87; border-radius: 7px; background: #fffaf0; box-shadow: 4px 4px 12px rgb(65 73 31 / 9%); }
 .mermaid-canvas-node.shape-decision:hover::before, .mermaid-canvas-node.shape-decision.selected::before { border-color: #16865d; }
 .mermaid-canvas-node.shape-decision.selected { box-shadow: none; }
-.canvas-node-content { min-width: 0; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; pointer-events: none; text-align: center; }
+.canvas-node-content { min-width: 0; width: 100%; position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; pointer-events: none; text-align: center; }
 .canvas-node-title { width: 100%; display: -webkit-box; overflow: hidden; color: inherit; font-size: 11px; font-weight: 730; line-height: 1.3; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .canvas-node-content small { color: #8da097; font: 7.5px/1.1 "SFMono-Regular", Consolas, monospace; }
 .canvas-node-content input { width: 100%; height: 29px; padding: 0 5px; border: 1px solid #77ac91; border-radius: 5px; outline: 0; background: #fff; color: var(--ink-soft); font-size: 9px; font-weight: 650; text-align: center; pointer-events: auto; }
@@ -267,7 +273,25 @@
 .canvas-node-connector { width: 24px; height: 24px; position: absolute; right: -13px; bottom: -13px; z-index: 6; display: grid; place-items: center; padding: 0; border: 2px solid #fff; border-radius: 50%; background: var(--green); box-shadow: 0 2px 7px rgb(22 94 69 / 25%); color: #fff; cursor: crosshair; }
 .canvas-node-connector:hover { background: var(--green-dark); transform: scale(1.08); }
 
-.mermaid-canvas-node.kind-sequence { border-radius: 4px; background: #fff; cursor: ew-resize; }
+.canvas-sequence-selection-column { position: absolute; left: -7px; top: -7px; z-index: 0; width: calc(100% + 14px); border: 1.5px dashed rgb(44 120 196 / 72%); border-radius: 7px; background: linear-gradient(90deg, rgb(44 120 196 / 3%), transparent 22%, transparent 78%, rgb(44 120 196 / 3%)); pointer-events: none; }
+.canvas-node-resize-frame { position: absolute; inset: -7px; z-index: 9; border: 1.5px solid #2c78c4; border-radius: 7px; pointer-events: none; }
+.canvas-node-resize-handle { width: 11px; height: 11px; position: absolute; padding: 0; border: 2px solid #2c78c4; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgb(30 85 139 / 24%); pointer-events: auto; touch-action: none; }
+.canvas-node-resize-handle:hover { background: #e9f3ff; transform: scale(1.14); }
+.canvas-node-resize-handle.handle-north-west { left: -6px; top: -6px; cursor: nwse-resize; }
+.canvas-node-resize-handle.handle-north-east { right: -6px; top: -6px; cursor: nesw-resize; }
+.canvas-node-resize-handle.handle-south-east { right: -6px; bottom: -6px; cursor: nwse-resize; }
+.canvas-node-resize-handle.handle-south-west { left: -6px; bottom: -6px; cursor: nesw-resize; }
+.canvas-node-connection-points { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
+.canvas-node-connection-point { width: 10px; height: 10px; position: absolute; padding: 0; border: 2px solid #fff; border-radius: 50%; background: #16865d; box-shadow: 0 0 0 1px #16865d, 0 2px 5px rgb(22 94 69 / 24%); opacity: 0; pointer-events: auto; touch-action: none; cursor: crosshair; transform: scale(.7); transition: opacity .1s ease, transform .1s ease, background .1s ease; }
+.mermaid-canvas-node.kind-sequence:hover .canvas-node-connection-point, .mermaid-canvas-node.kind-sequence.selected .canvas-node-connection-point, .mermaid-canvas-node.kind-sequence.connection-origin .canvas-node-connection-point { opacity: 1; transform: scale(1); }
+.canvas-node-connection-point:hover { background: #0d704c; transform: scale(1.22)!important; }
+.canvas-node-connection-point.point-top { left: 50%; top: -5px; margin-left: -5px; }
+.canvas-node-connection-point.point-right { right: -5px; top: 50%; margin-top: -5px; }
+.canvas-node-connection-point.point-bottom { left: 50%; bottom: -5px; margin-left: -5px; }
+.canvas-node-connection-point.point-left { left: -5px; top: 50%; margin-top: -5px; }
+.mermaid-canvas-node.is-dragging .canvas-node-connection-point, .mermaid-canvas-node.is-resizing .canvas-node-connection-point { opacity: 0; pointer-events: none; }
+
+.mermaid-canvas-node.kind-sequence { border-radius: 4px; background: #fff; cursor: grab; }
 .mermaid-canvas-node.kind-sequence.sequence-actor { border-radius: 22px; background: #f4faf7; }
 .mermaid-canvas-node.kind-sequence .canvas-node-meta { color: #678174; font-family: inherit; }
 .mermaid-canvas-node.kind-state.role-start, .mermaid-canvas-node.kind-state.role-end { padding: 7px; border-radius: 50%; }

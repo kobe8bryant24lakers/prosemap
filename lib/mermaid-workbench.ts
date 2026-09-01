@@ -20,6 +20,9 @@ export type MermaidFlowNode = {
     ganttStatuses?: string[];
     ganttStart?: string;
     ganttTiming?: string[];
+    /** Canvas-only dimensions. Mermaid serialization intentionally ignores them. */
+    canvasWidth?: number;
+    canvasHeight?: number;
   };
 };
 

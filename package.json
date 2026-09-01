@@ -1,6 +1,6 @@
 {
   "name": "prosemap",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "A local-first AI Markdown and Mermaid editor for macOS and Windows.",
   "license": "MIT",
   "repository": "https://github.com/kobe8bryant24lakers/prosemap",

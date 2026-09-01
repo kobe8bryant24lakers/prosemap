@@ -2834,7 +2834,7 @@ dependencies = [
 
 [[package]]
 name = "prosemap"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "futures-util",
  "keyring",

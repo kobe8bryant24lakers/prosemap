@@ -23,6 +23,8 @@ export type MermaidFlowNode = {
     /** Canvas-only dimensions. Mermaid serialization intentionally ignores them. */
     canvasWidth?: number;
     canvasHeight?: number;
+    /** Total height from a sequence participant's top edge to its lifeline end. */
+    canvasLifelineHeight?: number;
   };
 };
 

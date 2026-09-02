@@ -25,7 +25,7 @@ export type MermaidCanvasBounds = {
   maxX: number;
   maxY: number;
 };
-export type MermaidCanvasResizeHandle = 'north-west' | 'north-east' | 'south-east' | 'south-west';
+export type MermaidCanvasResizeHandle = 'west' | 'east' | 'south-west' | 'south' | 'south-east';
 
 export const MIN_MERMAID_STAGE_WIDTH = 1440;
 export const MIN_MERMAID_STAGE_HEIGHT = 780;
@@ -36,6 +36,9 @@ export const MIN_MERMAID_SEQUENCE_NODE_WIDTH = 112;
 export const MIN_MERMAID_SEQUENCE_NODE_HEIGHT = 48;
 export const MAX_MERMAID_SEQUENCE_NODE_WIDTH = 640;
 export const MAX_MERMAID_SEQUENCE_NODE_HEIGHT = 220;
+export const MIN_MERMAID_SEQUENCE_LIFELINE_HEIGHT = 160;
+export const MAX_MERMAID_SEQUENCE_LIFELINE_HEIGHT = 4000;
+export const MERMAID_SEQUENCE_LIFELINE_BOTTOM_GAP = 25;
 
 export type MermaidSequenceMessageMarker = 'none' | 'arrow' | 'cross' | 'async';
 export type MermaidSequenceMessageVisual = {
@@ -141,40 +144,60 @@ export function mermaidCanvasNodeSize(node: MermaidFlowNode, kind: MermaidFlowGr
 }
 
 /**
- * Resizes a sequence participant from one of its four corner handles while
- * keeping the opposite corner anchored. The top/left canvas inset remains
- * reachable and the right/bottom sides may grow the stage afterwards.
+ * Returns the total height of the sequence object, from the participant's top
+ * edge through the end of its lifeline. Unmodified objects continue to follow
+ * the canvas bottom so existing diagrams retain their former appearance.
  */
-export function resizeMermaidSequenceParticipant(
+export function mermaidSequenceLifelineHeight(
+  node: MermaidFlowNode,
+  stageHeight: number,
+  positionY: number,
+) {
+  return canvasDimension(
+    node.data?.canvasLifelineHeight,
+    stageHeight - positionY - MERMAID_SEQUENCE_LIFELINE_BOTTOM_GAP,
+    MIN_MERMAID_SEQUENCE_LIFELINE_HEIGHT,
+    MAX_MERMAID_SEQUENCE_LIFELINE_HEIGHT,
+  );
+}
+
+/**
+ * Resizes a sequence object like a draw.io lifeline: side handles change the
+ * participant width, the bottom handle changes lifeline length, and the two
+ * bottom corners change both. The participant header height stays unchanged.
+ */
+export function resizeMermaidSequenceLifeline(
   position: MermaidCanvasPoint,
   size: Size,
   handle: MermaidCanvasResizeHandle,
   delta: MermaidCanvasPoint,
 ): { position: MermaidCanvasPoint; size: Size } {
-  const west = handle === 'north-west' || handle === 'south-west';
-  const north = handle === 'north-west' || handle === 'north-east';
+  const west = handle === 'west' || handle === 'south-west';
+  const east = handle === 'east' || handle === 'south-east';
+  const south = handle === 'south-west' || handle === 'south' || handle === 'south-east';
   let width = Math.max(
     MIN_MERMAID_SEQUENCE_NODE_WIDTH,
-    Math.min(MAX_MERMAID_SEQUENCE_NODE_WIDTH, size.width + (west ? -delta.x : delta.x)),
+    Math.min(
+      MAX_MERMAID_SEQUENCE_NODE_WIDTH,
+      size.width + (west ? -delta.x : east ? delta.x : 0),
+    ),
   );
-  let height = Math.max(
-    MIN_MERMAID_SEQUENCE_NODE_HEIGHT,
-    Math.min(MAX_MERMAID_SEQUENCE_NODE_HEIGHT, size.height + (north ? -delta.y : delta.y)),
+  const height = Math.max(
+    MIN_MERMAID_SEQUENCE_LIFELINE_HEIGHT,
+    Math.min(
+      MAX_MERMAID_SEQUENCE_LIFELINE_HEIGHT,
+      size.height + (south ? delta.y : 0),
+    ),
   );
   let x = west ? position.x + size.width - width : position.x;
-  let y = north ? position.y + size.height - height : position.y;
 
   if (x < 18) {
     width = Math.min(MAX_MERMAID_SEQUENCE_NODE_WIDTH, width + x - 18);
     x = 18;
   }
-  if (y < 18) {
-    height = Math.min(MAX_MERMAID_SEQUENCE_NODE_HEIGHT, height + y - 18);
-    y = 18;
-  }
 
   return {
-    position: { x: roundCoordinate(x), y: roundCoordinate(y) },
+    position: { x: roundCoordinate(x), y: roundCoordinate(position.y) },
     size: { width: roundCoordinate(width), height: roundCoordinate(height) },
   };
 }
@@ -262,6 +285,7 @@ export function graphLayoutSignature(graph: MermaidFlowGraph) {
       Math.min(6, node.data?.details?.length ?? 0),
       node.data?.canvasWidth ?? '',
       node.data?.canvasHeight ?? '',
+      node.data?.canvasLifelineHeight ?? '',
     ]),
     edges: graph.edges.map((edge) => [
       edge.id,
@@ -274,7 +298,7 @@ export function graphLayoutSignature(graph: MermaidFlowGraph) {
 export function graphNodeGeometrySignature(graph: MermaidFlowGraph) {
   return JSON.stringify(graph.nodes.map((node) => {
     const size = mermaidCanvasNodeSize(node, graph.kind);
-    return [node.id, size.width, size.height];
+    return [node.id, size.width, size.height, node.data?.canvasLifelineHeight ?? ''];
   }));
 }
 
@@ -345,7 +369,18 @@ function sequenceLayout(graph: MermaidFlowGraph): MermaidCanvasLayout {
   const lastMessageY = graph.edges.length
     ? firstMessageY + (graph.edges.length - 1) * 62
     : firstMessageY;
-  const height = Math.max(MIN_MERMAID_SEQUENCE_STAGE_HEIGHT, lastMessageY + 82);
+  const explicitLifelineBottom = graph.nodes.reduce((maximum, node) => {
+    const value = node.data?.canvasLifelineHeight;
+    if (!Number.isFinite(value)) return maximum;
+    return Math.max(
+      maximum,
+      58 + Math.max(
+        MIN_MERMAID_SEQUENCE_LIFELINE_HEIGHT,
+        Math.min(MAX_MERMAID_SEQUENCE_LIFELINE_HEIGHT, value!),
+      ) + MERMAID_SEQUENCE_LIFELINE_BOTTOM_GAP,
+    );
+  }, 0);
+  const height = Math.max(MIN_MERMAID_SEQUENCE_STAGE_HEIGHT, lastMessageY + 82, explicitLifelineBottom);
   let x = (width - contentWidth) / 2;
   const positions = createSafeRecord<MermaidCanvasPoint>();
   graph.nodes.forEach((node, index) => {

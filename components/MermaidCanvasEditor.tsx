@@ -48,8 +48,9 @@ import {
   mermaidCanvasFitZoom,
   mermaidCanvasLayoutBounds,
   mermaidCanvasNodeSize,
+  mermaidSequenceLifelineHeight,
   mermaidSequenceMessageVisual,
-  resizeMermaidSequenceParticipant,
+  resizeMermaidSequenceLifeline,
   snapMermaidCanvasNode,
   MERMAID_STAGE_PADDING,
   MIN_MERMAID_CANVAS_ZOOM,
@@ -356,7 +357,10 @@ function expandedStageForPositions(
     if (!position) continue;
     const size = nodeSize(node, graph.kind);
     maxX = Math.max(maxX, position.x + size.width);
-    maxY = Math.max(maxY, position.y + size.height);
+    const totalHeight = graph.kind === 'sequence'
+      ? mermaidSequenceLifelineHeight(node, current.height, position.y)
+      : size.height;
+    maxY = Math.max(maxY, position.y + totalHeight);
   }
   return {
     width: Math.max(current.width, STAGE_WIDTH, Math.ceil(maxX + MERMAID_STAGE_PADDING)),
@@ -1084,7 +1088,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         const delta = snapToGrid
           ? { x: Math.round(rawDelta.x / 10) * 10, y: Math.round(rawDelta.y / 10) * 10 }
           : rawDelta;
-        const resized = resizeMermaidSequenceParticipant(
+        const resized = resizeMermaidSequenceLifeline(
           activeResize.startPosition,
           activeResize.startSize,
           activeResize.handle,
@@ -1109,7 +1113,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
               data: {
                 ...node.data,
                 canvasWidth: resized.size.width,
-                canvasHeight: resized.size.height,
+                canvasLifelineHeight: resized.size.height,
               },
             }
             : node),
@@ -1819,7 +1823,10 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       pointerId: event.pointerId,
       handle,
       startPosition: position,
-      startSize: nodeSize(node, graph.kind),
+      startSize: {
+        width: nodeSize(node, graph.kind).width,
+        height: mermaidSequenceLifelineHeight(node, stageHeight, position.y),
+      },
       startClientX: event.clientX,
       startClientY: event.clientY,
       moved: false,
@@ -2137,7 +2144,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
             {connectMode
               ? connectingFrom ? `再点一个${copy.node}完成${copy.edge}；可连续操作` : `点一个${copy.node}作为${copy.edge}起点`
               : graph.kind === 'sequence'
-                ? '拖动参与者调整位置 · 拖动边框控制点缩放 · 从连接点或生命线直接拖动创建消息'
+                ? '移入对象生命线显示调整区域 · 左右拖动调宽 · 底部拖动调长 · 从连接点或生命线拖动创建消息'
                 : `选择${copy.node}后用方向箭头快速创建 · 右下角端点可连接已有${copy.node} · 双击空白新增`}
           </span>
         )}
@@ -2267,6 +2274,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                   const position = positions[node.id];
                   if (!position) return null;
                   const size = nodeSize(node, graph.kind);
+                  const lifelineHeight = mermaidSequenceLifelineHeight(node, stageHeight, position.y);
                   const x = position.x + size.width / 2;
                   const selected = selection?.kind === 'node' && selection.id === node.id;
                   const connectionTarget = connectionDrag?.target === node.id;
@@ -2277,7 +2285,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                       x1={x}
                       x2={x}
                       y1={position.y + size.height}
-                      y2={stageHeight - 25}
+                      y2={position.y + lifelineHeight}
                     />
                   );
                 }) : null}
@@ -2312,6 +2320,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                   const position = positions[node.id];
                   if (!position) return null;
                   const size = nodeSize(node, graph.kind);
+                  const lifelineHeight = mermaidSequenceLifelineHeight(node, stageHeight, position.y);
                   const x = position.x + size.width / 2;
                   return (
                     <line
@@ -2321,7 +2330,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                       x1={x}
                       x2={x}
                       y1={position.y + size.height}
-                      y2={stageHeight - 25}
+                      y2={position.y + lifelineHeight}
                       vectorEffect="non-scaling-stroke"
                       onPointerDown={(event) => startConnectionDrag(event, node.id, 'lifeline')}
                       onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
@@ -2402,6 +2411,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
               const position = positions[node.id];
               if (!position) return null;
               const size = nodeSize(node, graph.kind);
+              const lifelineHeight = graph.kind === 'sequence'
+                ? mermaidSequenceLifelineHeight(node, stageHeight, position.y)
+                : size.height;
               const selected = selection?.kind === 'node' && selection.id === node.id;
               const editing = editingNodeId === node.id;
               const connectionOrigin = connectingFrom === node.id || connectionDrag?.from === node.id;
@@ -2436,10 +2448,46 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                   aria-pressed={selected}
                   tabIndex={-1}
                 >
+                  {graph.kind === 'sequence' && !editing ? (
+                    <div
+                      className="canvas-sequence-hover-region"
+                      style={{ top: size.height, height: Math.max(1, lifelineHeight - size.height) }}
+                      data-mermaid-node-id={node.id}
+                      role="button"
+                      tabIndex={-1}
+                      aria-label={`选择 ${node.label} 对象生命线`}
+                      onPointerDown={(event) => {
+                        if (event.button !== 0 || spacePressedRef.current) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        cancelPointerInteractions();
+                        setSelection({ kind: 'node', id: node.id });
+                        setEditingNodeId(null);
+                        setEditingEdgeId(null);
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        activateNode(node);
+                      }}
+                      onDoubleClick={(event) => event.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        className="canvas-sequence-lifeline-connector"
+                        data-mermaid-node-id={node.id}
+                        onPointerDown={(event) => startConnectionDrag(event, node.id, 'lifeline')}
+                        onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
+                        onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
+                        onClick={(event) => event.stopPropagation()}
+                        aria-label={`从 ${node.label} 生命线拖动创建消息`}
+                        title="拖动生命线创建消息"
+                      />
+                    </div>
+                  ) : null}
                   {selected && graph.kind === 'sequence' ? (
                     <div
                       className="canvas-sequence-selection-column"
-                      style={{ height: Math.max(size.height + 12, stageHeight - position.y - 19) }}
+                      style={{ height: lifelineHeight + 14 }}
                       aria-hidden="true"
                     />
                   ) : null}
@@ -2474,14 +2522,19 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                       </div>
                     ) : null}
                   </div>
-                  {selected && graph.kind === 'sequence' && !editing ? (
-                    <div className="canvas-node-resize-frame" aria-label={`调整 ${node.label} 大小`}>
+                  {graph.kind === 'sequence' && !editing ? (
+                    <div
+                      className="canvas-node-resize-frame"
+                      style={{ height: lifelineHeight + 14 }}
+                      aria-label={`调整 ${node.label} 对象生命线大小`}
+                    >
                       {([
-                        ['north-west', '西北角'],
-                        ['north-east', '东北角'],
-                        ['south-east', '东南角'],
-                        ['south-west', '西南角'],
-                      ] as const).map(([handle, label]) => (
+                        ['west', '左边缘', '横向调整宽度'],
+                        ['east', '右边缘', '横向调整宽度'],
+                        ['south-west', '左下角', '同时调整宽度与长度'],
+                        ['south', '底部边缘', '纵向调整生命线长度'],
+                        ['south-east', '右下角', '同时调整宽度与长度'],
+                      ] as const).map(([handle, label, action]) => (
                         <button
                           type="button"
                           key={handle}
@@ -2491,8 +2544,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                           onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                           onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
                           onClick={(event) => event.stopPropagation()}
-                          aria-label={`从${label}缩放 ${node.label}`}
-                          title={`拖动${label}缩放对象`}
+                          aria-label={`从${label}${action} ${node.label}`}
+                          title={`拖动${label}${action}`}
                         />
                       ))}
                     </div>

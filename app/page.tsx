@@ -41,6 +41,7 @@ import SettingsModal from '@/components/SettingsModal';
 import { isDesktopRuntime, streamAi } from '@/lib/ai-client';
 import { loadModelConfig, saveModelConfig } from '@/lib/model-config';
 import { parseMermaid } from '@/lib/mermaid-runtime';
+import { synchronizedScrollTop } from '@/lib/scroll-sync';
 import {
   ACTION_LABELS,
   INITIAL_MARKDOWN,
@@ -158,7 +159,10 @@ export default function Home() {
   const [isDirty, setIsDirty] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [confirmation, setConfirmation] = useState<ActiveConfirmation | null>(null);
+  const [editorView, setEditorView] = useState<EditorView | null>(null);
   const editorRef = useRef<ReactCodeMirrorRef>(null);
+  const previewScrollRef = useRef<HTMLDivElement>(null);
+  const syncPreviewFromEditorRef = useRef<(() => void) | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const proposalIdRef = useRef(0);
@@ -425,6 +429,87 @@ export default function Home() {
     });
     return () => { active = false; unlisten?.(); };
   }, [askConfirmation, showToast]);
+
+  useEffect(() => {
+    if (viewMode !== 'split') {
+      syncPreviewFromEditorRef.current = null;
+      return;
+    }
+
+    const editorScroller = editorView?.scrollDOM;
+    const previewScroller = previewScrollRef.current;
+    if (!editorScroller || !previewScroller) return;
+
+    let animationFrame: number | null = null;
+    let pendingSync: { source: HTMLElement; target: HTMLElement } | null = null;
+    let suppressedScroll: { element: HTMLElement; expectedTop: number } | null = null;
+
+    function isVisibleScroller(element: HTMLElement) {
+      return element.clientHeight > 0
+        && element.clientWidth > 0
+        && element.getClientRects().length > 0;
+    }
+
+    function flushSync() {
+      animationFrame = null;
+      const request = pendingSync;
+      pendingSync = null;
+      if (!request || !isVisibleScroller(request.source) || !isVisibleScroller(request.target)) return;
+
+      const nextTop = synchronizedScrollTop(
+        request.source.scrollTop,
+        request.source.scrollHeight,
+        request.source.clientHeight,
+        request.target.scrollHeight,
+        request.target.clientHeight,
+      );
+      if (Math.abs(request.target.scrollTop - nextTop) <= 1) return;
+
+      suppressedScroll = { element: request.target, expectedTop: nextTop };
+      request.target.scrollTop = nextTop;
+      suppressedScroll.expectedTop = request.target.scrollTop;
+    }
+
+    function scheduleSync(source: HTMLElement, target: HTMLElement) {
+      pendingSync = { source, target };
+      if (animationFrame === null) animationFrame = window.requestAnimationFrame(flushSync);
+    }
+
+    function handleScroll(source: HTMLElement, target: HTMLElement) {
+      if (suppressedScroll?.element === source) {
+        if (Math.abs(source.scrollTop - suppressedScroll.expectedTop) <= 1) {
+          suppressedScroll = null;
+          return;
+        }
+        suppressedScroll = null;
+      }
+      scheduleSync(source, target);
+    }
+
+    const handleEditorScroll = () => handleScroll(editorScroller, previewScroller);
+    const handlePreviewScroll = () => handleScroll(previewScroller, editorScroller);
+    const syncPreviewFromEditor = () => scheduleSync(editorScroller, previewScroller);
+
+    editorScroller.addEventListener('scroll', handleEditorScroll, { passive: true });
+    previewScroller.addEventListener('scroll', handlePreviewScroll, { passive: true });
+    syncPreviewFromEditorRef.current = syncPreviewFromEditor;
+    syncPreviewFromEditor();
+
+    return () => {
+      editorScroller.removeEventListener('scroll', handleEditorScroll);
+      previewScroller.removeEventListener('scroll', handlePreviewScroll);
+      if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
+      if (syncPreviewFromEditorRef.current === syncPreviewFromEditor) {
+        syncPreviewFromEditorRef.current = null;
+      }
+    };
+  }, [editorView, viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== 'split') return;
+    const animationFrame = window.requestAnimationFrame(() => syncPreviewFromEditorRef.current?.());
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [content, viewMode]);
 
   function readEditorSnapshot(): EditorSnapshot {
     const view = editorRef.current?.view;
@@ -848,6 +933,7 @@ export default function Home() {
           <div className="editor-surface">
             <CodeMirror
               ref={editorRef}
+              onCreateEditor={setEditorView}
               value={content}
               height="100%"
               extensions={editorExtensions}
@@ -890,7 +976,7 @@ export default function Home() {
               <button type="button" className="ai-chip" onClick={() => openAssistant('custom')}><Sparkles size={13} /> AI 助手</button>
             </div>
           </header>
-          <div className="preview-scroll"><MarkdownPreview markdown={content} onEditMermaid={openMermaidTarget} /></div>
+          <div ref={previewScrollRef} className="preview-scroll"><MarkdownPreview markdown={content} onEditMermaid={openMermaidTarget} /></div>
         </section>
 
         {assistantOpen ? (

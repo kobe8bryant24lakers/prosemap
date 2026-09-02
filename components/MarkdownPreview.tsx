@@ -4,6 +4,7 @@ import { FileText } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { createMermaidTarget, type MermaidTarget } from '@/lib/editor';
+import { compactJsonPreviewIndentation } from '@/lib/markdown-preview';
 import MermaidDiagram from './MermaidDiagram';
 
 type MarkdownPreviewProps = {
@@ -38,9 +39,13 @@ export default function MarkdownPreview({ markdown, onEditMermaid }: MarkdownPre
         return (
           <MermaidDiagram
             code={value}
+            enableWheelZoom
             onEdit={target && onEditMermaid ? () => onEditMermaid(target) : undefined}
           />
         );
+      }
+      if (language === 'json') {
+        return <code className={className} {...props}>{compactJsonPreviewIndentation(String(children))}</code>;
       }
       return <code className={className} {...props}>{children}</code>;
     },

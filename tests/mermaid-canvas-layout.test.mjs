@@ -8,10 +8,13 @@ import {
   mermaidCanvasFitZoom,
   mermaidCanvasLayoutBounds,
   mermaidCanvasNodeSize,
+  mermaidSequenceLifelineHeight,
   mermaidSequenceMessageVisual,
-  resizeMermaidSequenceParticipant,
+  resizeMermaidSequenceLifeline,
+  MAX_MERMAID_SEQUENCE_LIFELINE_HEIGHT,
   MAX_MERMAID_SEQUENCE_NODE_HEIGHT,
   MAX_MERMAID_SEQUENCE_NODE_WIDTH,
+  MIN_MERMAID_SEQUENCE_LIFELINE_HEIGHT,
   MIN_MERMAID_SEQUENCE_NODE_HEIGHT,
   MIN_MERMAID_SEQUENCE_NODE_WIDTH,
   MIN_MERMAID_SEQUENCE_STAGE_HEIGHT,
@@ -507,6 +510,7 @@ test('sequence participant dimensions invalidate both topology and geometry sign
       sequenceType: 'participant',
       canvasWidth: 260,
       canvasHeight: 96,
+      canvasLifelineHeight: 720,
     })],
   };
 
@@ -514,46 +518,69 @@ test('sequence participant dimensions invalidate both topology and geometry sign
   assert.notEqual(graphNodeGeometrySignature(compact), graphNodeGeometrySignature(resized));
 });
 
-test('all four sequence resize handles keep their opposite corner anchored', () => {
+test('sequence lifeline height follows the stage until explicitly resized', () => {
+  assert.equal(
+    mermaidSequenceLifelineHeight(node('Default', 'rectangle'), 460, 58),
+    377,
+  );
+  assert.equal(
+    mermaidSequenceLifelineHeight(node('Custom', 'rectangle', { canvasLifelineHeight: 310.26 }), 460, 58),
+    310.3,
+  );
+  assert.equal(
+    mermaidSequenceLifelineHeight(node('TooSmall', 'rectangle', { canvasLifelineHeight: 1 }), 460, 58),
+    MIN_MERMAID_SEQUENCE_LIFELINE_HEIGHT,
+  );
+  assert.equal(
+    mermaidSequenceLifelineHeight(node('TooLarge', 'rectangle', { canvasLifelineHeight: 10_000 }), 460, 58),
+    MAX_MERMAID_SEQUENCE_LIFELINE_HEIGHT,
+  );
+  assert.equal(
+    mermaidSequenceLifelineHeight(node('Invalid', 'rectangle', { canvasLifelineHeight: Number.NaN }), 460, 58),
+    377,
+  );
+});
+
+test('sequence edge handles independently resize width and lifeline length', () => {
   const position = { x: 100, y: 80 };
-  const size = { width: 200, height: 100 };
+  const size = { width: 200, height: 360 };
   const delta = { x: 40, y: 20 };
   const fixtures = [
-    ['north-west', { position: { x: 140, y: 100 }, size: { width: 160, height: 80 } }],
-    ['north-east', { position: { x: 100, y: 100 }, size: { width: 240, height: 80 } }],
-    ['south-east', { position: { x: 100, y: 80 }, size: { width: 240, height: 120 } }],
-    ['south-west', { position: { x: 140, y: 80 }, size: { width: 160, height: 120 } }],
+    ['west', { position: { x: 140, y: 80 }, size: { width: 160, height: 360 } }],
+    ['east', { position: { x: 100, y: 80 }, size: { width: 240, height: 360 } }],
+    ['south-west', { position: { x: 140, y: 80 }, size: { width: 160, height: 380 } }],
+    ['south', { position: { x: 100, y: 80 }, size: { width: 200, height: 380 } }],
+    ['south-east', { position: { x: 100, y: 80 }, size: { width: 240, height: 380 } }],
   ];
 
   for (const [handle, expected] of fixtures) {
-    assert.deepEqual(resizeMermaidSequenceParticipant(position, size, handle, delta), expected, handle);
+    assert.deepEqual(resizeMermaidSequenceLifeline(position, size, handle, delta), expected, handle);
   }
 });
 
-test('sequence resize enforces min/max dimensions and the 18px canvas inset', () => {
+test('sequence resize enforces width and lifeline bounds plus the 18px canvas inset', () => {
   const position = { x: 100, y: 80 };
-  const size = { width: 174, height: 66 };
+  const size = { width: 174, height: 377 };
   assert.deepEqual(
-    resizeMermaidSequenceParticipant(position, size, 'south-east', { x: -1_000, y: -1_000 }),
+    resizeMermaidSequenceLifeline(position, size, 'south-east', { x: -1_000, y: -1_000 }),
     {
       position,
-      size: { width: MIN_MERMAID_SEQUENCE_NODE_WIDTH, height: MIN_MERMAID_SEQUENCE_NODE_HEIGHT },
+      size: { width: MIN_MERMAID_SEQUENCE_NODE_WIDTH, height: MIN_MERMAID_SEQUENCE_LIFELINE_HEIGHT },
     },
   );
   assert.deepEqual(
-    resizeMermaidSequenceParticipant(position, size, 'south-east', { x: 1_000, y: 1_000 }),
+    resizeMermaidSequenceLifeline(position, size, 'south-east', { x: 10_000, y: 10_000 }),
     {
       position,
-      size: { width: MAX_MERMAID_SEQUENCE_NODE_WIDTH, height: MAX_MERMAID_SEQUENCE_NODE_HEIGHT },
+      size: { width: MAX_MERMAID_SEQUENCE_NODE_WIDTH, height: MAX_MERMAID_SEQUENCE_LIFELINE_HEIGHT },
     },
   );
 
   const nearInset = { x: 20, y: 20 };
-  const bounded = resizeMermaidSequenceParticipant(nearInset, size, 'north-west', { x: -100, y: -100 });
+  const bounded = resizeMermaidSequenceLifeline(nearInset, size, 'west', { x: -100, y: -100 });
   assert.deepEqual(bounded, {
-    position: { x: 18, y: 18 },
-    size: { width: 176, height: 68 },
+    position: { x: 18, y: 20 },
+    size: { width: 176, height: 377 },
   });
   assert.equal(bounded.position.x + bounded.size.width, nearInset.x + size.width, 'right edge stays anchored');
-  assert.equal(bounded.position.y + bounded.size.height, nearInset.y + size.height, 'bottom edge stays anchored');
 });

@@ -4,10 +4,19 @@ import DOMPurify from 'dompurify';
 import { Check, Copy, Maximize2, PencilRuler, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  MERMAID_FULLSCREEN_MAX_ZOOM,
+  MERMAID_FULLSCREEN_MIN_ZOOM,
+  MERMAID_PREVIEW_MAX_ZOOM,
+  MERMAID_PREVIEW_MIN_ZOOM,
+  mermaidFullscreenZoomFromWheel,
+  mermaidPreviewZoomFromWheel,
+} from '@/lib/mermaid-preview';
 import { renderMermaid } from '@/lib/mermaid-runtime';
 
 type MermaidDiagramProps = {
   code: string;
+  enableWheelZoom?: boolean;
   onEdit?: () => void;
 };
 
@@ -27,11 +36,13 @@ const EMPTY_RENDER_STATE: MermaidRenderState = {
   svg: '',
 };
 
-export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
+export default function MermaidDiagram({ code, enableWheelZoom = false, onEdit }: MermaidDiagramProps) {
   const reactId = useId();
   const fullscreenTitleId = `mermaid-fullscreen-${reactId.replace(/:/g, '')}`;
+  const inlineCanvasRef = useRef<HTMLSpanElement>(null);
   const fullscreenBackdropRef = useRef<HTMLDivElement>(null);
   const fullscreenDialogRef = useRef<HTMLElement>(null);
+  const fullscreenStageRef = useRef<HTMLDivElement>(null);
   const fullscreenCloseRef = useRef<HTMLButtonElement>(null);
   const fullscreenRenderSequenceRef = useRef(0);
   const [renderState, setRenderState] = useState<MermaidRenderState>(EMPTY_RENDER_STATE);
@@ -40,7 +51,19 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [fullscreenZoom, setFullscreenZoom] = useState(1);
   const [copied, setCopied] = useState(false);
+  const zoomRef = useRef(zoom);
+  const fullscreenZoomRef = useRef(fullscreenZoom);
   const currentRender = renderState.code === code ? renderState : null;
+  const currentFullscreenRender = fullscreenRenderState.code === code ? fullscreenRenderState : null;
+  const fullscreenSvg = currentFullscreenRender?.svg;
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  useEffect(() => {
+    fullscreenZoomRef.current = fullscreenZoom;
+  }, [fullscreenZoom]);
 
   useEffect(() => {
     let active = true;
@@ -153,6 +176,52 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
     };
   }, [fullscreenOpen]);
 
+  useEffect(() => {
+    const canvas = inlineCanvasRef.current;
+    if (!enableWheelZoom || !canvas || !currentRender?.svg) return;
+    const activeCanvas = canvas;
+
+    function handleWheel(event: WheelEvent) {
+      const nextZoom = mermaidPreviewZoomFromWheel(
+        zoomRef.current,
+        event.deltaY,
+        event.deltaMode,
+        activeCanvas.clientHeight,
+      );
+      if (nextZoom === zoomRef.current) return;
+
+      event.preventDefault();
+      zoomRef.current = nextZoom;
+      setZoom(nextZoom);
+    }
+
+    activeCanvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => activeCanvas.removeEventListener('wheel', handleWheel);
+  }, [currentRender?.svg, enableWheelZoom]);
+
+  useEffect(() => {
+    const stage = fullscreenStageRef.current;
+    if (!fullscreenOpen || !stage || !fullscreenSvg) return;
+    const activeStage = stage;
+
+    function handleWheel(event: WheelEvent) {
+      const nextZoom = mermaidFullscreenZoomFromWheel(
+        fullscreenZoomRef.current,
+        event.deltaY,
+        event.deltaMode,
+        activeStage.clientHeight,
+      );
+      if (nextZoom === fullscreenZoomRef.current) return;
+
+      event.preventDefault();
+      fullscreenZoomRef.current = nextZoom;
+      setFullscreenZoom(nextZoom);
+    }
+
+    activeStage.addEventListener('wheel', handleWheel, { passive: false });
+    return () => activeStage.removeEventListener('wheel', handleWheel);
+  }, [fullscreenOpen, fullscreenSvg]);
+
   async function copySource() {
     await navigator.clipboard.writeText(code);
     setCopied(true);
@@ -160,14 +229,27 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   }
 
   function openFullscreen() {
+    fullscreenZoomRef.current = 1;
     setFullscreenZoom(1);
     setFullscreenRenderState(EMPTY_RENDER_STATE);
     setFullscreenOpen(true);
   }
 
+  function changeFullscreenZoom(delta: number) {
+    const nextZoom = Math.max(
+      MERMAID_FULLSCREEN_MIN_ZOOM,
+      Math.min(MERMAID_FULLSCREEN_MAX_ZOOM, fullscreenZoomRef.current + delta),
+    );
+    fullscreenZoomRef.current = nextZoom;
+    setFullscreenZoom(nextZoom);
+  }
+
+  function resetFullscreenZoom() {
+    fullscreenZoomRef.current = 1;
+    setFullscreenZoom(1);
+  }
+
   const diagramSvg = currentRender?.svg;
-  const currentFullscreenRender = fullscreenRenderState.code === code ? fullscreenRenderState : null;
-  const fullscreenSvg = currentFullscreenRender?.svg;
   const portrait = Boolean(currentRender
     && currentRender.intrinsicHeight > currentRender.intrinsicWidth * 1.15);
   const inlineWidth = mermaidInlineWidth(currentRender, zoom, portrait);
@@ -183,13 +265,13 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
                 <PencilRuler size={13} /><span>画布编辑</span>
               </button>
             ) : null}
-            <button type="button" onClick={() => setZoom((value) => Math.max(0.65, value - 0.15))} aria-label="缩小图表" title="缩小">
+            <button type="button" onClick={() => setZoom((value) => Math.max(MERMAID_PREVIEW_MIN_ZOOM, value - 0.15))} aria-label="缩小图表" title="缩小">
               <ZoomOut size={14} />
             </button>
             <button type="button" className="diagram-zoom-value" onClick={() => setZoom(1)} aria-label={`重置图表缩放，当前 ${Math.round(zoom * 100)}%`} title="重置为 100%">
               {Math.round(zoom * 100)}%
             </button>
-            <button type="button" onClick={() => setZoom((value) => Math.min(1.8, value + 0.15))} aria-label="放大图表" title="放大">
+            <button type="button" onClick={() => setZoom((value) => Math.min(MERMAID_PREVIEW_MAX_ZOOM, value + 0.15))} aria-label="放大图表" title="放大">
               <ZoomIn size={14} />
             </button>
             <button type="button" onClick={openFullscreen} disabled={!diagramSvg} aria-label="全屏查看图表" title="全屏查看">
@@ -207,7 +289,14 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
             <code>{code}</code>
           </span>
         ) : diagramSvg ? (
-          <span className={`mermaid-canvas${onEdit ? ' editable' : ''}`} onDoubleClick={onEdit} title={onEdit ? '双击进入可视化画布编辑' : undefined}>
+          <span
+            ref={inlineCanvasRef}
+            className={`mermaid-canvas${onEdit ? ' editable' : ''}${enableWheelZoom ? ' wheel-zoom-enabled' : ''}`}
+            onDoubleClick={onEdit}
+            title={enableWheelZoom
+              ? onEdit ? '滚动鼠标缩放；双击进入可视化画布编辑' : '滚动鼠标缩放图表'
+              : onEdit ? '双击进入可视化画布编辑' : undefined}
+          >
             <span className={`mermaid-svg${portrait ? ' is-portrait' : ''}`} style={{ width: inlineWidth }} dangerouslySetInnerHTML={{ __html: diagramSvg }} />
           </span>
         ) : (
@@ -229,16 +318,16 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
               <div>
                 <span className="live-dot" />
                 <strong id={fullscreenTitleId}>Mermaid 单图查看</strong>
-                <small>可缩放并滚动查看图表细节</small>
+                <small>鼠标滚轮缩放；达到边界后滚动画布</small>
               </div>
               <div className="mermaid-fullscreen-actions">
-                <button type="button" onClick={() => setFullscreenZoom((value) => Math.max(0.5, value - 0.15))} disabled={!fullscreenSvg} aria-label="缩小全屏图表" title="缩小">
+                <button type="button" onClick={() => changeFullscreenZoom(-0.15)} disabled={!fullscreenSvg} aria-label="缩小全屏图表" title="缩小">
                   <ZoomOut size={16} />
                 </button>
-                <button type="button" className="diagram-zoom-value" onClick={() => setFullscreenZoom(1)} disabled={!fullscreenSvg} aria-label={`重置全屏图表为适配视图，当前 ${Math.round(fullscreenZoom * 100)}%`} title="适配窗口">
+                <button type="button" className="diagram-zoom-value" onClick={resetFullscreenZoom} disabled={!fullscreenSvg} aria-label={`重置全屏图表为适配视图，当前 ${Math.round(fullscreenZoom * 100)}%`} title="适配窗口">
                   {Math.round(fullscreenZoom * 100)}%
                 </button>
-                <button type="button" onClick={() => setFullscreenZoom((value) => Math.min(3, value + 0.15))} disabled={!fullscreenSvg} aria-label="放大全屏图表" title="放大">
+                <button type="button" onClick={() => changeFullscreenZoom(0.15)} disabled={!fullscreenSvg} aria-label="放大全屏图表" title="放大">
                   <ZoomIn size={16} />
                 </button>
                 <button ref={fullscreenCloseRef} type="button" className="mermaid-fullscreen-close" onClick={() => setFullscreenOpen(false)} aria-label="关闭全屏图表" title="关闭（Esc）">
@@ -246,7 +335,7 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
                 </button>
               </div>
             </header>
-            <div className="mermaid-fullscreen-stage">
+            <div ref={fullscreenStageRef} className="mermaid-fullscreen-stage" title="滚动鼠标缩放图表">
               <div className="mermaid-fullscreen-stage-inner">
                 {currentFullscreenRender?.error ? (
                   <span className="mermaid-error mermaid-fullscreen-error" role="alert">

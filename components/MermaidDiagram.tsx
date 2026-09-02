@@ -14,7 +14,17 @@ type MermaidDiagramProps = {
 type MermaidRenderState = {
   code: string;
   error: string;
+  intrinsicHeight: number;
+  intrinsicWidth: number;
   svg: string;
+};
+
+const EMPTY_RENDER_STATE: MermaidRenderState = {
+  code: '',
+  error: '',
+  intrinsicHeight: 0,
+  intrinsicWidth: 0,
+  svg: '',
 };
 
 export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
@@ -24,8 +34,8 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   const fullscreenDialogRef = useRef<HTMLElement>(null);
   const fullscreenCloseRef = useRef<HTMLButtonElement>(null);
   const fullscreenRenderSequenceRef = useRef(0);
-  const [renderState, setRenderState] = useState<MermaidRenderState>({ code: '', error: '', svg: '' });
-  const [fullscreenRenderState, setFullscreenRenderState] = useState<MermaidRenderState>({ code: '', error: '', svg: '' });
+  const [renderState, setRenderState] = useState<MermaidRenderState>(EMPTY_RENDER_STATE);
+  const [fullscreenRenderState, setFullscreenRenderState] = useState<MermaidRenderState>(EMPTY_RENDER_STATE);
   const [zoom, setZoom] = useState(1);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [fullscreenZoom, setFullscreenZoom] = useState(1);
@@ -40,11 +50,12 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
         const rendered = await renderMermaid(id, code);
         if (!active) return;
         const clean = sanitizeMermaidSvg(rendered.svg);
-        setRenderState({ code, error: '', svg: clean });
+        const dimensions = readMermaidSvgDimensions(clean);
+        setRenderState({ code, error: '', intrinsicHeight: dimensions.height, intrinsicWidth: dimensions.width, svg: clean });
       } catch (reason) {
         if (!active) return;
         const message = reason instanceof Error ? reason.message : '图表语法无法解析';
-        setRenderState({ code, error: message.replace(/^Error:\s*/i, '').split('\n')[0], svg: '' });
+        setRenderState({ code, error: message.replace(/^Error:\s*/i, '').split('\n')[0], intrinsicHeight: 0, intrinsicWidth: 0, svg: '' });
       }
     }, 220);
 
@@ -64,11 +75,13 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
         const id = `prosemap-mermaid-fullscreen-${reactId.replace(/:/g, '')}-${Date.now()}-${renderSequence}`;
         const rendered = await renderMermaid(id, code);
         if (!active || fullscreenRenderSequenceRef.current !== renderSequence) return;
-        setFullscreenRenderState({ code, error: '', svg: sanitizeMermaidSvg(rendered.svg) });
+        const clean = sanitizeMermaidSvg(rendered.svg);
+        const dimensions = readMermaidSvgDimensions(clean);
+        setFullscreenRenderState({ code, error: '', intrinsicHeight: dimensions.height, intrinsicWidth: dimensions.width, svg: clean });
       } catch (reason) {
         if (!active || fullscreenRenderSequenceRef.current !== renderSequence) return;
         const message = reason instanceof Error ? reason.message : '图表语法无法解析';
-        setFullscreenRenderState({ code, error: message.replace(/^Error:\s*/i, '').split('\n')[0], svg: '' });
+        setFullscreenRenderState({ code, error: message.replace(/^Error:\s*/i, '').split('\n')[0], intrinsicHeight: 0, intrinsicWidth: 0, svg: '' });
       }
     }, 0);
 
@@ -148,13 +161,16 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
 
   function openFullscreen() {
     setFullscreenZoom(1);
-    setFullscreenRenderState({ code: '', error: '', svg: '' });
+    setFullscreenRenderState(EMPTY_RENDER_STATE);
     setFullscreenOpen(true);
   }
 
   const diagramSvg = currentRender?.svg;
   const currentFullscreenRender = fullscreenRenderState.code === code ? fullscreenRenderState : null;
   const fullscreenSvg = currentFullscreenRender?.svg;
+  const portrait = Boolean(currentRender
+    && currentRender.intrinsicHeight > currentRender.intrinsicWidth * 1.15);
+  const inlineWidth = mermaidInlineWidth(currentRender, zoom, portrait);
 
   return (
     <>
@@ -192,7 +208,7 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
           </span>
         ) : diagramSvg ? (
           <span className={`mermaid-canvas${onEdit ? ' editable' : ''}`} onDoubleClick={onEdit} title={onEdit ? '双击进入可视化画布编辑' : undefined}>
-            <span className="mermaid-svg" style={{ width: `${Math.round(zoom * 100)}%` }} dangerouslySetInnerHTML={{ __html: diagramSvg }} />
+            <span className={`mermaid-svg${portrait ? ' is-portrait' : ''}`} style={{ width: inlineWidth }} dangerouslySetInnerHTML={{ __html: diagramSvg }} />
           </span>
         ) : (
           <span className="mermaid-loading"><i /><span>正在绘制图表…</span></span>
@@ -219,7 +235,7 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
                 <button type="button" onClick={() => setFullscreenZoom((value) => Math.max(0.5, value - 0.15))} disabled={!fullscreenSvg} aria-label="缩小全屏图表" title="缩小">
                   <ZoomOut size={16} />
                 </button>
-                <button type="button" className="diagram-zoom-value" onClick={() => setFullscreenZoom(1)} disabled={!fullscreenSvg} aria-label={`重置全屏图表缩放，当前 ${Math.round(fullscreenZoom * 100)}%`} title="重置为 100%">
+                <button type="button" className="diagram-zoom-value" onClick={() => setFullscreenZoom(1)} disabled={!fullscreenSvg} aria-label={`重置全屏图表为适配视图，当前 ${Math.round(fullscreenZoom * 100)}%`} title="适配窗口">
                   {Math.round(fullscreenZoom * 100)}%
                 </button>
                 <button type="button" onClick={() => setFullscreenZoom((value) => Math.min(3, value + 0.15))} disabled={!fullscreenSvg} aria-label="放大全屏图表" title="放大">
@@ -239,7 +255,14 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
                     <code>{code}</code>
                   </span>
                 ) : fullscreenSvg ? (
-                  <span className="mermaid-fullscreen-svg" style={{ width: `${Math.round(fullscreenZoom * 100)}%` }} dangerouslySetInnerHTML={{ __html: fullscreenSvg }} />
+                  <span
+                    className="mermaid-fullscreen-svg"
+                    style={{
+                      height: `${Math.round(fullscreenZoom * 100)}%`,
+                      width: `${Math.round(fullscreenZoom * 100)}%`,
+                    }}
+                    dangerouslySetInnerHTML={{ __html: fullscreenSvg }}
+                  />
                 ) : (
                   <span className="mermaid-loading mermaid-fullscreen-loading" role="status" aria-live="polite"><i aria-hidden="true" /><span>正在准备全屏图表…</span></span>
                 )}
@@ -251,6 +274,36 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
       ) : null}
     </>
   );
+}
+
+function readMermaidSvgDimensions(svg: string) {
+  const openingTag = svg.match(/<svg\b[^>]*>/i)?.[0] ?? '';
+  const viewBox = openingTag.match(/\bviewBox\s*=\s*["']([^"']+)["']/i)?.[1]
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  if (viewBox?.length === 4 && viewBox.every(Number.isFinite) && viewBox[2] > 0 && viewBox[3] > 0) {
+    return { width: viewBox[2], height: viewBox[3] };
+  }
+
+  const width = Number.parseFloat(openingTag.match(/\bwidth\s*=\s*["']([\d.]+)/i)?.[1] ?? '0');
+  const height = Number.parseFloat(openingTag.match(/\bheight\s*=\s*["']([\d.]+)/i)?.[1] ?? '0');
+  return {
+    width: Number.isFinite(width) && width > 0 ? width : 0,
+    height: Number.isFinite(height) && height > 0 ? height : 0,
+  };
+}
+
+function mermaidInlineWidth(render: MermaidRenderState | null, zoom: number, portrait: boolean) {
+  const zoomedPercent = Math.round(zoom * 10000) / 100;
+  if (!render?.intrinsicWidth) return `${zoomedPercent}%`;
+  const zoomedNaturalWidth = Math.round(render.intrinsicWidth * zoom * 100) / 100;
+  if (!portrait) return `min(${zoomedPercent}%, ${zoomedNaturalWidth}px)`;
+
+  const portraitPercent = Math.round(76 * zoom * 100) / 100;
+  const portraitFloor = Math.round(320 * zoom * 100) / 100;
+  const portraitCeiling = Math.round(560 * zoom * 100) / 100;
+  return `min(${zoomedPercent}%, ${zoomedNaturalWidth}px, ${portraitCeiling}px, max(${portraitFloor}px, ${portraitPercent}%))`;
 }
 
 function sanitizeMermaidSvg(svg: string) {

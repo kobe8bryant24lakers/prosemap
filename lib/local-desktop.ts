@@ -1,4 +1,5 @@
 import { isDesktopRuntime } from './ai-client';
+import type { AiContextDocument } from './ai-context';
 
 export type LocalDocument = {
   path: string;
@@ -36,6 +37,11 @@ export async function pickLocalMarkdown(): Promise<LocalDocument | null> {
 export async function pickMarkdownFolder(): Promise<LocalWorkspace | null> {
   if (!(await isDesktopRuntime())) return null;
   return desktopInvoke<LocalWorkspace | null>('pick_markdown_folder');
+}
+
+export async function pickAiContextFiles(): Promise<AiContextDocument[]> {
+  if (!(await isDesktopRuntime())) return [];
+  return desktopInvoke<AiContextDocument[]>('pick_ai_context_files');
 }
 
 export async function readLocalMarkdown(path: string): Promise<LocalDocument> {

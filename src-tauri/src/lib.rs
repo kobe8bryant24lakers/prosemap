@@ -42,6 +42,7 @@ pub fn run() {
             ai::cancel_ai,
             files::pick_markdown_file,
             files::pick_markdown_folder,
+            files::pick_ai_context_files,
             files::read_local_markdown,
             files::save_local_markdown,
             files::read_launch_target,

@@ -14,6 +14,7 @@ The application interface is currently localized in Simplified Chinese. The repo
 - Create diagrams from natural-language instructions, edit Mermaid source, or directly manipulate flowcharts, sequence diagrams, state diagrams, class diagrams, ER models, mind maps, and Gantt plans on a canvas.
 - Start from common templates including basic flowcharts, 4+1 architecture views, sequence diagrams, state diagrams, class diagrams, ER diagrams, Gantt charts, and mind maps.
 - Use AI on the full document or a selection for polishing, continuation, summarization, and custom transformations.
+- Attach up to 12 explicitly selected UTF-8 reference, configuration, and source-code files so text and Mermaid AI edits can use project context beyond the active document.
 - Review streamed AI output as a line-by-line diff before accepting or rejecting it.
 - Connect to OpenAI-compatible Chat Completions endpoints or Anthropic Claude Messages endpoints.
 - Save safely back to the original file or export with Save As.
@@ -114,6 +115,7 @@ AI features require network access to the provider selected by the user. Local e
 - Validated hostname results are pinned to the outgoing model request to prevent DNS rebinding between validation and connection.
 - Upstream errors are size-limited and API keys are redacted.
 - File access is limited to paths explicitly selected by the user or delivered through an operating-system file association.
+- AI context files are selected explicitly, read locally, shown in the request UI, and bounded to 80,000 characters before they are sent to the configured model provider.
 - Workspace traversal skips symlinks and applies file count, depth, extension, and size limits.
 - Saves use a synchronized temporary sibling followed by atomic replacement, protecting the original document from partial writes.
 - Markdown preview does not execute raw HTML.

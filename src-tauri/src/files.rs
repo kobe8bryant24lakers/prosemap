@@ -13,9 +13,68 @@ use std::{
 use tauri::State;
 
 const MAX_DOCUMENT_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_CONTEXT_DOCUMENT_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_CONTEXT_DOCUMENTS: usize = 12;
 const MAX_WORKSPACE_FILES: usize = 2_000;
 const MAX_WORKSPACE_DEPTH: usize = 12;
 const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkdn"];
+const CONTEXT_EXTENSIONS: &[&str] = &[
+    "md",
+    "markdown",
+    "txt",
+    "text",
+    "rst",
+    "adoc",
+    "csv",
+    "tsv",
+    "json",
+    "jsonl",
+    "yaml",
+    "yml",
+    "toml",
+    "xml",
+    "html",
+    "htm",
+    "css",
+    "scss",
+    "less",
+    "js",
+    "jsx",
+    "ts",
+    "tsx",
+    "mjs",
+    "cjs",
+    "py",
+    "rs",
+    "go",
+    "java",
+    "kt",
+    "kts",
+    "c",
+    "h",
+    "cc",
+    "cpp",
+    "hpp",
+    "cs",
+    "swift",
+    "rb",
+    "php",
+    "sh",
+    "zsh",
+    "bash",
+    "fish",
+    "sql",
+    "graphql",
+    "gql",
+    "proto",
+    "vue",
+    "svelte",
+    "gradle",
+    "properties",
+    "ini",
+    "conf",
+    "log",
+];
 static SAVE_NONCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Serialize)]
@@ -40,6 +99,14 @@ pub struct LocalWorkspace {
     pub root: String,
     pub name: String,
     pub files: Vec<LocalFileEntry>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiContextDocument {
+    pub path: String,
+    pub name: String,
+    pub content: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -108,6 +175,17 @@ fn is_markdown(path: &Path) -> bool {
         .and_then(OsStr::to_str)
         .map(|extension| {
             MARKDOWN_EXTENSIONS
+                .iter()
+                .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+        })
+        .unwrap_or(false)
+}
+
+fn is_context_document(path: &Path) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .map(|extension| {
+            CONTEXT_EXTENSIONS
                 .iter()
                 .any(|candidate| extension.eq_ignore_ascii_case(candidate))
         })
@@ -265,6 +343,49 @@ pub async fn pick_markdown_folder(
     let workspace = workspace_from_canonical(&canonical)?;
     state.authorize_root(canonical);
     Ok(Some(workspace))
+}
+
+#[tauri::command]
+pub async fn pick_ai_context_files(
+    state: State<'_, FileAccessState>,
+) -> Result<Vec<AiContextDocument>, String> {
+    let Some(handles) = rfd::AsyncFileDialog::new()
+        .add_filter("文本、资料与代码", CONTEXT_EXTENSIONS)
+        .pick_files()
+        .await
+    else {
+        return Ok(Vec::new());
+    };
+
+    if handles.len() > MAX_CONTEXT_DOCUMENTS {
+        return Err(format!("一次最多选择 {MAX_CONTEXT_DOCUMENTS} 个上下文文件"));
+    }
+
+    let mut documents = Vec::with_capacity(handles.len());
+    for handle in handles {
+        let canonical = canonical_existing(handle.path())?;
+        if !canonical.is_file() || !is_context_document(&canonical) {
+            return Err("上下文仅支持常见文本、资料与代码文件".to_string());
+        }
+        let metadata =
+            fs::metadata(&canonical).map_err(|_| "无法读取上下文文件信息".to_string())?;
+        if metadata.len() > MAX_CONTEXT_DOCUMENT_BYTES {
+            return Err(format!(
+                "上下文文件 {} 不能超过 2 MB",
+                display_name(&canonical, "未命名文件")
+            ));
+        }
+        let bytes = fs::read(&canonical).map_err(|_| "无法读取上下文文件".to_string())?;
+        let content =
+            String::from_utf8(bytes).map_err(|_| "上下文文件必须使用 UTF-8 编码".to_string())?;
+        state.authorize_file(canonical.clone());
+        documents.push(AiContextDocument {
+            path: canonical.to_string_lossy().into_owned(),
+            name: display_name(&canonical, "未命名文件"),
+            content,
+        });
+    }
+    Ok(documents)
 }
 
 #[tauri::command]
@@ -436,6 +557,15 @@ mod tests {
         assert!(is_markdown(Path::new("notes.MD")));
         assert!(is_markdown(Path::new("notes.markdown")));
         assert!(!is_markdown(Path::new("notes.txt")));
+    }
+
+    #[test]
+    fn recognizes_text_and_code_context_without_accepting_binary_files() {
+        assert!(is_context_document(Path::new("architecture.MD")));
+        assert!(is_context_document(Path::new("service.ts")));
+        assert!(is_context_document(Path::new("settings.yaml")));
+        assert!(!is_context_document(Path::new("secret.key")));
+        assert!(!is_context_document(Path::new("screenshot.png")));
     }
 
     #[test]

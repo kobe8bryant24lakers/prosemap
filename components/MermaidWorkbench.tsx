@@ -9,10 +9,12 @@ import {
   ChevronRight,
   CircleAlert,
   Eye,
+  FileText,
   GitBranch,
   LayoutTemplate,
   LoaderCircle,
   Pencil,
+  Paperclip,
   RotateCcw,
   Sparkles,
   Workflow,
@@ -20,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { streamAi } from '@/lib/ai-client';
+import { createAiContextBlock, MAX_AI_CONTEXT_CHARACTERS, type AiContextDocument } from '@/lib/ai-context';
 import type { ModelConfig } from '@/lib/editor';
 import { parseMermaid } from '@/lib/mermaid-runtime';
 import {
@@ -49,10 +52,13 @@ type MermaidWorkbenchProps = {
   initialSource?: string;
   inactive?: boolean;
   interactionSuspended?: boolean;
+  contextDocuments: AiContextDocument[];
   mode: 'create' | 'edit';
   onApply: (source: string) => void;
   onClose: () => void;
   onOpenSettings: () => void;
+  onPickContext: () => void;
+  onRemoveContext: (path: string) => void;
   onPendingChangesChange?: (sessionId: number, pending: boolean) => void;
   onRequestConfirmation: (request: ConfirmationRequest) => Promise<boolean>;
 };
@@ -109,10 +115,13 @@ export default function MermaidWorkbench({
   initialSource = '',
   inactive = false,
   interactionSuspended = false,
+  contextDocuments,
   mode,
   onApply,
   onClose,
   onOpenSettings,
+  onPickContext,
+  onRemoveContext,
   onPendingChangesChange,
   onRequestConfirmation,
 }: MermaidWorkbenchProps) {
@@ -142,6 +151,7 @@ export default function MermaidWorkbench({
   const aiRunning = aiStatus.kind === 'running';
   const draftChanged = source.trim() !== startingSource.trim();
   const hasPendingChanges = aiRunning || draftChanged || applying;
+  const contextCharacters = contextDocuments.reduce((total, document) => total + document.content.length, 0);
 
   useEffect(() => {
     onPendingChangesChange?.(sessionId, hasPendingChanges);
@@ -320,6 +330,7 @@ export default function MermaidWorkbench({
     setAiDraftValidation({ kind: 'idle', message: 'AI 生成中，完成后可继续手动编辑' });
     setAiStatus({ kind: 'running', message: 'AI 正在组织图表结构…' });
     const prompts = createMermaidAiPrompts(instruction, aiUseCurrentSource ? source : '');
+    const context = createAiContextBlock(contextDocuments);
     let generated = '';
     try {
       await streamAi(
@@ -329,7 +340,7 @@ export default function MermaidWorkbench({
           model: config.model,
           apiKey: config.apiKey,
           system: prompts.system,
-          prompt: prompts.prompt,
+          prompt: `${prompts.prompt}${context.block}`,
           temperature: 0.3,
           maxTokens: 4096,
         },
@@ -454,6 +465,27 @@ export default function MermaidWorkbench({
                     <span>基于右侧当前草稿修改</span>
                     <small>{aiUseCurrentSource ? 'AI 会尽量保留未要求改变的内容' : 'AI 将从你的描述创建一张新图'}</small>
                   </label>
+                  <section className="workbench-context-files" aria-label="Mermaid AI 上下文资料">
+                    <header>
+                      <span><Paperclip size={13} /> 上下文资料</span>
+                      <button type="button" onClick={onPickContext} disabled={aiRunning}><Paperclip size={12} /> 添加文件</button>
+                    </header>
+                    {contextDocuments.length ? (
+                      <div>
+                        {contextDocuments.map((document) => (
+                          <span key={document.path} title={document.path}>
+                            <FileText size={11} /> <b>{document.name}</b>
+                            <button type="button" onClick={() => onRemoveContext(document.path)} disabled={aiRunning} aria-label={`移除上下文 ${document.name}`}><X size={11} /></button>
+                          </span>
+                        ))}
+                      </div>
+                    ) : <p>加入需求、接口、代码或其他图表资料，AI 会据此补全参与者、节点和关系。</p>}
+                    <footer className={contextCharacters > MAX_AI_CONTEXT_CHARACTERS ? 'truncated' : ''}>
+                      {contextDocuments.length
+                        ? `${contextDocuments.length} 个文件 · ${contextCharacters.toLocaleString('zh-CN')} 字符${contextCharacters > MAX_AI_CONTEXT_CHARACTERS ? ` · 截取前 ${MAX_AI_CONTEXT_CHARACTERS.toLocaleString('zh-CN')}` : ''}`
+                        : '资料只作为参考，不会被修改'}
+                    </footer>
+                  </section>
                   <div className="workbench-prompt-examples">
                     {AI_EXAMPLES.map((example) => <button key={example} type="button" onClick={() => setAiInstruction(example)} disabled={aiRunning}>{example}</button>)}
                   </div>

@@ -1,7 +1,8 @@
 'use client';
 
-import { Bot, ChevronRight, KeyRound, PenLine, Sparkles, TextQuote, WandSparkles, Workflow, X } from 'lucide-react';
+import { Bot, ChevronRight, FileText, KeyRound, Paperclip, PenLine, Sparkles, TextQuote, WandSparkles, Workflow, X } from 'lucide-react';
 import { useState } from 'react';
+import { MAX_AI_CONTEXT_CHARACTERS, type AiContextDocument } from '@/lib/ai-context';
 import { ACTION_LABELS, type AssistAction, type ModelConfig } from '@/lib/editor';
 
 type AssistantPanelProps = {
@@ -10,7 +11,10 @@ type AssistantPanelProps = {
   targetLength: number;
   hasSelection: boolean;
   hasMermaidTarget: boolean;
+  contextDocuments: AiContextDocument[];
   onActionChange: (action: AssistAction) => void;
+  onPickContext: () => void;
+  onRemoveContext: (path: string) => void;
   onOpenSettings: () => void;
   onRun: (instruction: string) => void;
   onClose: () => void;
@@ -29,13 +33,17 @@ export default function AssistantPanel({
   targetLength,
   hasSelection,
   hasMermaidTarget,
+  contextDocuments,
   onActionChange,
+  onPickContext,
+  onRemoveContext,
   onOpenSettings,
   onRun,
   onClose,
 }: AssistantPanelProps) {
   const [instruction, setInstruction] = useState('');
   const configured = Boolean(config.apiKey && config.model);
+  const contextCharacters = contextDocuments.reduce((total, document) => total + document.content.length, 0);
 
   const instructionRequired = action === 'custom' || action === 'mermaid';
   const placeholder = action === 'mermaid'
@@ -83,6 +91,28 @@ export default function AssistantPanel({
           </div>
           <label htmlFor="ai-instruction">{instructionRequired ? '告诉 AI 你的要求' : '补充要求'}</label>
           <textarea id="ai-instruction" value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder={placeholder} rows={4} />
+          <section className="assistant-context-files" aria-label="AI 上下文资料">
+            <header>
+              <span><Paperclip size={13} /> 上下文资料</span>
+              <button type="button" onClick={onPickContext}><Paperclip size={12} /> 添加文件</button>
+            </header>
+            {contextDocuments.length ? (
+              <div className="assistant-context-list">
+                {contextDocuments.map((document) => (
+                  <div key={document.path} title={document.path}>
+                    <FileText size={12} />
+                    <span>{document.name}<small>{document.content.length.toLocaleString('zh-CN')} 字符</small></span>
+                    <button type="button" onClick={() => onRemoveContext(document.path)} aria-label={`移除上下文 ${document.name}`}><X size={12} /></button>
+                  </div>
+                ))}
+              </div>
+            ) : <p>可加入 Markdown、资料、配置或代码，让 AI 理解当前文档之外的环境。</p>}
+            <footer className={contextCharacters > MAX_AI_CONTEXT_CHARACTERS ? 'truncated' : ''}>
+              {contextDocuments.length
+                ? `${contextDocuments.length} 个文件 · ${contextCharacters.toLocaleString('zh-CN')} 字符${contextCharacters > MAX_AI_CONTEXT_CHARACTERS ? ` · 请求时截取前 ${MAX_AI_CONTEXT_CHARACTERS.toLocaleString('zh-CN')}` : ''}`
+                : '仅在本次文档会话中使用，不会修改这些文件'}
+            </footer>
+          </section>
           {!configured ? (
             <button type="button" className="configure-callout" onClick={onOpenSettings}>
               <KeyRound size={16} /><span><strong>先连接一个模型</strong><small>支持 OpenAI-compatible 与 Anthropic Claude</small></span><ChevronRight size={15} />

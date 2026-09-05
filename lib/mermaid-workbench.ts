@@ -11,6 +11,7 @@ export type MermaidFlowNode = {
   label: string;
   shape: MermaidNodeShape;
   data?: {
+    groupId?: string;
     ref?: string;
     sequenceType?: 'actor' | 'participant';
     stateRole?: 'start' | 'end' | 'state';
@@ -45,6 +46,8 @@ export type MermaidFlowGraph = {
   nodes: MermaidFlowNode[];
   edges: MermaidFlowEdge[];
   data?: {
+    diagramType?: 'usecase' | 'package';
+    groups?: Array<{ id: string; label: string; parentId?: string }>;
     header?: string;
     autonumber?: boolean;
     directives?: string[];
@@ -61,6 +64,54 @@ export type MermaidTemplate = {
   source: string;
   visualEditable: boolean;
 };
+
+const UML_TEMPLATES: MermaidTemplate[] = [
+  {
+    id: 'usecase', name: '用例图', category: '需求',
+    description: '参与者、系统边界、用例以及包含与扩展关系', visualEditable: true,
+    source: `flowchart LR
+  %% prosemap:usecase
+  User["«actor» 用户"]
+  Admin["«actor» 管理员"]
+  subgraph System["订单系统"]
+    Browse(["浏览商品"])
+    Order(["提交订单"])
+    Login(["身份验证"])
+    Coupon(["使用优惠券"])
+    Manage(["管理商品"])
+  end
+  User --- Browse
+  User --- Order
+  Admin --- Manage
+  Order -.->|«include»| Login
+  Coupon -.->|«extend»| Order`,
+  },
+  {
+    id: 'package', name: '包结构图', category: '结构',
+    description: '嵌套包、模块归属与分层依赖', visualEditable: true,
+    source: `flowchart TB
+  %% prosemap:package
+  subgraph App["应用"]
+    subgraph Presentation["表现层"]
+      Pages["页面"]
+      Controllers["控制器"]
+    end
+    subgraph Domain["领域层"]
+      Services["领域服务"]
+      Models["领域模型"]
+    end
+    subgraph Infrastructure["基础设施层"]
+      Repository["数据仓储"]
+      Gateway["外部接口"]
+    end
+  end
+  Pages --> Controllers
+  Controllers -.->|依赖| Services
+  Services --> Models
+  Services -.->|依赖| Repository
+  Services -.->|依赖| Gateway`,
+  },
+];
 
 export const MERMAID_TEMPLATES: MermaidTemplate[] = [
   {
@@ -218,6 +269,10 @@ export const MERMAID_TEMPLATES: MermaidTemplate[] = [
   },
 ];
 
+MERMAID_TEMPLATES.push(...UML_TEMPLATES);
+
+export const UML_AI_GUIDANCE = '用例图使用 flowchart LR，用矩形标注 «actor» 参与者、圆角起止形状表示用例、subgraph 表示系统边界、虚线箭头表示 «include» 或 «extend»；包结构图使用 flowchart TB 和可嵌套的 subgraph 表示包及模块归属，箭头表示模块依赖。不要使用 Mermaid 不支持的 usecaseDiagram 或 packageDiagram 关键字。用例图在 flowchart 行后加注释 %% prosemap:usecase，包结构图加 %% prosemap:package。subgraph 使用独立的英文标识和双引号标题，如 subgraph Domain["领域层"]。';
+
 const EDGE_STYLE_TO_TOKEN: Record<MermaidEdgeStyle, string> = {
   arrow: '-->',
   line: '---',
@@ -305,24 +360,48 @@ export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
   const direction = (directionMatch?.[1]?.toUpperCase() ?? 'TD') as MermaidFlowDirection;
   const nodeMap = new Map<string, MermaidFlowNode>();
   const edges: MermaidFlowEdge[] = [];
+  const groups: NonNullable<NonNullable<MermaidFlowGraph['data']>['groups']> = [];
+  const groupStack: string[] = [];
+  let diagramType: 'usecase' | 'package' | undefined;
 
   const rememberNode = (node: MermaidFlowNode) => {
     const previous = nodeMap.get(node.id);
-    if (!previous || node.label !== node.id || previous.label === previous.id) nodeMap.set(node.id, node);
+    const groupId = groupStack.at(-1) ?? previous?.data?.groupId;
+    if (previous?.data?.groupId && groupId !== previous.data.groupId) return false;
+    if (!previous || node.label !== node.id || previous.label === previous.id) {
+      nodeMap.set(node.id, { ...node, ...(groupId ? { data: { groupId } } : {}) });
+    } else if (groupId) previous.data = { ...previous.data, groupId };
+    return true;
   };
 
   for (const rawLine of lines.slice(headerIndex + 1)) {
     const line = rawLine.trim();
     if (!line) continue;
+    if (/^%% prosemap:(usecase|package)$/.test(line)) {
+      if (diagramType) return null;
+      diagramType = line.endsWith('usecase') ? 'usecase' : 'package';
+      continue;
+    }
     if (line.startsWith('%%')) return null;
+    const group = line.match(/^subgraph\s+([A-Za-z_][\w-]*)(?:\["([^"\n]*)"\])?$/);
+    if (group) {
+      if (groups.some((entry) => entry.id === group[1]) || nodeMap.has(group[1])) return null;
+      groups.push({ id: group[1], label: group[2] ?? group[1], ...(groupStack.length ? { parentId: groupStack.at(-1) } : {}) });
+      groupStack.push(group[1]);
+      continue;
+    }
+    if (line === 'end') {
+      if (!groupStack.length) return null;
+      groupStack.pop();
+      continue;
+    }
     // The direct-manipulation canvas intentionally supports only a lossless subset. Returning
-    // null keeps richer Mermaid source (subgraphs, styling, classes, etc.) in
+    // null keeps unsupported Mermaid source (local directions, styling, classes, etc.) in
     // source/AI mode instead of silently dropping it during serialization.
     if (/^(?:(?:subgraph|direction|classDef|class|style|linkStyle)(?:\s|$)|end\s*$)/i.test(line) || line.includes(';')) return null;
     const edge = parseEdgeLine(line);
     if (edge) {
-      rememberNode(edge.from);
-      rememberNode(edge.to);
+      if (!rememberNode(edge.from) || !rememberNode(edge.to)) return null;
       edges.push({
         id: `edge-${edges.length + 1}`,
         from: edge.from.id,
@@ -334,10 +413,13 @@ export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
     }
     const node = parseNodeToken(line);
     if (!node) return null;
-    rememberNode(node);
+    if (!rememberNode(node)) return null;
   }
 
-  return { kind: 'flowchart', direction, nodes: Array.from(nodeMap.values()), edges };
+  if (groupStack.length || groups.some((group) => nodeMap.has(group.id))) return null;
+  return { kind: 'flowchart', direction, nodes: Array.from(nodeMap.values()), edges,
+    ...(groups.length || diagramType ? { data: { ...(groups.length ? { groups } : {}), ...(diagramType ? { diagramType } : {}) } } : {}),
+  };
 }
 
 function safeLabel(value: string): string {
@@ -360,10 +442,34 @@ function serializeNode(node: MermaidFlowNode): string {
 }
 
 export function serializeFlowchart(graph: MermaidFlowGraph): string {
+  const groups = graph.data?.groups ?? [];
+  const groupIds = new Set(groups.map((group) => group.id));
   const nodeIds = new Set(graph.nodes.map((node) => node.id));
-  const nodes = graph.nodes
-    .filter((node) => /^[A-Za-z_][\w-]*$/.test(node.id))
-    .map((node) => `  ${serializeNode(node)}`);
+  if (groupIds.size !== groups.length || groups.some((group) => !/^[A-Za-z_][\w-]*$/.test(group.id) || nodeIds.has(group.id))) {
+    throw new Error('包或系统边界的标识不能重复或与节点冲突');
+  }
+  for (const group of groups) {
+    const visited = new Set([group.id]);
+    let parent = group.parentId;
+    while (parent) {
+      if (!groupIds.has(parent) || visited.has(parent)) throw new Error('包层级包含无效父级或循环');
+      visited.add(parent);
+      parent = groups.find((entry) => entry.id === parent)?.parentId;
+    }
+  }
+  if (graph.nodes.some((node) => node.data?.groupId && !groupIds.has(node.data.groupId))) throw new Error('节点所属包不存在');
+  const nodes: string[] = [];
+  function emitMembers(parentId?: string, indent = '  ') {
+    for (const node of graph.nodes.filter((entry) => entry.data?.groupId === parentId)) {
+      if (/^[A-Za-z_][\w-]*$/.test(node.id)) nodes.push(`${indent}${serializeNode(node)}`);
+    }
+    for (const group of groups.filter((entry) => entry.parentId === parentId)) {
+      nodes.push(`${indent}subgraph ${group.id}["${safeLabel(group.label)}"]`);
+      emitMembers(group.id, `${indent}  `);
+      nodes.push(`${indent}end`);
+    }
+  }
+  emitMembers();
   const edges = graph.edges
     .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to))
     .map((edge) => {
@@ -371,7 +477,7 @@ export function serializeFlowchart(graph: MermaidFlowGraph): string {
       const label = safeLabel(edge.label);
       return `  ${edge.from} ${token}${label ? `|${label}|` : ''} ${edge.to}`;
     });
-  return [`flowchart ${graph.direction}`, ...nodes, ...edges].join('\n');
+  return [`flowchart ${graph.direction}`, ...(graph.data?.diagramType ? [`  %% prosemap:${graph.data.diagramType}`] : []), ...nodes, ...edges].join('\n');
 }
 
 function diagramBody(source: string, headerPattern: RegExp): { header: string; lines: string[] } | null {
@@ -1027,8 +1133,8 @@ export function serializeMermaidVisualGraph(graph: MermaidVisualGraph): string {
   return serializeFlowchart(graph);
 }
 
-export function nextMermaidNodeId(nodes: MermaidFlowNode[], prefix = 'N'): string {
-  const existing = new Set(nodes.map((node) => node.id));
+export function nextMermaidNodeId(nodes: MermaidFlowNode[], prefix = 'N', groups: Array<{ id: string }> = []): string {
+  const existing = new Set([...nodes, ...groups].map((entry) => entry.id));
   let index = nodes.length + 1;
   while (existing.has(`${prefix}${index}`)) index += 1;
   return `${prefix}${index}`;
@@ -1052,7 +1158,7 @@ export function mermaidSafetyError(source: string): string | null {
 export function createMermaidAiPrompts(instruction: string, currentSource: string) {
   const source = currentSource.trim();
   return {
-    system: '你是 Mermaid v11 可视化专家。严格只返回完整 Mermaid 源码，不要 Markdown 代码围栏、解释、标题或前后缀。使用语法有效、结构清晰、文字简洁的标准 Mermaid 图。禁止 click、外部链接、HTML 标签和初始化配置。可使用 flowchart、sequenceDiagram、stateDiagram-v2、classDiagram、erDiagram、gantt、mindmap、journey 等常规图表；当用户要求 4+1 架构视图时，必须包含逻辑视图、开发视图、进程视图、物理视图和场景视图。',
+    system: `你是 Mermaid v11 可视化专家。严格只返回完整 Mermaid 源码，不要 Markdown 代码围栏、解释、标题或前后缀。使用语法有效、结构清晰、文字简洁的标准 Mermaid 图。禁止 click、外部链接、HTML 标签和初始化配置。可使用 flowchart、sequenceDiagram、stateDiagram-v2、classDiagram、erDiagram、gantt、mindmap、journey 等常规图表；当用户要求 4+1 架构视图时，必须包含逻辑视图、开发视图、进程视图、物理视图和场景视图。${UML_AI_GUIDANCE}`,
     prompt: source
       ? `按用户要求修改现有图表，保留未要求改变的含义，并返回修改后的完整源码。\n\n用户要求：${instruction}\n\n现有 Mermaid 源码：\n${source}`
       : `按用户要求创建 Mermaid 图表，并返回完整源码。\n\n用户要求：${instruction}`,

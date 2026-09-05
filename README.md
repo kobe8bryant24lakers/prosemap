@@ -12,7 +12,10 @@ The application interface is currently localized in Simplified Chinese. The repo
 - Edit Markdown with a responsive desktop-first workspace and live preview.
 - Render Mermaid diagrams locally in strict security mode, including node descriptions and branch labels.
 - Create diagrams from natural-language instructions, edit Mermaid source, or directly manipulate flowcharts, sequence diagrams, state diagrams, class diagrams, ER models, mind maps, and Gantt plans on a canvas.
-- Start from common templates including basic flowcharts, 4+1 architecture views, sequence diagrams, state diagrams, class diagrams, ER diagrams, Gantt charts, and mind maps.
+- Start from common templates including basic flowcharts, 4+1 architecture views, sequence diagrams, state diagrams, class diagrams, ER diagrams, Gantt charts, mind maps, use cases, and package structures.
+- Edit use cases and nested packages using standard Mermaid flowcharts: actors, system boundaries, include/extend relationships, package membership, and module dependencies are preserved when switching between source and canvas.
+- Scroll the document normally over inline diagrams, or open a scrollbar-free fullscreen view to zoom with the wheel, drag to pan, and click the percentage to reset.
+- Insert new diagrams at the editor caret captured before opening the workbench.
 - Use AI on the full document or a selection for polishing, continuation, summarization, and custom transformations.
 - Attach up to 12 explicitly selected UTF-8 reference, configuration, and source-code files so text and Mermaid AI edits can use project context beyond the active document.
 - Review streamed AI output as a line-by-line diff before accepting or rejecting it.

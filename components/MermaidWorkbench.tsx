@@ -73,6 +73,8 @@ const TABS: Array<{ id: WorkbenchTab; label: string; icon: typeof Sparkles }> = 
 const AI_EXAMPLES = [
   '生成一个包含成功、失败和重试分支的基本流程图',
   '生成软件系统的 4+1 架构视图，并写清每个视图的职责',
+  '生成订单系统的用例图，包含用户、管理员、系统边界及包含和扩展关系',
+  '生成包含表现层、领域层和基础设施层的嵌套包结构图',
   '把当前图改成从左到右，精简节点文字并补全异常路径',
 ];
 
@@ -83,6 +85,8 @@ async function validateMermaid(source: string) {
 }
 
 function diagramKind(source: string): string {
+  if (/^\s*%% prosemap:usecase\s*$/m.test(source)) return '用例图';
+  if (/^\s*%% prosemap:package\s*$/m.test(source)) return '包结构图';
   const firstLine = source.trim().split(/\r?\n/, 1)[0]?.trim() ?? '';
   if (/^(?:flowchart|graph)\b/i.test(firstLine)) return '流程图';
   if (/^sequenceDiagram\b/i.test(firstLine)) return '时序图';

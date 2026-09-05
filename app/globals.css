@@ -179,7 +179,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .diagram-actions .diagram-edit-action { width: auto; display: inline-flex; gap: 5px; padding: 0 8px; border: 1px solid #c6ddcf; background: var(--green-soft); color: var(--green); font-size: 9.5px; font-weight: 760; }
 .diagram-actions .diagram-edit-action:hover { border-color: #8fbea7; background: #dff0e7; }
 .diagram-actions .diagram-zoom-value { width: 42px; color: #607169; font-size: 8.5px; font-weight: 750; }
-.mermaid-canvas { display: block; overflow-x: auto; overflow-y: hidden; padding: 30px; background-color: #fff; background-image: radial-gradient(#dbe5df 0.6px, transparent 0.6px); background-size: 14px 14px; }
+.mermaid-canvas { display: block; overflow: clip; padding: 30px; background-color: #fff; background-image: radial-gradient(#dbe5df 0.6px, transparent 0.6px); background-size: 14px 14px; }
 .mermaid-canvas.editable { cursor: pointer; }
 .mermaid-svg { display: block; margin-inline: auto; transition: width .16s ease; }
 .mermaid-svg > svg { width: 100%!important; max-width: none!important; height: auto!important; display: block; margin: 0 auto; }
@@ -201,9 +201,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .mermaid-fullscreen-actions button:hover { background: var(--green-soft); color: var(--green); }
 .mermaid-fullscreen-actions .diagram-zoom-value { width: 48px; font-size: 9px; font-weight: 750; }
 .mermaid-fullscreen-actions .mermaid-fullscreen-close { margin-left: 5px; border-left: 1px solid var(--line); border-radius: 0 7px 7px 0; }
-.mermaid-fullscreen-stage { min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; padding: clamp(22px, 4vw, 58px); background-color: #f5f8f6; background-image: radial-gradient(#cbd8d1 0.7px, transparent 0.7px); background-size: 15px 15px; }
+.mermaid-fullscreen-stage { min-height: 0; flex: 1; overflow: clip; overscroll-behavior: contain; touch-action: none; user-select: none; cursor: grab; padding: clamp(22px, 4vw, 58px); background-color: #f5f8f6; background-image: radial-gradient(#cbd8d1 0.7px, transparent 0.7px); background-size: 15px 15px; }
+.mermaid-fullscreen-stage.is-panning { cursor: grabbing; }
 .mermaid-fullscreen-stage-inner { width: 100%; height: 100%; min-height: 100%; display: flex; }
-.mermaid-fullscreen-svg { flex: none; display: flex; align-items: center; justify-content: center; margin: auto; transition: width .16s ease, height .16s ease; }
+.mermaid-fullscreen-svg { flex: none; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; margin: auto; transform-origin: center; will-change: transform; }
 .mermaid-fullscreen-svg > svg { width: 100%!important; max-width: 100%!important; height: 100%!important; max-height: 100%!important; display: block; }
 .mermaid-fullscreen-loading { width: 100%; margin: auto; }
 .mermaid-fullscreen-error { width: min(640px, 100%); margin: auto; border: 1px solid #f0d2cf; border-radius: 12px; box-shadow: 0 9px 26px rgb(105 45 39 / 8%); }

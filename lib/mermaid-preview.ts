@@ -7,20 +7,15 @@ const WHEEL_LINE_HEIGHT = 18;
 const MAX_WHEEL_DELTA = 180;
 const WHEEL_ZOOM_SENSITIVITY = 0.0017;
 
-export function mermaidPreviewZoomFromWheel(
+/** Keep the diagram point under the pointer stationary while zooming. */
+export function zoomMermaidViewport(
+  pan: { x: number; y: number },
   currentZoom: number,
-  deltaY: number,
-  deltaMode = 0,
-  pageHeight = 1,
+  nextZoom: number,
+  pointer: { x: number; y: number },
 ) {
-  return mermaidZoomFromWheel(
-    currentZoom,
-    deltaY,
-    deltaMode,
-    pageHeight,
-    MERMAID_PREVIEW_MIN_ZOOM,
-    MERMAID_PREVIEW_MAX_ZOOM,
-  );
+  const ratio = nextZoom / currentZoom;
+  return { x: pointer.x - (pointer.x - pan.x) * ratio, y: pointer.y - (pointer.y - pan.y) * ratio };
 }
 
 export function mermaidFullscreenZoomFromWheel(

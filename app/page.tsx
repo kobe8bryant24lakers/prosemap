@@ -42,6 +42,7 @@ import { isDesktopRuntime, streamAi } from '@/lib/ai-client';
 import { createAiContextBlock, mergeAiContextDocuments, type AiContextDocument } from '@/lib/ai-context';
 import { loadModelConfig, saveModelConfig } from '@/lib/model-config';
 import { parseMermaid } from '@/lib/mermaid-runtime';
+import { UML_AI_GUIDANCE } from '@/lib/mermaid-workbench';
 import { synchronizedScrollTop } from '@/lib/scroll-sync';
 import {
   ACTION_LABELS,
@@ -130,7 +131,7 @@ function createAiPrompts(
   if (action === 'mermaid') {
     const existing = original.trim();
     return {
-      system: `你是 Mermaid v11 可视化专家。请生成语法有效、结构清晰、节点文字简洁的 Mermaid 源码。严格只返回 Mermaid 源码本身，不要 Markdown 代码围栏、解释、标题或前后缀。禁止使用 click 指令、外部链接、HTML 标签或不安全初始化配置。优先使用 flowchart、sequenceDiagram、stateDiagram-v2、classDiagram、erDiagram、gantt、mindmap 等标准语法。`,
+      system: `你是 Mermaid v11 可视化专家。请生成语法有效、结构清晰、节点文字简洁的 Mermaid 源码。严格只返回 Mermaid 源码本身，不要 Markdown 代码围栏、解释、标题或前后缀。禁止使用 click 指令、外部链接、HTML 标签或不安全初始化配置。优先使用 flowchart、sequenceDiagram、stateDiagram-v2、classDiagram、erDiagram、gantt、mindmap 等标准语法。${UML_AI_GUIDANCE}`,
       prompt: existing
         ? `请按要求修改下面的 Mermaid 图。保留未被要求改变的含义，并返回修改后的完整图表源码。\n\n用户要求：${instruction}\n\n现有图表源码：\n${existing}${context.block}`
         : `请按下面的自然语言要求创建一张 Mermaid 图，并返回完整图表源码。\n\n用户要求：${instruction}${context.block}`,
@@ -171,6 +172,7 @@ export default function Home() {
   const [confirmation, setConfirmation] = useState<ActiveConfirmation | null>(null);
   const [editorView, setEditorView] = useState<EditorView | null>(null);
   const editorRef = useRef<ReactCodeMirrorRef>(null);
+  const workbenchOpenSnapshotRef = useRef<EditorSnapshot | null>(null);
   const previewScrollRef = useRef<HTMLDivElement>(null);
   const syncPreviewFromEditorRef = useRef<(() => void) | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -684,9 +686,18 @@ export default function Home() {
     setAssistantOpen(true);
   }
 
-  function openMermaidWorkbench() {
-    const snapshot = readEditorSnapshot();
-    openMermaidTarget(findMermaidTarget(snapshot.document, snapshot.head), snapshot);
+  function captureWorkbenchInsertion() {
+    workbenchOpenSnapshotRef.current = readEditorSnapshot();
+  }
+
+  function openMermaidWorkbench(createNew = false) {
+    // Capture on pointer-down, before blur/selection updates caused by toolbar
+    // focus. Keyboard activation reads the current CodeMirror selection.
+    const captured = workbenchOpenSnapshotRef.current;
+    workbenchOpenSnapshotRef.current = null;
+    const current = readEditorSnapshot();
+    const snapshot = captured?.document === current.document ? captured : current;
+    openMermaidTarget(createNew ? null : findMermaidTarget(snapshot.document, snapshot.head), snapshot);
   }
 
   function openMermaidTarget(target: MermaidTarget, editorSnapshot = readEditorSnapshot()) {
@@ -904,7 +915,7 @@ export default function Home() {
           <button type="button" className={`rail-button ${fileExplorerOpen ? 'active' : ''}`} onClick={() => setFileExplorerOpen((open) => !open)} aria-label="本地文件" title="本地文件"><FolderOpen size={18} /></button>
           <button type="button" className="rail-button" onClick={() => openAssistant('polish')} aria-label="AI 文字助手" title="AI 文字助手"><Bot size={18} /></button>
           <button type="button" className="rail-button mermaid-rail" onClick={() => openAssistant('mermaid')} aria-label="Mermaid 智能绘图" title="Mermaid 智能绘图"><Workflow size={19} /></button>
-          <button type="button" className="rail-button diagram-workbench-rail" onClick={openMermaidWorkbench} aria-label="Mermaid 可视化画布" title={mermaidTarget ? '编辑光标所在图表' : '新建 Mermaid 图表'}><Braces size={18} /></button>
+          <button type="button" className="rail-button diagram-workbench-rail" onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onMouseDown={(event) => event.preventDefault()} onClick={() => openMermaidWorkbench()} aria-label="Mermaid 可视化画布" title={mermaidTarget ? '编辑光标所在图表' : '新建 Mermaid 图表'}><Braces size={18} /></button>
           <span className="rail-spacer" />
           <button type="button" className="rail-button" onClick={() => setSettingsOpen(true)} aria-label="模型设置" title="模型设置"><Settings2 size={18} /></button>
         </nav>
@@ -958,7 +969,7 @@ export default function Home() {
               <button type="button" onClick={() => openAssistant('continue')}><PenLine size={14} /> 续写</button>
               <button type="button" onClick={() => openAssistant('summarize')}><TextQuote size={14} /> 总结</button>
               <button type="button" className="mermaid-quick" onClick={() => openAssistant('mermaid')}><Workflow size={14} /> 智能绘图</button>
-              <button type="button" className="mermaid-workbench-quick" onClick={openMermaidWorkbench}><Braces size={14} /> {mermaidTarget ? '编辑当前图表' : '新建图表'}</button>
+              <button type="button" className="mermaid-workbench-quick" onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onMouseDown={(event) => event.preventDefault()} onClick={() => openMermaidWorkbench()}><Braces size={14} /> {mermaidTarget ? '编辑当前图表' : '新建图表'}</button>
             </div>
           </header>
 
@@ -1004,7 +1015,7 @@ export default function Home() {
             <div className="pane-title"><span className="status-dot mint" /> 可视化预览 <small>实时</small></div>
             <div className="preview-tools">
               <span className="diagram-ready"><Workflow size={13} /> Mermaid 已启用</span>
-              <button type="button" className="diagram-workbench-chip" onClick={openMermaidWorkbench}><Braces size={13} /> 新建图表</button>
+              <button type="button" className="diagram-workbench-chip" onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onMouseDown={(event) => event.preventDefault()} onClick={() => openMermaidWorkbench(true)}><Braces size={13} /> 新建图表</button>
               <button type="button" className="ai-chip" onClick={() => openAssistant('custom')}><Sparkles size={13} /> AI 助手</button>
             </div>
           </header>

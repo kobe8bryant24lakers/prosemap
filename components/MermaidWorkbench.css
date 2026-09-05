@@ -149,6 +149,17 @@
 
 .workbench-visual-panel { height: 100%; padding: 0; overflow: hidden; }
 .mermaid-canvas-editor { height: 100%; min-height: 0; display: flex; flex-direction: column; outline: none; background: #f7faf8; }
+.canvas-group-boundary { position: absolute; pointer-events: none; border: 1.5px solid #90a99c; border-radius: 6px; background: rgb(225 237 231 / 18%); }
+.canvas-group-boundary > span { position: absolute; top: 7px; left: 12px; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 650; color: #315c48; }
+.canvas-group-boundary.is-package { border-radius: 0 6px 6px 6px; }
+.canvas-group-boundary.is-package > span { top: -20px; left: -1px; height: 20px; padding: 0 10px; border: 1px solid #90a99c; border-bottom: 0; background: #edf5ef; border-radius: 4px 4px 0 0; }
+.canvas-groups-panel { flex: none; padding: 6px 12px; border-bottom: 1px solid #d8e4dc; font-size: 12px; }
+.canvas-groups-panel summary { cursor: pointer; color: #315c48; }
+.canvas-groups-panel > div { max-height: 140px; overflow: auto; display: grid; gap: 5px; padding-top: 8px; }
+.canvas-groups-panel > div > div { display: flex; gap: 8px; }
+.canvas-groups-panel input, .canvas-groups-panel select, .canvas-group-membership select { min-width: 0; padding: 4px 7px; border: 1px solid #cbd8d1; border-radius: 5px; background: white; }
+.canvas-groups-panel button { border: 0; background: transparent; color: #6c4d3f; }
+.canvas-group-membership { display: flex; align-items: center; gap: 5px; font-size: 11px; }
 .canvas-editor-toolbar { min-height: 43px; flex: none; display: flex; align-items: center; gap: 10px; padding: 5px 10px; overflow-x: auto; border-bottom: 1px solid var(--line); background: #fff; scrollbar-width: thin; }
 .canvas-tool-group, .canvas-node-library, .canvas-direction-tools, .canvas-assist-tools, .canvas-style-tools, .canvas-zoom-tools, .canvas-shape-tools, .canvas-edge-style-tools, .canvas-semantic-tools { display: flex; align-items: center; gap: 3px; }
 .canvas-tool-group button, .canvas-direction-tools button, .canvas-assist-tools button, .canvas-style-tools button, .canvas-zoom-tools button, .canvas-context-bar button { height: 30px; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 9px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #586c62; font-size: 10px; font-weight: 730; white-space: nowrap; }

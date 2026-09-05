@@ -10,13 +10,12 @@ import {
   MERMAID_PREVIEW_MAX_ZOOM,
   MERMAID_PREVIEW_MIN_ZOOM,
   mermaidFullscreenZoomFromWheel,
-  mermaidPreviewZoomFromWheel,
+  zoomMermaidViewport,
 } from '@/lib/mermaid-preview';
 import { renderMermaid } from '@/lib/mermaid-runtime';
 
 type MermaidDiagramProps = {
   code: string;
-  enableWheelZoom?: boolean;
   onEdit?: () => void;
 };
 
@@ -36,10 +35,9 @@ const EMPTY_RENDER_STATE: MermaidRenderState = {
   svg: '',
 };
 
-export default function MermaidDiagram({ code, enableWheelZoom = false, onEdit }: MermaidDiagramProps) {
+export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   const reactId = useId();
   const fullscreenTitleId = `mermaid-fullscreen-${reactId.replace(/:/g, '')}`;
-  const inlineCanvasRef = useRef<HTMLSpanElement>(null);
   const fullscreenBackdropRef = useRef<HTMLDivElement>(null);
   const fullscreenDialogRef = useRef<HTMLElement>(null);
   const fullscreenStageRef = useRef<HTMLDivElement>(null);
@@ -50,16 +48,15 @@ export default function MermaidDiagram({ code, enableWheelZoom = false, onEdit }
   const [zoom, setZoom] = useState(1);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [fullscreenZoom, setFullscreenZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const panRef = useRef(pan);
+  const dragRef = useRef<{ id: number; x: number; y: number } | null>(null);
+  const [panning, setPanning] = useState(false);
   const [copied, setCopied] = useState(false);
-  const zoomRef = useRef(zoom);
   const fullscreenZoomRef = useRef(fullscreenZoom);
   const currentRender = renderState.code === code ? renderState : null;
   const currentFullscreenRender = fullscreenRenderState.code === code ? fullscreenRenderState : null;
   const fullscreenSvg = currentFullscreenRender?.svg;
-
-  useEffect(() => {
-    zoomRef.current = zoom;
-  }, [zoom]);
 
   useEffect(() => {
     fullscreenZoomRef.current = fullscreenZoom;
@@ -177,34 +174,12 @@ export default function MermaidDiagram({ code, enableWheelZoom = false, onEdit }
   }, [fullscreenOpen]);
 
   useEffect(() => {
-    const canvas = inlineCanvasRef.current;
-    if (!enableWheelZoom || !canvas || !currentRender?.svg) return;
-    const activeCanvas = canvas;
-
-    function handleWheel(event: WheelEvent) {
-      const nextZoom = mermaidPreviewZoomFromWheel(
-        zoomRef.current,
-        event.deltaY,
-        event.deltaMode,
-        activeCanvas.clientHeight,
-      );
-      if (nextZoom === zoomRef.current) return;
-
-      event.preventDefault();
-      zoomRef.current = nextZoom;
-      setZoom(nextZoom);
-    }
-
-    activeCanvas.addEventListener('wheel', handleWheel, { passive: false });
-    return () => activeCanvas.removeEventListener('wheel', handleWheel);
-  }, [currentRender?.svg, enableWheelZoom]);
-
-  useEffect(() => {
     const stage = fullscreenStageRef.current;
     if (!fullscreenOpen || !stage || !fullscreenSvg) return;
     const activeStage = stage;
 
     function handleWheel(event: WheelEvent) {
+      event.preventDefault();
       const nextZoom = mermaidFullscreenZoomFromWheel(
         fullscreenZoomRef.current,
         event.deltaY,
@@ -213,7 +188,13 @@ export default function MermaidDiagram({ code, enableWheelZoom = false, onEdit }
       );
       if (nextZoom === fullscreenZoomRef.current) return;
 
-      event.preventDefault();
+      const bounds = activeStage.getBoundingClientRect();
+      const nextPan = zoomMermaidViewport(panRef.current, fullscreenZoomRef.current, nextZoom, {
+        x: event.clientX - bounds.left - bounds.width / 2,
+        y: event.clientY - bounds.top - bounds.height / 2,
+      });
+      panRef.current = nextPan;
+      setPan(nextPan);
       fullscreenZoomRef.current = nextZoom;
       setFullscreenZoom(nextZoom);
     }
@@ -231,6 +212,10 @@ export default function MermaidDiagram({ code, enableWheelZoom = false, onEdit }
   function openFullscreen() {
     fullscreenZoomRef.current = 1;
     setFullscreenZoom(1);
+    panRef.current = { x: 0, y: 0 };
+    setPan(panRef.current);
+    dragRef.current = null;
+    setPanning(false);
     setFullscreenRenderState(EMPTY_RENDER_STATE);
     setFullscreenOpen(true);
   }
@@ -240,6 +225,8 @@ export default function MermaidDiagram({ code, enableWheelZoom = false, onEdit }
       MERMAID_FULLSCREEN_MIN_ZOOM,
       Math.min(MERMAID_FULLSCREEN_MAX_ZOOM, fullscreenZoomRef.current + delta),
     );
+    panRef.current = zoomMermaidViewport(panRef.current, fullscreenZoomRef.current, nextZoom, { x: 0, y: 0 });
+    setPan(panRef.current);
     fullscreenZoomRef.current = nextZoom;
     setFullscreenZoom(nextZoom);
   }
@@ -247,6 +234,8 @@ export default function MermaidDiagram({ code, enableWheelZoom = false, onEdit }
   function resetFullscreenZoom() {
     fullscreenZoomRef.current = 1;
     setFullscreenZoom(1);
+    panRef.current = { x: 0, y: 0 };
+    setPan(panRef.current);
   }
 
   const diagramSvg = currentRender?.svg;
@@ -290,12 +279,9 @@ export default function MermaidDiagram({ code, enableWheelZoom = false, onEdit }
           </span>
         ) : diagramSvg ? (
           <span
-            ref={inlineCanvasRef}
-            className={`mermaid-canvas${onEdit ? ' editable' : ''}${enableWheelZoom ? ' wheel-zoom-enabled' : ''}`}
+            className={`mermaid-canvas${onEdit ? ' editable' : ''}`}
             onDoubleClick={onEdit}
-            title={enableWheelZoom
-              ? onEdit ? '滚动鼠标缩放；双击进入可视化画布编辑' : '滚动鼠标缩放图表'
-              : onEdit ? '双击进入可视化画布编辑' : undefined}
+            title={onEdit ? '双击进入可视化画布编辑' : undefined}
           >
             <span className={`mermaid-svg${portrait ? ' is-portrait' : ''}`} style={{ width: inlineWidth }} dangerouslySetInnerHTML={{ __html: diagramSvg }} />
           </span>
@@ -318,7 +304,7 @@ export default function MermaidDiagram({ code, enableWheelZoom = false, onEdit }
               <div>
                 <span className="live-dot" />
                 <strong id={fullscreenTitleId}>Mermaid 单图查看</strong>
-                <small>鼠标滚轮缩放；达到边界后滚动画布</small>
+                <small>鼠标滚轮缩放 · 拖动画布平移 · 点击百分比复位</small>
               </div>
               <div className="mermaid-fullscreen-actions">
                 <button type="button" onClick={() => changeFullscreenZoom(-0.15)} disabled={!fullscreenSvg} aria-label="缩小全屏图表" title="缩小">
@@ -335,7 +321,30 @@ export default function MermaidDiagram({ code, enableWheelZoom = false, onEdit }
                 </button>
               </div>
             </header>
-            <div ref={fullscreenStageRef} className="mermaid-fullscreen-stage" title="滚动鼠标缩放图表">
+            <div ref={fullscreenStageRef} className={`mermaid-fullscreen-stage${panning ? ' is-panning' : ''}`} title="滚动鼠标缩放，按住鼠标拖动画布"
+              onPointerDown={(event) => {
+                if (event.button !== 0 || !fullscreenSvg) return;
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                dragRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+                setPanning(true);
+              }}
+              onPointerMove={(event) => {
+                const drag = dragRef.current;
+                if (!drag || drag.id !== event.pointerId) return;
+                panRef.current = { x: panRef.current.x + event.clientX - drag.x, y: panRef.current.y + event.clientY - drag.y };
+                dragRef.current = { id: drag.id, x: event.clientX, y: event.clientY };
+                setPan(panRef.current);
+              }}
+              onPointerUp={(event) => {
+                if (dragRef.current?.id !== event.pointerId) return;
+                dragRef.current = null;
+                setPanning(false);
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }}
+              onPointerCancel={() => { dragRef.current = null; setPanning(false); }}
+              onLostPointerCapture={() => { dragRef.current = null; setPanning(false); }}
+            >
               <div className="mermaid-fullscreen-stage-inner">
                 {currentFullscreenRender?.error ? (
                   <span className="mermaid-error mermaid-fullscreen-error" role="alert">
@@ -347,8 +356,7 @@ export default function MermaidDiagram({ code, enableWheelZoom = false, onEdit }
                   <span
                     className="mermaid-fullscreen-svg"
                     style={{
-                      height: `${Math.round(fullscreenZoom * 100)}%`,
-                      width: `${Math.round(fullscreenZoom * 100)}%`,
+                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${fullscreenZoom})`,
                     }}
                     dangerouslySetInnerHTML={{ __html: fullscreenSvg }}
                   />

@@ -25,12 +25,13 @@ These checks used isolated local browser documents; existing user documents were
 - Gantt template: edit task name and duration, apply, confirm task/dependency preview renders.
 - Use case and nested package templates: canvas and actual Mermaid preview rendering; insertion at a captured middle-of-document caret (earlier checks).
 - Fullscreen sequence: wheel zoom from 100% to 136%, drag to pan, reset restores both 100% and the centered position; no diagram scrollbars visible.
+- Inline preview: scrolling over a class diagram moves the document (including synchronized editor scrolling), while diagram zoom remains 100%; no internal diagram scrollbars.
+- All three creation entry points: preview creation inserts at the captured middle-of-document caret; sidebar and editor-toolbar creation insert independent diagrams at the selected end-of-document caret without replacing existing diagrams or text.
 
 ## Remaining release checks and limitations
 
 - Not every advanced Mermaid construct is visually editable. Unsupported constructs continue to retain the complete source and use the explicit source-editing fallback; this is not a claim of universal Mermaid grammar coverage.
 - Sequence control statements are preserved and inspectable, not directly draggable/editable as control-frame objects. New messages append after existing statements.
 - Full browser interaction cycles have not been repeated independently for every architecture template. Component rendering and round-trip coverage include all of them.
-- Inline document-wheel scrolling and all three new-diagram entry points still need the remaining UI checks before release.
 - Native Rust checks and Windows/universal macOS package builds must pass in the release workflow. Local cargo is currently unavailable.
 - Vite reports the existing large-chunk warning; the production build succeeds.

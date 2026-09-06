@@ -16,6 +16,9 @@ The application interface is currently localized in Simplified Chinese. The repo
 - Edit use cases and nested packages using standard Mermaid flowcharts: actors, system boundaries, include/extend relationships, package membership, and module dependencies are preserved when switching between source and canvas.
 - Scroll the document normally over inline diagrams, or open a scrollbar-free fullscreen view to zoom with the wheel, drag to pan, and click the percentage to reset.
 - Insert new diagrams at the editor caret captured before opening the workbench.
+- Keep diagrams with ordinary Mermaid comments visually editable. Sequence diagrams also accept Unicode participant identifiers, activation markers, notes, boxes, loops, alternatives, and parallel/optional/critical blocks without discarding their structure.
+- In structured sequence diagrams, edit participants and messages on the canvas; control statements remain preserved in source order and are inspected from the canvas. Change the control structure in the source tab; newly added messages are appended after existing statements.
+- Import class/ER directions and Unicode identifiers, separate class member declarations, standalone states and state descriptions, and plain-text mind map roots into the canvas. Isolated states survive document updates.
 - Use AI on the full document or a selection for polishing, continuation, summarization, and custom transformations.
 - Attach up to 12 explicitly selected UTF-8 reference, configuration, and source-code files so text and Mermaid AI edits can use project context beyond the active document.
 - Review streamed AI output as a line-by-line diff before accepting or rejecting it.

@@ -2413,6 +2413,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         </div>
       ) : null}
 
+      {graph.kind === 'sequence' && graph.data?.sequenceItems ? <details className="canvas-groups-panel canvas-sequence-structure">
+        <summary>时序控制结构已保留</summary>
+        <p>画布可编辑参与者与消息；分支、循环、注释和激活指令按原顺序保留。新增消息追加到末尾，控制结构请在源码页调整。</p>
+        <pre>{graph.data.sequenceItems.filter((item) => item.kind === 'directive').map((item) => item.source).join('\n')}</pre>
+      </details> : null}
       {graph.data?.groups?.length ? <details className="canvas-groups-panel">
         <summary>包与系统边界（{graph.data.groups.length}）</summary>
         <div>{graph.data.groups.map((group) => <div key={group.id}>

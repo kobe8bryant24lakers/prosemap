@@ -277,8 +277,10 @@ export function graphLayoutSignature(graph: MermaidFlowGraph) {
   return JSON.stringify({
     kind: graph.kind,
     direction: graph.direction,
+    groups: graph.data?.groups,
     nodes: graph.nodes.map((node) => [
       node.id,
+      node.data?.groupId ?? '',
       node.shape,
       node.data?.stateRole ?? '',
       node.data?.mindRoot ? 1 : 0,
@@ -330,6 +332,10 @@ export function mermaidCanvasLayoutBounds(
     const labelSize = edgeLabelSize(edge, graph.kind);
     xs.push(route.label.x - labelSize.width / 2, route.label.x + labelSize.width / 2);
     ys.push(route.label.y - labelSize.height / 2, route.label.y + labelSize.height / 2);
+  }
+  for (const bounds of Object.values(mermaidGroupBounds(graph, layout.positions))) {
+    xs.push(bounds.minX, bounds.maxX);
+    ys.push(bounds.minY - 20, bounds.maxY);
   }
 
   if (!xs.length || !ys.length) {
@@ -568,7 +574,7 @@ function feedbackRoute(
  * neither ranks nor siblings need to be compressed to fit a fixed stage.
  */
 export function layoutMermaidGraph(graph: MermaidFlowGraph): MermaidCanvasLayout {
-  if (!graph.nodes.length) {
+  if (!graph.nodes.length && !graph.data?.groups?.length) {
     return {
       positions: createSafeRecord<MermaidCanvasPoint>(),
       routes: createSafeRecord<MermaidCanvasEdgeRoute>(),
@@ -580,7 +586,7 @@ export function layoutMermaidGraph(graph: MermaidFlowGraph): MermaidCanvasLayout
 
   const direction = graph.kind === 'mindmap' ? 'LR' : graph.direction === 'TD' ? 'TB' : graph.direction;
   const horizontal = direction === 'LR' || direction === 'RL';
-  const dagreGraph = new Graph<DagreGraphLabel, DagreNodeLabel, DagreEdgeLabel>({ multigraph: true })
+  const dagreGraph = new Graph<DagreGraphLabel, DagreNodeLabel, DagreEdgeLabel>({ multigraph: true, compound: true })
     .setGraph({
       rankdir: direction,
       ranker: 'network-simplex',
@@ -602,6 +608,16 @@ export function layoutMermaidGraph(graph: MermaidFlowGraph): MermaidCanvasLayout
     dagreNodeIds.set(node.id, dagreNodeId);
     dagreGraph.setNode(dagreNodeId, mermaidCanvasNodeSize(node, graph.kind));
   });
+  const groupKeys = new Map((graph.data?.groups ?? []).map((group, index) => [group.id, `group:${index}`]));
+  for (const group of graph.data?.groups ?? []) {
+    dagreGraph.setNode(groupKeys.get(group.id)!, { width: 220, height: 120 });
+  }
+  for (const group of graph.data?.groups ?? []) {
+    if (group.parentId && groupKeys.has(group.parentId)) dagreGraph.setParent(groupKeys.get(group.id)!, groupKeys.get(group.parentId)!);
+  }
+  for (const node of graph.nodes) {
+    if (node.data?.groupId && groupKeys.has(node.data.groupId)) dagreGraph.setParent(dagreNodeIds.get(node.id)!, groupKeys.get(node.data.groupId)!);
+  }
   const edgeNames = new Map<string, string>();
   graph.edges.forEach((edge, index) => {
     if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to)) return;
@@ -638,6 +654,11 @@ export function layoutMermaidGraph(graph: MermaidFlowGraph): MermaidCanvasLayout
   const offsetX = (width - rawWidth) / 2;
   const offsetY = (height - rawHeight) / 2;
   const positions = createSafeRecord<MermaidCanvasPoint>();
+  for (const [id, key] of groupKeys) {
+    const group = dagreGraph.node(key);
+    if (!group) continue;
+    positions[id] = { x: (group.x ?? 110) - group.width / 2 + offsetX, y: (group.y ?? 60) - group.height / 2 + offsetY };
+  }
   graph.nodes.forEach((node) => {
     const dagreNodeId = dagreNodeIds.get(node.id);
     const layout = dagreNodeId ? dagreGraph.node(dagreNodeId) : undefined;
@@ -677,4 +698,30 @@ export function layoutMermaidGraph(graph: MermaidFlowGraph): MermaidCanvasLayout
   }
 
   return { positions, routes, width, height };
+}
+
+/** Recompute boundaries from current node positions, including after dragging. */
+export function mermaidGroupBounds(graph: MermaidFlowGraph, positions: MermaidCanvasNodePositions) {
+  const bounds = createSafeRecord<MermaidCanvasBounds>();
+  function measure(id: string): MermaidCanvasBounds {
+    if (bounds[id]) return bounds[id];
+    const members = graph.nodes.filter((node) => node.data?.groupId === id).map((node) => {
+      const point = positions[node.id] ?? { x: 70, y: 70 };
+      const size = mermaidCanvasNodeSize(node, graph.kind);
+      return { minX: point.x, minY: point.y, maxX: point.x + size.width, maxY: point.y + size.height };
+    });
+    for (const group of graph.data?.groups ?? []) {
+      if (group.parentId === id) members.push(measure(group.id));
+    }
+    const point = positions[id] ?? { x: 70, y: 70 };
+    bounds[id] = members.length ? {
+      minX: Math.min(...members.map((entry) => entry.minX)) - 24,
+      minY: Math.min(...members.map((entry) => entry.minY)) - 42,
+      maxX: Math.max(...members.map((entry) => entry.maxX)) + 24,
+      maxY: Math.max(...members.map((entry) => entry.maxY)) + 24,
+    } : { minX: point.x, minY: point.y, maxX: point.x + 220, maxY: point.y + 120 };
+    return bounds[id];
+  }
+  for (const group of graph.data?.groups ?? []) measure(group.id);
+  return bounds;
 }

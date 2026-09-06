@@ -50,6 +50,7 @@ import {
   mermaidCanvasFitZoom,
   mermaidCanvasLayoutBounds,
   mermaidCanvasNodeSize,
+  mermaidGroupBounds,
   mermaidSequenceLifelineHeight,
   mermaidSequenceMessageVisual,
   resizeMermaidSequenceLifeline,
@@ -708,6 +709,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   const [spacePressed, setSpacePressed] = useState(false);
   const [panning, setPanning] = useState(false);
   const [historyStatus, setHistoryStatus] = useState({ undo: 0, redo: 0 });
+  const groupBounds = mermaidGroupBounds(graph, positions);
+  const groupingSignature = JSON.stringify([graph.data?.groups?.map((group) => [group.id, group.parentId]), graph.nodes.map((node) => [node.id, node.data?.groupId])]);
+  const previousGroupingRef = useRef(groupingSignature);
   const nodeSignature = graph.nodes.map((node) => node.id).join('|');
   const layoutSignature = graphLayoutSignature(graph);
   const nodeGeometrySignature = graphNodeGeometrySignature(graph);
@@ -860,6 +864,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
 
   useEffect(() => {
     const previous = previousGraphShape.current;
+    const groupsChanged = previousGroupingRef.current !== groupingSignature && Boolean(graph.data?.groups?.length);
+    previousGroupingRef.current = groupingSignature;
     const kindChanged = previous.kind !== graph.kind;
     const directionChanged = previous.direction !== graph.direction;
     const nodesChanged = previous.nodeSignature !== nodeSignature;
@@ -872,10 +878,10 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       layoutSignature,
       nodeGeometrySignature,
     };
-    if (kindChanged || directionChanged || nodesChanged) {
+    if (kindChanged || directionChanged || nodesChanged || groupsChanged) {
       shouldCenterViewport.current = true;
     }
-    if (kindChanged || directionChanged || (nodesChanged && graph.kind === 'sequence')) {
+    if (kindChanged || directionChanged || groupsChanged || (nodesChanged && graph.kind === 'sequence')) {
       shouldAutoFitViewport.current = true;
     }
     if (kindChanged) {
@@ -889,7 +895,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       setConnectMode(false);
       setConnectingFrom(null);
     }
-    if (kindChanged || directionChanged) {
+    if (kindChanged || directionChanged || groupsChanged) {
       setCanvasLayout(layoutMermaidGraph(graph));
     } else if (nodeGeometryChanged) {
       setCanvasLayout((current) => {
@@ -946,7 +952,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       // user explicitly chooses “自动排列”.
       setCanvasLayout((current) => ({ ...current, routes: safeCanvasRecord() }));
     }
-  }, [cancelPointerInteractions, graph, layoutSignature, nodeGeometrySignature, nodeSignature]);
+  }, [cancelPointerInteractions, graph, groupingSignature, layoutSignature, nodeGeometrySignature, nodeSignature]);
 
   useLayoutEffect(() => {
     if (active && !wasActive.current) {
@@ -985,7 +991,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     if (shouldAutoFitViewport.current) {
       shouldAutoFitViewport.current = false;
       const fittedZoom = mermaidCanvasFitZoom(bounds, viewport.clientWidth, viewport.clientHeight, 0.9);
-      const minimumReadableZoom = graph.nodes.length <= 10
+      const minimumReadableZoom = graph.nodes.length <= 10 && !graph.data?.groups?.length
         ? graph.kind === 'sequence' ? 0.7 : 0.55
         : MIN_ZOOM;
       const nextZoom = Math.max(fittedZoom, minimumReadableZoom);
@@ -1338,8 +1344,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           : graph.kind === 'er' ? 'ENTITY'
             : graph.kind === 'mindmap' ? 'Mind'
               : graph.kind === 'gantt' ? 'Task' : 'N';
-    const id = nextMermaidNodeId(graph.nodes, prefix);
+    const id = nextMermaidNodeId(graph.nodes, prefix, graph.data?.groups);
     const node = applyNodePreset(defaultNode(graph.kind, id, graph, selectedNode), options?.presetId);
+    if (graph.kind === 'flowchart' && selectedNode?.data?.groupId) node.data = { ...node.data, groupId: selectedNode.data.groupId };
     const automaticMindParent = graph.kind === 'mindmap' && graph.nodes.length
       ? selectedNode?.id ?? graph.nodes.find((candidate) => candidate.data?.mindRoot)?.id ?? graph.nodes[0].id
       : undefined;
@@ -1383,7 +1390,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     const sourceNode = graph.nodes.find((node) => node.id === fromId);
     const sourcePosition = positions[fromId];
     if (!sourceNode || !sourcePosition) return undefined;
-    const nextId = nextMermaidNodeId(graph.nodes, graph.kind === 'sequence' ? 'Participant' : 'N');
+    const nextId = nextMermaidNodeId(graph.nodes, graph.kind === 'sequence' ? 'Participant' : 'N', graph.data?.groups);
     const candidate = applyNodePreset(defaultNode(graph.kind, nextId, graph, sourceNode), presetId);
     const sourceSize = nodeSize(sourceNode, graph.kind);
     const candidateSize = nodeSize(candidate, graph.kind);
@@ -1451,7 +1458,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           : graph.kind === 'er' ? 'ENTITY'
             : graph.kind === 'mindmap' ? 'Mind'
               : graph.kind === 'gantt' ? 'Task' : 'N';
-    const id = nextMermaidNodeId(graph.nodes, prefix);
+    const id = nextMermaidNodeId(graph.nodes, prefix, graph.data?.groups);
     const data = selectedNode.data ? {
       ...selectedNode.data,
       ref: nextSemanticRef(graph.nodes, prefix),
@@ -1500,6 +1507,31 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       ? clampSequenceParticipantPosition(graph, positions, selectedNode, current.x + dx, { width: stageWidth, height: stageHeight })
       : clampPosition(selectedNode, { x: current.x + dx, y: current.y + dy }, graph.kind, { width: stageWidth, height: stageHeight });
     setPositions((value) => ({ ...value, [selectedNode.id]: next }));
+  }
+
+  function addGroup() {
+    const groups = graph.data?.groups ?? [];
+    let index = groups.length + 1;
+    while (groups.some((group) => group.id === `Group${index}`) || graph.nodes.some((node) => node.id === `Group${index}`)) index += 1;
+    commitGraph({ ...graph, data: { ...graph.data, groups: [...groups, { id: `Group${index}`, label: graph.data?.diagramType === 'usecase' ? '系统边界' : '新包' }] } });
+  }
+
+  function removeGroup(id: string) {
+    const groups = graph.data?.groups ?? [];
+    const parentId = groups.find((group) => group.id === id)?.parentId;
+    commitGraph({ ...graph,
+      nodes: graph.nodes.map((node) => node.data?.groupId === id ? { ...node, data: { ...node.data, groupId: parentId } } : node),
+      data: { ...graph.data, groups: groups.filter((group) => group.id !== id).map((group) => group.parentId === id ? { ...group, parentId } : group) },
+    });
+  }
+
+  function addUseCaseObject(actor: boolean) {
+    const id = nextMermaidNodeId(graph.nodes, actor ? 'Actor' : 'UseCase', graph.data?.groups);
+    commitGraph({ ...graph, nodes: [...graph.nodes, {
+      id, label: actor ? '«actor» 新参与者' : '新用例', shape: actor ? 'rectangle' : 'terminal',
+      ...(!actor && graph.data?.groups?.[0] ? { data: { groupId: selectedNode?.data?.groupId ?? graph.data.groups[0].id } } : {}),
+    }] });
+    setSelection({ kind: 'node', id });
   }
 
   function removeSelection() {
@@ -2112,6 +2144,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       onKeyDown={handleEditorKeyDown}
     >
       <div className="canvas-editor-toolbar">
+        {graph.kind === 'flowchart' ? <div className="canvas-tool-group"><button type="button" onClick={addGroup}>{graph.data?.diagramType === 'usecase' ? '系统边界' : '包 / 分组'}</button></div> : null}
+        {graph.data?.diagramType === 'usecase' ? <div className="canvas-tool-group">
+          <button type="button" onClick={() => addUseCaseObject(true)}>参与者</button>
+          <button type="button" onClick={() => addUseCaseObject(false)}>用例</button>
+        </div> : null}
         <div className="canvas-tool-group history-tools" role="group" aria-label="编辑历史">
           <button type="button" onClick={undoGraphChange} disabled={!historyStatus.undo} title="撤销（⌘/Ctrl Z）" aria-label="撤销"><Undo2 size={14} /></button>
           <button type="button" onClick={redoGraphChange} disabled={!historyStatus.redo} title="重做（⌘/Ctrl Shift Z）" aria-label="重做"><Redo2 size={14} /></button>
@@ -2208,6 +2245,10 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         ) : selectedNode ? (
           <>
             <span className="canvas-selection-title"><MousePointer2 size={13} /><b>{selectedNode.label || selectedNode.id}</b></span>
+            {graph.data?.groups?.length ? <label className="canvas-group-membership">所属包 / 边界 <select aria-label="所属包 / 边界" value={selectedNode.data?.groupId ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { groupId: event.target.value || undefined })}>
+              <option value="">外部</option>
+              {graph.data.groups.map((group) => <option key={group.id} value={group.id}>{group.label}</option>)}
+            </select></label> : null}
             <span className="canvas-context-divider" />
             {canRenameSelectedNode ? <button type="button" onClick={() => setEditingNodeId(selectedNode.id)}><Pencil size={13} /> 改名</button> : null}
             {!(graph.kind === 'state' && selectedNode.data?.stateRole !== 'state') ? <button type="button" onClick={duplicateSelectedNode} title="复制（⌘/Ctrl D）"><Plus size={13} /> 复制</button> : null}
@@ -2372,6 +2413,30 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         </div>
       ) : null}
 
+      {graph.kind === 'sequence' && graph.data?.sequenceItems ? <details className="canvas-groups-panel canvas-sequence-structure">
+        <summary>时序控制结构已保留</summary>
+        <p>画布可编辑参与者与消息；分支、循环、注释和激活指令按原顺序保留。新增消息追加到末尾，控制结构请在源码页调整。</p>
+        <pre>{graph.data.sequenceItems.filter((item) => item.kind === 'directive').map((item) => item.source).join('\n')}</pre>
+      </details> : null}
+      {graph.data?.groups?.length ? <details className="canvas-groups-panel">
+        <summary>包与系统边界（{graph.data.groups.length}）</summary>
+        <div>{graph.data.groups.map((group) => <div key={group.id}>
+          <input aria-label={`分组名称 ${group.id}`} value={group.label} onChange={(event) => commitGraph({ ...graph, data: { ...graph.data, groups: graph.data!.groups!.map((entry) => entry.id === group.id ? { ...entry, label: event.target.value } : entry) } })} />
+          <select aria-label={`父级分组 ${group.id}`} value={group.parentId ?? ''} onChange={(event) => commitGraph({ ...graph, data: { ...graph.data, groups: graph.data!.groups!.map((entry) => entry.id === group.id ? { ...entry, parentId: event.target.value || undefined } : entry) } })}>
+            <option value="">顶层</option>
+            {graph.data!.groups!.filter((candidate) => {
+              let current: typeof candidate | undefined = candidate;
+              while (current) {
+                if (current.id === group.id) return false;
+                current = graph.data!.groups!.find((entry) => entry.id === current?.parentId);
+              }
+              return true;
+            }).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+          </select>
+          <button type="button" onClick={() => removeGroup(group.id)} aria-label={`解散分组 ${group.label}`} title="保留内容并移到父级">解散</button>
+        </div>)}</div>
+      </details> : null}
+
       <div
         className={`canvas-editor-viewport${connectMode ? ' connect-mode' : ''}${spacePressed && !panning ? ' pan-ready' : ''}${panning ? ' is-panning' : ''}`}
         ref={viewportRef}
@@ -2403,6 +2468,10 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
               ref={stageRef}
               style={{ width: stageWidth, height: stageHeight, transform: `scale(${zoom})` }}
           >
+            {(graph.data?.groups ?? []).map((group) => {
+              const bounds = groupBounds[group.id];
+              return <div key={group.id} className={`canvas-group-boundary${graph.data?.diagramType === 'package' ? ' is-package' : ''}`} style={{ left: bounds.minX, top: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY }}><span>{group.label}</span></div>;
+            })}
             <svg className="canvas-edge-layer" width={stageWidth} height={stageHeight} aria-hidden="true">
               <defs>
                 <marker id={markerId} markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto-start-reverse" markerUnits="strokeWidth">

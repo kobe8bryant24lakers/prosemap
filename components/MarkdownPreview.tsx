@@ -39,7 +39,6 @@ export default function MarkdownPreview({ markdown, onEditMermaid }: MarkdownPre
         return (
           <MermaidDiagram
             code={value}
-            enableWheelZoom
             onEdit={target && onEditMermaid ? () => onEditMermaid(target) : undefined}
           />
         );

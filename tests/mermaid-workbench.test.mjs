@@ -9,6 +9,7 @@ import {
 } from '../lib/editor.ts';
 import {
   MERMAID_TEMPLATES,
+  nextMermaidNodeId,
   parseMermaidVisualSource,
   serializeMermaidVisualGraph,
 } from '../lib/mermaid-workbench.ts';
@@ -23,7 +24,16 @@ const EXPECTED_TEMPLATE_KINDS = new Map([
   ['er', 'er'],
   ['mindmap', 'mindmap'],
   ['gantt', 'gantt'],
+  ['usecase', 'flowchart'],
+  ['package', 'flowchart'],
 ]);
+
+test('new and duplicated node IDs cannot collide with package or system boundary IDs', () => {
+  const nodes = [{ id: 'N1', label: 'Node', shape: 'rectangle' }];
+  assert.equal(nextMermaidNodeId(nodes, 'N', [{ id: 'N2' }, { id: 'N3' }]), 'N4');
+  assert.equal(nextMermaidNodeId([], 'Actor', [{ id: 'Actor1' }]), 'Actor2');
+  assert.equal(nextMermaidNodeId([], 'UseCase', [{ id: 'UseCase1' }]), 'UseCase2');
+});
 
 function requireTemplate(templateId) {
   const template = MERMAID_TEMPLATES.find((candidate) => candidate.id === templateId);
@@ -245,7 +255,7 @@ test('editing an existing Mermaid diagram focuses its stable document start', ()
   assert.equal(updated.slice(0, edit.diagramFrom), 'Before\n\n');
 });
 
-test('all nine Mermaid templates survive a parse and serialize round trip', async (t) => {
+test('all Mermaid templates survive a parse and serialize round trip', async (t) => {
   assert.equal(MERMAID_TEMPLATES.length, EXPECTED_TEMPLATE_KINDS.size);
   assert.deepEqual(
     new Set(MERMAID_TEMPLATES.map((template) => template.id)),
@@ -286,14 +296,57 @@ const UNSUPPORTED_FLOWCHARTS = [
     source: 'flowchart TD\n  Stop((("停止")))',
   },
   {
-    name: 'subgraph',
-    source: 'flowchart TD\n  subgraph Cluster\n    A["服务 A"]\n  end',
+    name: 'subgraph with local direction',
+    source: 'flowchart TD\n  subgraph Cluster\n    direction LR\n    A["服务 A"]\n  end',
   },
   {
     name: 'style directive',
     source: 'flowchart TD\n  A["服务 A"]\n  style A fill:#fff',
   },
 ];
+
+test('use cases retain actors, boundaries and include/extend relations after editing', () => {
+  const graph = requireParsed(requireTemplate('usecase').source, 'use case');
+  assert.equal(graph.data.diagramType, 'usecase');
+  assert.equal(graph.nodes.find((node) => node.id === 'User').data?.groupId, undefined);
+  assert.equal(graph.nodes.find((node) => node.id === 'Order').data.groupId, 'System');
+  graph.nodes.find((node) => node.id === 'Order').label = '提交采购订单';
+  graph.data.groups[0].label = '采购系统';
+  const restored = requireParsed(serializeMermaidVisualGraph(graph), 'edited use case');
+  assert.equal(restored.nodes.find((node) => node.id === 'Order').label, '提交采购订单');
+  assert.deepEqual(restored.data, graph.data);
+  assert.deepEqual(restored.edges.map(({ from, to, label, style }) => ({ from, to, label, style })), graph.edges.map(({ from, to, label, style }) => ({ from, to, label, style })));
+  assert.ok(restored.edges.some((edge) => edge.label === '«include»' && edge.from === 'Order' && edge.to === 'Login'));
+  assert.ok(restored.edges.some((edge) => edge.label === '«extend»' && edge.from === 'Coupon' && edge.to === 'Order'));
+});
+
+test('nested packages preserve membership, names, empty packages and dependencies', () => {
+  const graph = requireParsed(requireTemplate('package').source, 'package');
+  graph.data.groups.push({ id: 'EmptyPackage', label: '待实现', parentId: 'Domain' });
+  graph.nodes.find((node) => node.id === 'Repository').data.groupId = 'Domain';
+  graph.data.groups.find((group) => group.id === 'Domain').label = '业务领域';
+  const restored = requireParsed(serializeMermaidVisualGraph(graph), 'edited packages');
+  assert.equal(restored.data.diagramType, 'package');
+  for (const group of graph.data.groups) assert.deepEqual(restored.data.groups.find((entry) => entry.id === group.id), group);
+  assert.equal(restored.nodes.find((node) => node.id === 'Repository').data.groupId, 'Domain');
+  assert.equal(restored.edges.length, graph.edges.length);
+  assert.ok(restored.edges.some((edge) => edge.from === 'Services' && edge.to === 'Repository'));
+});
+
+test('group parsing and serialization reject ambiguous or cyclic ownership', () => {
+  for (const source of [
+    'flowchart TB\nsubgraph A\nN["Node"]',
+    'flowchart TB\nend\nN["Node"]',
+    'flowchart TB\nsubgraph A\nN["Node"]\nend\nsubgraph B\nN\nend',
+    'flowchart TB\nsubgraph A\nA["Collision"]\nend',
+  ]) assert.equal(parseMermaidVisualSource(source), null);
+  const graph = requireParsed(requireTemplate('package').source, 'package');
+  graph.data.groups[0].parentId = 'Domain';
+  assert.throws(() => serializeMermaidVisualGraph(graph), /循环/);
+  delete graph.data.groups[0].parentId;
+  graph.nodes[0].data.groupId = 'Missing';
+  assert.throws(() => serializeMermaidVisualGraph(graph), /不存在/);
+});
 
 test('advanced flowchart syntax stays in source mode', async (t) => {
   for (const fixture of UNSUPPORTED_FLOWCHARTS) {

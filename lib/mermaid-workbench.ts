@@ -11,6 +11,7 @@ export type MermaidFlowNode = {
   label: string;
   shape: MermaidNodeShape;
   data?: {
+    groupId?: string;
     ref?: string;
     sequenceType?: 'actor' | 'participant';
     stateRole?: 'start' | 'end' | 'state';
@@ -36,6 +37,7 @@ export type MermaidFlowEdge = {
   style: MermaidEdgeStyle;
   data?: {
     token?: string;
+    activation?: '+' | '-';
   };
 };
 
@@ -45,9 +47,17 @@ export type MermaidFlowGraph = {
   nodes: MermaidFlowNode[];
   edges: MermaidFlowEdge[];
   data?: {
+    diagramType?: 'usecase' | 'package';
+    groups?: Array<{ id: string; label: string; parentId?: string }>;
     header?: string;
     autonumber?: boolean;
     directives?: string[];
+    comments?: string[];
+    sequenceItems?: Array<
+      | { kind: 'participant'; id: string }
+      | { kind: 'message'; id: string }
+      | { kind: 'directive'; source: string; refs?: string[] }
+    >;
   };
 };
 
@@ -61,6 +71,54 @@ export type MermaidTemplate = {
   source: string;
   visualEditable: boolean;
 };
+
+const UML_TEMPLATES: MermaidTemplate[] = [
+  {
+    id: 'usecase', name: '用例图', category: '需求',
+    description: '参与者、系统边界、用例以及包含与扩展关系', visualEditable: true,
+    source: `flowchart LR
+  %% prosemap:usecase
+  User["«actor» 用户"]
+  Admin["«actor» 管理员"]
+  subgraph System["订单系统"]
+    Browse(["浏览商品"])
+    Order(["提交订单"])
+    Login(["身份验证"])
+    Coupon(["使用优惠券"])
+    Manage(["管理商品"])
+  end
+  User --- Browse
+  User --- Order
+  Admin --- Manage
+  Order -.->|«include»| Login
+  Coupon -.->|«extend»| Order`,
+  },
+  {
+    id: 'package', name: '包结构图', category: '结构',
+    description: '嵌套包、模块归属与分层依赖', visualEditable: true,
+    source: `flowchart TB
+  %% prosemap:package
+  subgraph App["应用"]
+    subgraph Presentation["表现层"]
+      Pages["页面"]
+      Controllers["控制器"]
+    end
+    subgraph Domain["领域层"]
+      Services["领域服务"]
+      Models["领域模型"]
+    end
+    subgraph Infrastructure["基础设施层"]
+      Repository["数据仓储"]
+      Gateway["外部接口"]
+    end
+  end
+  Pages --> Controllers
+  Controllers -.->|依赖| Services
+  Services --> Models
+  Services -.->|依赖| Repository
+  Services -.->|依赖| Gateway`,
+  },
+];
 
 export const MERMAID_TEMPLATES: MermaidTemplate[] = [
   {
@@ -218,6 +276,10 @@ export const MERMAID_TEMPLATES: MermaidTemplate[] = [
   },
 ];
 
+MERMAID_TEMPLATES.push(...UML_TEMPLATES);
+
+export const UML_AI_GUIDANCE = '用例图使用 flowchart LR，用矩形标注 «actor» 参与者、圆角起止形状表示用例、subgraph 表示系统边界、虚线箭头表示 «include» 或 «extend»；包结构图使用 flowchart TB 和可嵌套的 subgraph 表示包及模块归属，箭头表示模块依赖。不要使用 Mermaid 不支持的 usecaseDiagram 或 packageDiagram 关键字。用例图在 flowchart 行后加注释 %% prosemap:usecase，包结构图加 %% prosemap:package。subgraph 使用独立的英文标识和双引号标题，如 subgraph Domain["领域层"]。';
+
 const EDGE_STYLE_TO_TOKEN: Record<MermaidEdgeStyle, string> = {
   arrow: '-->',
   line: '---',
@@ -305,24 +367,48 @@ export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
   const direction = (directionMatch?.[1]?.toUpperCase() ?? 'TD') as MermaidFlowDirection;
   const nodeMap = new Map<string, MermaidFlowNode>();
   const edges: MermaidFlowEdge[] = [];
+  const groups: NonNullable<NonNullable<MermaidFlowGraph['data']>['groups']> = [];
+  const groupStack: string[] = [];
+  let diagramType: 'usecase' | 'package' | undefined;
 
   const rememberNode = (node: MermaidFlowNode) => {
     const previous = nodeMap.get(node.id);
-    if (!previous || node.label !== node.id || previous.label === previous.id) nodeMap.set(node.id, node);
+    const groupId = groupStack.at(-1) ?? previous?.data?.groupId;
+    if (previous?.data?.groupId && groupId !== previous.data.groupId) return false;
+    if (!previous || node.label !== node.id || previous.label === previous.id) {
+      nodeMap.set(node.id, { ...node, ...(groupId ? { data: { groupId } } : {}) });
+    } else if (groupId) previous.data = { ...previous.data, groupId };
+    return true;
   };
 
   for (const rawLine of lines.slice(headerIndex + 1)) {
     const line = rawLine.trim();
     if (!line) continue;
+    if (/^%% prosemap:(usecase|package)$/.test(line)) {
+      if (diagramType) return null;
+      diagramType = line.endsWith('usecase') ? 'usecase' : 'package';
+      continue;
+    }
     if (line.startsWith('%%')) return null;
+    const group = line.match(/^subgraph\s+([A-Za-z_][\w-]*)(?:\["([^"\n]*)"\])?$/);
+    if (group) {
+      if (groups.some((entry) => entry.id === group[1]) || nodeMap.has(group[1])) return null;
+      groups.push({ id: group[1], label: group[2] ?? group[1], ...(groupStack.length ? { parentId: groupStack.at(-1) } : {}) });
+      groupStack.push(group[1]);
+      continue;
+    }
+    if (line === 'end') {
+      if (!groupStack.length) return null;
+      groupStack.pop();
+      continue;
+    }
     // The direct-manipulation canvas intentionally supports only a lossless subset. Returning
-    // null keeps richer Mermaid source (subgraphs, styling, classes, etc.) in
+    // null keeps unsupported Mermaid source (local directions, styling, classes, etc.) in
     // source/AI mode instead of silently dropping it during serialization.
     if (/^(?:(?:subgraph|direction|classDef|class|style|linkStyle)(?:\s|$)|end\s*$)/i.test(line) || line.includes(';')) return null;
     const edge = parseEdgeLine(line);
     if (edge) {
-      rememberNode(edge.from);
-      rememberNode(edge.to);
+      if (!rememberNode(edge.from) || !rememberNode(edge.to)) return null;
       edges.push({
         id: `edge-${edges.length + 1}`,
         from: edge.from.id,
@@ -334,10 +420,13 @@ export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
     }
     const node = parseNodeToken(line);
     if (!node) return null;
-    rememberNode(node);
+    if (!rememberNode(node)) return null;
   }
 
-  return { kind: 'flowchart', direction, nodes: Array.from(nodeMap.values()), edges };
+  if (groupStack.length || groups.some((group) => nodeMap.has(group.id))) return null;
+  return { kind: 'flowchart', direction, nodes: Array.from(nodeMap.values()), edges,
+    ...(groups.length || diagramType ? { data: { ...(groups.length ? { groups } : {}), ...(diagramType ? { diagramType } : {}) } } : {}),
+  };
 }
 
 function safeLabel(value: string): string {
@@ -360,10 +449,34 @@ function serializeNode(node: MermaidFlowNode): string {
 }
 
 export function serializeFlowchart(graph: MermaidFlowGraph): string {
+  const groups = graph.data?.groups ?? [];
+  const groupIds = new Set(groups.map((group) => group.id));
   const nodeIds = new Set(graph.nodes.map((node) => node.id));
-  const nodes = graph.nodes
-    .filter((node) => /^[A-Za-z_][\w-]*$/.test(node.id))
-    .map((node) => `  ${serializeNode(node)}`);
+  if (groupIds.size !== groups.length || groups.some((group) => !/^[A-Za-z_][\w-]*$/.test(group.id) || nodeIds.has(group.id))) {
+    throw new Error('包或系统边界的标识不能重复或与节点冲突');
+  }
+  for (const group of groups) {
+    const visited = new Set([group.id]);
+    let parent = group.parentId;
+    while (parent) {
+      if (!groupIds.has(parent) || visited.has(parent)) throw new Error('包层级包含无效父级或循环');
+      visited.add(parent);
+      parent = groups.find((entry) => entry.id === parent)?.parentId;
+    }
+  }
+  if (graph.nodes.some((node) => node.data?.groupId && !groupIds.has(node.data.groupId))) throw new Error('节点所属包不存在');
+  const nodes: string[] = [];
+  function emitMembers(parentId?: string, indent = '  ') {
+    for (const node of graph.nodes.filter((entry) => entry.data?.groupId === parentId)) {
+      if (/^[A-Za-z_][\w-]*$/.test(node.id)) nodes.push(`${indent}${serializeNode(node)}`);
+    }
+    for (const group of groups.filter((entry) => entry.parentId === parentId)) {
+      nodes.push(`${indent}subgraph ${group.id}["${safeLabel(group.label)}"]`);
+      emitMembers(group.id, `${indent}  `);
+      nodes.push(`${indent}end`);
+    }
+  }
+  emitMembers();
   const edges = graph.edges
     .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to))
     .map((edge) => {
@@ -371,7 +484,7 @@ export function serializeFlowchart(graph: MermaidFlowGraph): string {
       const label = safeLabel(edge.label);
       return `  ${edge.from} ${token}${label ? `|${label}|` : ''} ${edge.to}`;
     });
-  return [`flowchart ${graph.direction}`, ...nodes, ...edges].join('\n');
+  return [`flowchart ${graph.direction}`, ...(graph.data?.diagramType ? [`  %% prosemap:${graph.data.diagramType}`] : []), ...nodes, ...edges].join('\n');
 }
 
 function diagramBody(source: string, headerPattern: RegExp): { header: string; lines: string[] } | null {
@@ -416,6 +529,10 @@ export function parseSequenceSource(source: string): MermaidFlowGraph | null {
   const edges: MermaidFlowEdge[] = [];
   const nodeMap = new Map<string, MermaidFlowNode>();
   let autonumber = false;
+  const items: NonNullable<NonNullable<MermaidFlowGraph['data']>['sequenceItems']> = [];
+  const blocks: string[] = [];
+  let structured = false;
+  const reference = '[\\p{L}\\p{N}_][\\p{L}\\p{N}_-]*';
 
   const rememberParticipant = (ref: string, label = ref, sequenceType: 'actor' | 'participant' = 'participant') => {
     const previous = nodeMap.get(ref);
@@ -441,23 +558,48 @@ export function parseSequenceSource(source: string): MermaidFlowGraph | null {
   for (const rawLine of body.lines) {
     const line = rawLine.trim();
     if (!line) continue;
-    if (line === 'autonumber') {
+    if (/^autonumber(?:\s+\d+(?:\s+\d+)?)?$/.test(line)) {
       if (autonumber) return null;
       autonumber = true;
+      items.push({ kind: 'directive', source: line });
+      if (line !== 'autonumber') structured = true;
       continue;
     }
-    if (line.startsWith('%%')) return null;
-    const declaration = line.match(/^(actor|participant)\s+([A-Za-z_][\w-]*)(?:\s+as\s+(.+))?$/i);
+    if (line.startsWith('%%')) {
+      if (line.startsWith('%%{')) return null;
+      items.push({ kind: 'directive', source: line });
+      structured = true;
+      continue;
+    }
+    const declaration = line.match(new RegExp(`^(actor|participant)\\s+(${reference})(?:\\s+as\\s+(.+))?$`, 'iu'));
     if (declaration) {
       const ref = declaration[2];
       const label = normalizeLabel(declaration[3] ?? ref);
       if (!label) return null;
       rememberParticipant(ref, label, declaration[1].toLowerCase() as 'actor' | 'participant');
+      items.push({ kind: 'participant', id: ref });
       continue;
     }
-    const message = line.match(/^([A-Za-z_][\w-]*?)\s*(<<-->>|<<->>|-->>|--\)|--x|-->|->>|-\)|-x|->)\s*([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
+    const opener = line.match(/^(loop|alt|opt|par|critical|break|rect|box)(?:\s+(.+))?$/i);
+    const branch = line.match(/^(else|and|option)(?:\s+(.+))?$/i);
+    const note = line.match(new RegExp(`^note\\s+(?:over|left of|right of)\\s+(${reference})(?:\\s*,\\s*(${reference}))?\\s*:\\s*(.*)$`, 'iu'));
+    const activation = line.match(new RegExp(`^(activate|deactivate)\\s+(${reference})$`, 'iu'));
+    if (opener || branch || line === 'end' || note || activation) {
+      structured = true;
+      if (opener) blocks.push(opener[1].toLowerCase());
+      if (branch) {
+        const expected = { else: 'alt', and: 'par', option: 'critical' }[branch[1].toLowerCase()];
+        if (blocks.at(-1) !== expected) return null;
+      }
+      if (line === 'end' && !blocks.pop()) return null;
+      const refs = note ? [note[1], note[2]].filter((ref): ref is string => Boolean(ref)) : activation ? [activation[2]] : undefined;
+      for (const ref of refs ?? []) rememberParticipant(ref);
+      items.push({ kind: 'directive', source: line, ...(refs ? { refs } : {}) });
+      continue;
+    }
+    const message = line.match(new RegExp(`^(${reference}?)\\s*(<<-->>|<<->>|-->>|--\\)|--x|-->|->>|-\\)|-x|->)\\s*([+-]?)\\s*(${reference})\\s*:\\s*(.*)$`, 'u'));
     if (!message) return null;
-    const [, from, token, to, label] = message;
+    const [, from, token, activationMark, to, label] = message;
     rememberParticipant(from);
     rememberParticipant(to);
     edges.push({
@@ -466,38 +608,82 @@ export function parseSequenceSource(source: string): MermaidFlowGraph | null {
       to,
       label: normalizeLabel(label),
       style: styleForRawToken(token),
-      data: { token },
+      data: { token, ...(activationMark ? { activation: activationMark as '+' | '-' } : {}) },
     });
+    items.push({ kind: 'message', id: edges.at(-1)!.id });
   }
 
+  if (blocks.length) return null;
   return {
     kind: 'sequence',
     direction: 'LR',
     nodes,
     edges,
-    data: { header: body.header, autonumber },
+    data: { header: body.header, autonumber, ...(structured ? { sequenceItems: items } : {}) },
   };
 }
 
 function serializeSequence(graph: MermaidFlowGraph): string {
   const lines = [graph.data?.header || 'sequenceDiagram'];
-  if (graph.data?.autonumber) lines.push('  autonumber');
+  const items = graph.data?.sequenceItems;
+  if (graph.data?.autonumber && !items) lines.push('  autonumber');
   const refs = new Map<string, string>();
+  const declarations = new Map<string, string>();
   for (const node of graph.nodes) {
-    const ref = /^[A-Za-z_][\w-]*$/.test(node.data?.ref ?? '') ? node.data!.ref! : nextMermaidNodeId(graph.nodes, 'Participant');
+    const ref = /^[\p{L}\p{N}_][\p{L}\p{N}_-]*$/u.test(node.data?.ref ?? '') ? node.data!.ref! : node.id;
+    if (!/^[\p{L}\p{N}_][\p{L}\p{N}_-]*$/u.test(ref) || [...refs.values()].includes(ref)) throw new Error('参与者标识无效或重复');
     refs.set(node.id, ref);
     const declaration = node.data?.sequenceType === 'actor' ? 'actor' : 'participant';
-    lines.push(`  ${declaration} ${ref} as ${safeVisualText(node.label) || ref}`);
+    declarations.set(node.id, `  ${declaration} ${ref} as ${safeVisualText(node.label) || ref}`);
   }
+  const messages = new Map<string, string>();
   for (const edge of graph.edges) {
     const from = refs.get(edge.from);
     const to = refs.get(edge.to);
     if (!from || !to) continue;
     const rawToken = edge.data?.token;
     const token = rawToken && /^(?:<<-->>|<<->>|-->>|--\)|--x|-->|->>|-\)|-x|->)$/.test(rawToken) ? rawToken : '->>';
-    lines.push(`  ${from}${token}${to}: ${safeVisualText(edge.label)}`);
+    const activation = edge.data?.activation ?? '';
+    if (activation && activation !== '+' && activation !== '-') throw new Error('无效的生命线激活标记');
+    messages.set(edge.id, `  ${from}${token}${activation}${to}: ${safeVisualText(edge.label)}`);
   }
-  return lines.join('\n');
+  if (items) {
+    // Keep notes, activation and nested control/box statements in their original
+    // positions. Never flatten them into an unconditional list of messages.
+    const declared = new Set(items.filter((item) => item.kind === 'participant').map((item) => item.id));
+    const emitted = new Set<string>();
+    const emitImplicit = (ids: string[]) => {
+      for (const id of ids) {
+        if (!declared.has(id) && !emitted.has(id) && declarations.has(id)) {
+          lines.push(declarations.get(id)!);
+          emitted.add(id);
+        }
+      }
+    };
+    let messageIndex = 0;
+    const orderedMessages = graph.edges.filter((edge) => items.some((item) => item.kind === 'message' && item.id === edge.id));
+    for (const item of items) {
+      if (item.kind === 'directive') {
+        if (item.refs?.some((ref) => ![...refs.values()].includes(ref))) throw new Error('参与者仍被注释或激活结构引用，请先在源码中调整引用');
+        emitImplicit((item.refs ?? []).map((ref) => graph.nodes.find((node) => refs.get(node.id) === ref)!.id));
+        lines.push(`  ${item.source}`);
+      } else if (item.kind === 'participant') {
+        if (declarations.has(item.id) && !emitted.has(item.id)) lines.push(declarations.get(item.id)!);
+        emitted.add(item.id);
+      } else if (messages.has(item.id)) {
+        const edge = orderedMessages[messageIndex++];
+        emitImplicit([edge.from, edge.to]);
+        lines.push(messages.get(edge.id)!);
+      }
+    }
+    emitImplicit(graph.nodes.map((node) => node.id));
+    for (const edge of graph.edges) {
+      if (!items.some((item) => item.kind === 'message' && item.id === edge.id)) lines.push(messages.get(edge.id)!);
+    }
+  } else lines.push(...declarations.values(), ...messages.values());
+  const result = lines.join('\n');
+  if (items && !parseSequenceSource(result)) throw new Error('时序图结构无效，请检查分支、注释与生命线引用');
+  return result;
 }
 
 function validStateRef(value: string): boolean {
@@ -548,6 +734,15 @@ export function parseStateSource(source: string): MermaidFlowGraph | null {
       rememberState(alias[2], 'state', alias[1]);
       continue;
     }
+    const description = line.match(/^([\p{L}\p{N}_-]+)\s*:\s*(.+)$/u);
+    if (description) {
+      rememberState(description[1], 'state', description[2]);
+      continue;
+    }
+    if (validStateRef(line)) {
+      rememberState(line, 'state');
+      continue;
+    }
     const transition = line.match(/^(\[\*\]|[\p{L}\p{N}_-]+)\s*-->\s*(\[\*\]|[\p{L}\p{N}_-]+)(?:\s*:\s*(.*))?$/u);
     if (!transition) return null;
     const from = transition[1] === '[*]' ? rememberState('[*]', 'start') : rememberState(transition[1], 'state');
@@ -572,7 +767,7 @@ function serializeState(graph: MermaidFlowGraph): string {
     while (usedRefs.has(ref)) ref = nextInternalId('State', usedRefs);
     usedRefs.add(ref);
     refs.set(node.id, ref);
-    if (node.label !== ref) lines.push(`  state "${safeVisualText(node.label) || ref}" as ${ref}`);
+    lines.push(node.label !== ref ? `  state "${safeVisualText(node.label) || ref}" as ${ref}` : `  ${ref}`);
   }
   for (const node of graph.nodes) {
     const role = node.data?.stateRole;
@@ -600,6 +795,7 @@ export function parseClassSource(source: string): MermaidFlowGraph | null {
   const nodes: MermaidFlowNode[] = [];
   const edges: MermaidFlowEdge[] = [];
   const nodeMap = new Map<string, MermaidFlowNode>();
+  let direction: MermaidFlowDirection = 'TB';
   const rememberClass = (ref: string, label = ref, details: string[] = []) => {
     const previous = nodeMap.get(ref);
     if (previous) {
@@ -617,7 +813,11 @@ export function parseClassSource(source: string): MermaidFlowGraph | null {
     const line = body.lines[index].trim();
     if (!line) continue;
     if (line.startsWith('%%')) return null;
-    const block = line.match(/^class\s+([A-Za-z_][\w-]*)(?:\["([^"]*)"\])?\s*\{$/);
+    const directionMatch = line.match(/^direction\s+(TB|TD|BT|LR|RL)$/i);
+    if (directionMatch) { direction = directionMatch[1].toUpperCase() as MermaidFlowDirection; continue; }
+    const member = line.match(/^([\p{L}\p{N}_-]+)\s*:\s*(.+)$/u);
+    if (member) { rememberClass(member[1], member[1], [member[2]]); continue; }
+    const block = line.match(/^class\s+([\p{L}\p{N}_-]+)(?:\["([^"]*)"\])?\s*\{$/u);
     if (block) {
       const details: string[] = [];
       let closed = false;
@@ -632,12 +832,12 @@ export function parseClassSource(source: string): MermaidFlowGraph | null {
       rememberClass(block[1], block[2] ?? block[1], details);
       continue;
     }
-    const declaration = line.match(/^class\s+([A-Za-z_][\w-]*)(?:\["([^"]*)"\])?$/);
+    const declaration = line.match(/^class\s+([\p{L}\p{N}_-]+)(?:\["([^"]*)"\])?$/u);
     if (declaration) {
       rememberClass(declaration[1], declaration[2] ?? declaration[1]);
       continue;
     }
-    const relation = line.match(/^([A-Za-z_][\w-]*)\s*(?:"([^"]*)"\s*)?(<\|--|\*--|o--|-->|--|\.\.\|>|\.\.>|\.\.)\s*(?:"([^"]*)"\s*)?([A-Za-z_][\w-]*)(?:\s*:\s*(.*))?$/);
+    const relation = line.match(/^([\p{L}\p{N}_-]+)\s*(?:"([^"]*)"\s*)?(<\|--|\*--|o--|-->|--|\.\.\|>|\.\.>|\.\.)\s*(?:"([^"]*)"\s*)?([\p{L}\p{N}_-]+)(?:\s*:\s*(.*))?$/u);
     if (!relation || !CLASS_RELATION_PATTERN.test(relation[3])) return null;
     rememberClass(relation[1]);
     rememberClass(relation[5]);
@@ -645,14 +845,15 @@ export function parseClassSource(source: string): MermaidFlowGraph | null {
     const style: MermaidEdgeStyle = relation[3].startsWith('..') ? 'dotted' : relation[3] === '--' ? 'line' : 'arrow';
     edges.push({ id: `edge-${edges.length + 1}`, from: relation[1], to: relation[5], label: normalizeLabel(relation[6] ?? ''), style, data: { token } });
   }
-  return { kind: 'class', direction: 'LR', nodes, edges, data: { header: body.header } };
+  return { kind: 'class', direction, nodes, edges, data: { header: body.header } };
 }
 
 function serializeClass(graph: MermaidFlowGraph): string {
   const lines = [graph.data?.header || 'classDiagram'];
+  lines.push(`  direction ${graph.direction === 'TD' ? 'TB' : graph.direction}`);
   const refs = new Map<string, string>();
   for (const node of graph.nodes) {
-    const ref = /^[A-Za-z_][\w-]*$/.test(node.data?.ref ?? '') ? node.data!.ref! : nextMermaidNodeId(graph.nodes, 'Class');
+    const ref = validStateRef(node.data?.ref ?? '') ? node.data!.ref! : nextMermaidNodeId(graph.nodes, 'Class');
     refs.set(node.id, ref);
     const label = safeVisualText(node.label) || ref;
     const alias = label === ref ? ref : `${ref}["${label}"]`;
@@ -682,6 +883,7 @@ export function parseErSource(source: string): MermaidFlowGraph | null {
   const nodes: MermaidFlowNode[] = [];
   const edges: MermaidFlowEdge[] = [];
   const nodeMap = new Map<string, MermaidFlowNode>();
+  let direction: MermaidFlowDirection = 'TB';
   const rememberEntity = (ref: string, label = ref, details: string[] = []) => {
     const previous = nodeMap.get(ref);
     if (previous) {
@@ -699,7 +901,9 @@ export function parseErSource(source: string): MermaidFlowGraph | null {
     const line = body.lines[index].trim();
     if (!line) continue;
     if (line.startsWith('%%')) return null;
-    const block = line.match(/^([A-Za-z_][\w-]*)(?:\["([^"]*)"\])?\s*\{$/);
+    const directionMatch = line.match(/^direction\s+(TB|TD|BT|LR|RL)$/i);
+    if (directionMatch) { direction = directionMatch[1].toUpperCase() as MermaidFlowDirection; continue; }
+    const block = line.match(/^([\p{L}\p{N}_-]+)(?:\["([^"]*)"\])?\s*\{$/u);
     if (block) {
       const details: string[] = [];
       let closed = false;
@@ -714,25 +918,26 @@ export function parseErSource(source: string): MermaidFlowGraph | null {
       rememberEntity(block[1], block[2] ?? block[1], details);
       continue;
     }
-    const declaration = line.match(/^([A-Za-z_][\w-]*)(?:\["([^"]*)"\])?$/);
+    const declaration = line.match(/^([\p{L}\p{N}_-]+)(?:\["([^"]*)"\])?$/u);
     if (declaration) {
       rememberEntity(declaration[1], declaration[2] ?? declaration[1]);
       continue;
     }
-    const relation = line.match(/^([A-Za-z_][\w-]*)\s+([|o}{]{2}(?:--|\.\.)[|o}{]{2})\s+([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
+    const relation = line.match(/^([\p{L}\p{N}_-]+)\s+([|o}{]{2}(?:--|\.\.)[|o}{]{2})\s+([\p{L}\p{N}_-]+)\s*:\s*(.*)$/u);
     if (!relation || !validErToken(relation[2])) return null;
     rememberEntity(relation[1]);
     rememberEntity(relation[3]);
     edges.push({ id: `edge-${edges.length + 1}`, from: relation[1], to: relation[3], label: normalizeLabel(relation[4]), style: 'line', data: { token: relation[2] } });
   }
-  return { kind: 'er', direction: 'LR', nodes, edges, data: { header: body.header } };
+  return { kind: 'er', direction, nodes, edges, data: { header: body.header } };
 }
 
 function serializeEr(graph: MermaidFlowGraph): string {
   const lines = [graph.data?.header || 'erDiagram'];
+  lines.push(`  direction ${graph.direction === 'TD' ? 'TB' : graph.direction}`);
   const refs = new Map<string, string>();
   for (const node of graph.nodes) {
-    const ref = /^[A-Za-z_][\w-]*$/.test(node.data?.ref ?? '') ? node.data!.ref! : nextMermaidNodeId(graph.nodes, 'ENTITY');
+    const ref = validStateRef(node.data?.ref ?? '') ? node.data!.ref! : nextMermaidNodeId(graph.nodes, 'ENTITY');
     refs.set(node.id, ref);
   }
   for (const edge of graph.edges) {
@@ -757,8 +962,10 @@ function serializeEr(graph: MermaidFlowGraph): string {
 function parseMindNode(content: string, isRoot: boolean, generatedRef: string): { ref: string; label: string } | null {
   if (isRoot) {
     const root = content.match(/^([A-Za-z_][\w-]*)\(\((?:"([^"]*)"|([^()]*))\)\)$/);
-    if (!root) return null;
-    return { ref: root[1], label: normalizeLabel(root[2] ?? root[3]) };
+    if (root) return { ref: root[1], label: normalizeLabel(root[2] ?? root[3]) };
+    // Mermaid also allows an ordinary text root; it is a topic, not a directive.
+    if (!/[()[\]{}]/.test(content) && content.trim()) return { ref: generatedRef, label: normalizeLabel(content) };
+    return null;
   }
   const square = content.match(/^([A-Za-z_][\w-]*)\[(?:"([^"]*)"|([^[\]]*))\]$/);
   if (square) return { ref: square[1], label: normalizeLabel(square[2] ?? square[3]) };
@@ -1006,6 +1213,17 @@ function serializeGantt(graph: MermaidFlowGraph): string {
 }
 
 export function parseMermaidVisualSource(source: string): MermaidVisualGraph | null {
+  const comments: string[] = [];
+  const body = source.replace(/\r\n?/g, '\n').split('\n').filter((line) => {
+    if (/^\s*%%(?!\{|\s*prosemap:)/.test(line)) { comments.push(line.trim()); return false; }
+    return true;
+  }).join('\n');
+  const graph = parseVisualBody(body);
+  if (graph && comments.length) graph.data = { ...graph.data, comments };
+  return graph;
+}
+
+function parseVisualBody(source: string): MermaidVisualGraph | null {
   const firstLine = source.replace(/\r\n?/g, '\n').split('\n').find((line) => line.trim())?.trim() ?? '';
   if (/^(?:flowchart|graph)\b/i.test(firstLine)) return parseFlowchartSource(source);
   if (/^sequenceDiagram$/i.test(firstLine)) return parseSequenceSource(source);
@@ -1018,6 +1236,14 @@ export function parseMermaidVisualSource(source: string): MermaidVisualGraph | n
 }
 
 export function serializeMermaidVisualGraph(graph: MermaidVisualGraph): string {
+  const source = serializeVisualBody(graph);
+  if (!graph.data?.comments?.length) return source;
+  if (graph.data.comments.some((line) => !/^%%(?!\{)/.test(line) || /[\r\n]/.test(line))) throw new Error('无效的 Mermaid 注释');
+  const [header, ...lines] = source.split('\n');
+  return [header, ...graph.data.comments, ...lines].join('\n');
+}
+
+function serializeVisualBody(graph: MermaidVisualGraph): string {
   if (graph.kind === 'sequence') return serializeSequence(graph);
   if (graph.kind === 'state') return serializeState(graph);
   if (graph.kind === 'class') return serializeClass(graph);
@@ -1027,8 +1253,8 @@ export function serializeMermaidVisualGraph(graph: MermaidVisualGraph): string {
   return serializeFlowchart(graph);
 }
 
-export function nextMermaidNodeId(nodes: MermaidFlowNode[], prefix = 'N'): string {
-  const existing = new Set(nodes.map((node) => node.id));
+export function nextMermaidNodeId(nodes: MermaidFlowNode[], prefix = 'N', groups: Array<{ id: string }> = []): string {
+  const existing = new Set([...nodes, ...groups].map((entry) => entry.id));
   let index = nodes.length + 1;
   while (existing.has(`${prefix}${index}`)) index += 1;
   return `${prefix}${index}`;
@@ -1052,7 +1278,7 @@ export function mermaidSafetyError(source: string): string | null {
 export function createMermaidAiPrompts(instruction: string, currentSource: string) {
   const source = currentSource.trim();
   return {
-    system: '你是 Mermaid v11 可视化专家。严格只返回完整 Mermaid 源码，不要 Markdown 代码围栏、解释、标题或前后缀。使用语法有效、结构清晰、文字简洁的标准 Mermaid 图。禁止 click、外部链接、HTML 标签和初始化配置。可使用 flowchart、sequenceDiagram、stateDiagram-v2、classDiagram、erDiagram、gantt、mindmap、journey 等常规图表；当用户要求 4+1 架构视图时，必须包含逻辑视图、开发视图、进程视图、物理视图和场景视图。',
+    system: `你是 Mermaid v11 可视化专家。严格只返回完整 Mermaid 源码，不要 Markdown 代码围栏、解释、标题或前后缀。使用语法有效、结构清晰、文字简洁的标准 Mermaid 图。禁止 click、外部链接、HTML 标签和初始化配置。可使用 flowchart、sequenceDiagram、stateDiagram-v2、classDiagram、erDiagram、gantt、mindmap、journey 等常规图表；当用户要求 4+1 架构视图时，必须包含逻辑视图、开发视图、进程视图、物理视图和场景视图。${UML_AI_GUIDANCE}`,
     prompt: source
       ? `按用户要求修改现有图表，保留未要求改变的含义，并返回修改后的完整源码。\n\n用户要求：${instruction}\n\n现有 Mermaid 源码：\n${source}`
       : `按用户要求创建 Mermaid 图表，并返回完整源码。\n\n用户要求：${instruction}`,

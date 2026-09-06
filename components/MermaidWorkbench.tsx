@@ -73,6 +73,8 @@ const TABS: Array<{ id: WorkbenchTab; label: string; icon: typeof Sparkles }> = 
 const AI_EXAMPLES = [
   '生成一个包含成功、失败和重试分支的基本流程图',
   '生成软件系统的 4+1 架构视图，并写清每个视图的职责',
+  '生成订单系统的用例图，包含用户、管理员、系统边界及包含和扩展关系',
+  '生成包含表现层、领域层和基础设施层的嵌套包结构图',
   '把当前图改成从左到右，精简节点文字并补全异常路径',
 ];
 
@@ -83,7 +85,9 @@ async function validateMermaid(source: string) {
 }
 
 function diagramKind(source: string): string {
-  const firstLine = source.trim().split(/\r?\n/, 1)[0]?.trim() ?? '';
+  if (/^\s*%% prosemap:usecase\s*$/m.test(source)) return '用例图';
+  if (/^\s*%% prosemap:package\s*$/m.test(source)) return '包结构图';
+  const firstLine = source.split(/\r?\n/).find((line) => line.trim() && !line.trim().startsWith('%%'))?.trim() ?? '';
   if (/^(?:flowchart|graph)\b/i.test(firstLine)) return '流程图';
   if (/^sequenceDiagram\b/i.test(firstLine)) return '时序图';
   if (/^stateDiagram/i.test(firstLine)) return '状态图';
@@ -561,7 +565,7 @@ export default function MermaidWorkbench({
                   <section className="workbench-preview" style={{ height: '100%' }} aria-label="只读图表预览">
                     <header>
                       <div><CircleAlert size={14} /><strong>当前图表仅支持只读预览</strong><small>{diagramKind(source)}</small></div>
-                      <span>当前源码无法安全转换，原始内容已完整保留</span>
+                      <span>包含尚未支持的画布结构；原始内容已完整保留，可在“源码”页继续编辑</span>
                     </header>
                     <div className="workbench-preview-canvas">
                       {source.trim() ? <MermaidDiagram code={source} /> : <div className="workbench-preview-empty"><Workflow size={28} /><span>源码为空，请在源码页输入 Mermaid 图表</span></div>}

@@ -1601,6 +1601,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     setSelection(null);
     setEditingNodeId(null);
     setEditingEdgeId(null);
+    // Deleting the focused node (or its inspector) would otherwise leave focus
+    // on document.body, outside our keyboard handler. Move it before unmount.
+    editorRef.current?.focus({ preventScroll: true });
   }
 
   function updateNode(id: string, update: Partial<MermaidFlowNode>) {

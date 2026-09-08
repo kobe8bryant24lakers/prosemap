@@ -6,10 +6,60 @@ mod secure_config;
 use ai::AiState;
 use files::{launch_target_from_args, launch_target_from_path, FileAccessState};
 #[cfg(target_os = "macos")]
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
+use tauri::Manager;
 
 #[cfg(target_os = "macos")]
+fn install_guarded_quit_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
+
+    // Cocoa's predefined Quit calls terminate: directly, bypassing Tauri's
+    // interceptable window-close path. Keep the default menus, replacing only
+    // that item with a regular menu event (including the standard shortcut).
+    let menu = Menu::default(app)?;
+    let quit_text = PredefinedMenuItem::quit(app, None)?.text()?;
+    for item in menu.items()? {
+        if let MenuItemKind::Submenu(submenu) = item {
+            for (index, item) in submenu.items()?.iter().enumerate() {
+                if let MenuItemKind::Predefined(predefined) = item {
+                    if predefined.text()? == quit_text {
+                        submenu.remove_at(index)?;
+                        submenu.insert(
+                            &MenuItem::with_id(
+                                app,
+                                "guarded-quit",
+                                "Quit ProseMap",
+                                true,
+                                Some("CmdOrCtrl+Q"),
+                            )?,
+                            index,
+                        )?;
+                    }
+                }
+            }
+        }
+    }
+    app.set_menu(menu)?;
+    Ok(())
+}
+
 fn handle_run_event(app_handle: &tauri::AppHandle, event: tauri::RunEvent) {
+    // Route runtime exit requests through the guarded window-close path.
+    // Once the main window has closed, let the subsequent exit finish normally.
+    if let tauri::RunEvent::ExitRequested {
+        code: None, api, ..
+    } = &event
+    {
+        if let Some(window) = app_handle.get_webview_window("main") {
+            api.prevent_exit();
+            if let Err(error) = window.close() {
+                eprintln!("无法请求关闭主窗口: {error}");
+            }
+        }
+        return;
+    }
+
+    #[cfg(target_os = "macos")]
     if let tauri::RunEvent::Opened { urls } = event {
         let target = urls
             .iter()
@@ -28,15 +78,28 @@ fn handle_run_event(app_handle: &tauri::AppHandle, event: tauri::RunEvent) {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-fn handle_run_event(_app_handle: &tauri::AppHandle, _event: tauri::RunEvent) {}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let initial_target = launch_target_from_args();
     let app = tauri::Builder::default()
         .manage(AiState::default())
         .manage(FileAccessState::with_pending(initial_target))
+        .setup(|app| {
+            #[cfg(target_os = "macos")]
+            install_guarded_quit_menu(app.handle())?;
+            #[cfg(not(target_os = "macos"))]
+            let _ = app;
+            Ok(())
+        })
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "guarded-quit" {
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Err(error) = window.close() {
+                        eprintln!("无法请求关闭主窗口: {error}");
+                    }
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             ai::stream_ai,
             ai::cancel_ai,

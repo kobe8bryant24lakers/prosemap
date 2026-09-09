@@ -1,6 +1,7 @@
 mod ai;
 mod endpoint;
 mod files;
+mod links;
 mod secure_config;
 
 use ai::AiState;
@@ -102,6 +103,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ai::stream_ai,
+            links::open_external_url,
             ai::cancel_ai,
             files::pick_markdown_file,
             files::pick_markdown_folder,

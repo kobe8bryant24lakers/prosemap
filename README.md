@@ -6,10 +6,36 @@ ProseMap is a local-first AI Markdown and Mermaid editor for macOS and Windows. 
 
 The application interface is currently localized in Simplified Chinese. The repository documentation and project metadata are maintained in English.
 
+## In pictures
+
+### Focused writing with live preview
+
+Write Markdown beside the rendered document, including tables, links, and locally rendered Mermaid diagrams.
+
+![Markdown editing and live Mermaid preview](docs/screenshots/workspace.png)
+
+### Readable code, in source and preview
+
+Language-aware syntax highlighting distinguishes properties, strings, numbers, and keywords. Format the current code block with one action and copy rendered code without selecting it manually.
+
+![JSON syntax highlighting in the editor and preview](docs/screenshots/code-blocks.png)
+
+### A visual Mermaid workbench
+
+Select, rename, connect, and arrange diagram nodes directly on the canvas, with templates and source editing close at hand.
+
+![Mermaid canvas with node controls and a branching flowchart](docs/screenshots/mermaid-canvas.png)
+
+Screenshots show the actual production frontend with sample documents. Native file operations and external-link opening are provided by the desktop shell.
+
 ## Highlights
 
 - Open individual Markdown files or browse every Markdown document in a local folder.
 - Edit Markdown with a responsive desktop-first workspace and live preview.
+- Highlight common fenced-code languages in both the editor and preview; copy code directly from each preview block.
+- Edit code with two-space indentation, Tab / Shift+Tab, bracket matching and completion, and folding.
+- Format the current code block with Prettier and undo the change in one step.
+- Open HTTP/HTTPS links in the system browser, mail links in the default mail application, and heading anchors inside the preview.
 - Render Mermaid diagrams locally in strict security mode, including node descriptions and branch labels.
 - Create diagrams from natural-language instructions, edit Mermaid source, or directly manipulate flowcharts, sequence diagrams, state diagrams, class diagrams, ER models, mind maps, and Gantt plans on a canvas.
 - Start from common templates including basic flowcharts, 4+1 architecture views, sequence diagrams, state diagrams, class diagrams, ER diagrams, Gantt charts, mind maps, use cases, and package structures.
@@ -24,6 +50,23 @@ The application interface is currently localized in Simplified Chinese. The repo
 - Review streamed AI output as a line-by-line diff before accepting or rejecting it.
 - Connect to OpenAI-compatible Chat Completions endpoints or Anthropic Claude Messages endpoints.
 - Save safely back to the original file or export with Save As.
+
+## Code editing
+
+Add a language after the opening fence, such as `json`, `jsonc`, `javascript`, `typescript`, `python`, `sql`, or `yaml`. Highlighting grammars are loaded locally on demand; unknown languages remain readable as plain text.
+
+| Action | Shortcut / control |
+| --- | --- |
+| Format the current code block | `Cmd+Shift+F` on macOS / `Ctrl+Shift+F` on Windows, or the format button in the editor toolbar |
+| Indent / outdent | `Tab` / `Shift+Tab` |
+| Leave Tab indentation mode | Press `Esc`, then `Tab` to move keyboard focus |
+| Undo formatting | `Cmd+Z` / `Ctrl+Z` |
+| Fold a code block | Click the fold marker beside its opening fence |
+| Copy preview code | Click the copy button in the code block header |
+
+Formatting supports JSON, JSONC, JSON5, JavaScript/JSX, TypeScript/TSX, CSS/SCSS/Less, HTML/Vue, YAML, and GraphQL. Place the caret in a language-labelled, top-level fenced block. Formatting is explicit and affects only that block; invalid syntax, unsupported languages, and edits made while formatting is loading leave the document unchanged. List- and quote-nested blocks retain highlighting but are not automatically formatted. JSON formatting preserves large numeric literals and duplicate keys.
+
+Preview heading links use lowercase, punctuation-free IDs with spaces replaced by hyphens (for example, `#hello-world`); Chinese headings are supported. Duplicate headings receive numeric suffixes. Relative file links are not yet resolved against the active document.
 
 ## Desktop support
 

@@ -2,7 +2,11 @@
 
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { markdown as markdownLanguage } from '@codemirror/lang-markdown';
-import { EditorView } from '@codemirror/view';
+import { EditorView, keymap } from '@codemirror/view';
+import { indentWithTab, isolateHistory } from '@codemirror/commands';
+import { indentUnit, syntaxHighlighting } from '@codemirror/language';
+import { classHighlighter } from '@lezer/highlight';
+import { findCodeBlock, formatCode, languages } from '@/lib/code-blocks';
 import {
   Bold,
   Bot,
@@ -100,7 +104,7 @@ type EditorSelection = {
   head: number;
 };
 
-const editorExtensions = [markdownLanguage(), EditorView.lineWrapping];
+const baseEditorExtensions = [markdownLanguage({ codeLanguages: languages }), indentUnit.of('  '), syntaxHighlighting(classHighlighter), keymap.of([indentWithTab]), EditorView.lineWrapping];
 
 function normalizeMermaidStream(value: string): string {
   return value
@@ -201,6 +205,28 @@ export default function Home() {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     toastTimerRef.current = window.setTimeout(() => setToast(null), 2800);
   }, []);
+
+  const formatCurrentCodeBlock = useCallback(async () => {
+    const view = editorRef.current?.view;
+    if (!view) return;
+    const document = view.state.doc;
+    const block = findCodeBlock(document.toString(), view.state.selection.main.head);
+    if (!block) { showToast('info', '请将光标放入带有语言标记的顶层代码块中'); return; }
+    try {
+      const formatted = await formatCode(block.source, block.language);
+      if (view.state.doc !== document || editorRef.current?.view !== view) {
+        showToast('info', '文档已变化，请重新格式化'); return;
+      }
+      view.dispatch({ changes: { from: block.from, to: block.to, insert: formatted }, selection: { anchor: block.from }, userEvent: 'input.format', annotations: isolateHistory.of('full') });
+      view.focus();
+      showToast('success', `${block.language.toUpperCase()} 代码已格式化，可撤销`);
+    } catch (error) {
+      showToast('error', error instanceof Error ? `格式化失败：${error.message}` : '格式化失败，请检查代码语法');
+    }
+  }, [showToast]);
+  const editorExtensions = useMemo(() => [...baseEditorExtensions, keymap.of([
+    { key: 'Mod-Shift-f', run: () => { void formatCurrentCodeBlock(); return true; } },
+  ])], [formatCurrentCodeBlock]);
 
   const addAiContextFiles = useCallback(async () => {
     try {
@@ -962,7 +988,8 @@ export default function Home() {
               <button type="button" onClick={() => formatSelection('- ', '', '列表项')} title="列表" aria-label="列表"><List size={15} /></button>
               <button type="button" onClick={() => formatSelection('> ', '', '引用内容')} title="引用" aria-label="引用"><Quote size={15} /></button>
               <button type="button" onClick={() => insertBlock('| 列一 | 列二 |\n| --- | --- |\n| 内容 | 内容 |')} title="表格" aria-label="插入表格"><Table2 size={15} /></button>
-              <button type="button" onClick={() => insertBlock('```\n代码\n```')} title="代码块" aria-label="插入代码块"><Braces size={15} /></button>
+              <button type="button" onClick={() => insertBlock('```json\n{\n  "name": "ProseMap"\n}\n```')} title="插入 JSON 代码块（可修改语言标记）" aria-label="插入代码块"><Braces size={15} /></button>
+              <button type="button" onClick={() => void formatCurrentCodeBlock()} title="格式化当前代码块（⌘/Ctrl+Shift+F）" aria-label="格式化代码块"><Sparkles size={15} /></button>
             </div>
             <div className="editor-ai-actions">
               <button type="button" onClick={() => openAssistant('polish')}><Sparkles size={14} /> 润色</button>
@@ -984,8 +1011,8 @@ export default function Home() {
                 lineNumbers: true,
                 highlightActiveLine: true,
                 highlightActiveLineGutter: true,
-                foldGutter: false,
-                autocompletion: false,
+                foldGutter: true,
+                autocompletion: true,
                 bracketMatching: true,
                 closeBrackets: true,
                 history: true,

@@ -20,8 +20,12 @@
     "desktop:build:windows": "tauri build --bundles nsis msi"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.11.0",
     "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/language-data": "^6.5.2",
     "@codemirror/view": "^6.43.9",
+    "@lezer/highlight": "^1.2.3",
     "@tauri-apps/api": "^2.11.1",
     "@uiw/react-codemirror": "^4.25.11",
     "dagre-d3-es": "^7.0.14",
@@ -29,6 +33,7 @@
     "dompurify": "^3.4.14",
     "lucide-react": "^1.33.0",
     "mermaid": "^11.17.0",
+    "prettier": "^3.9.6",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "react-markdown": "^10.1.0",

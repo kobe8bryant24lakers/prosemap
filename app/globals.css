@@ -428,3 +428,26 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto!important; animation-duration: .01ms!important; animation-iteration-count: 1!important; transition-duration: .01ms!important; }
 }
+
+/* Shared Lezer token classes keep source and rendered code consistent. */
+.editor-surface .tok-keyword { color: #8950a1; }
+.editor-surface .tok-string, .editor-surface .tok-string2 { color: #28734b; }
+.editor-surface .tok-number, .editor-surface .tok-bool, .editor-surface .tok-null { color: #ad521d; }
+.editor-surface .tok-propertyName { color: #166b9b; }
+.editor-surface .tok-comment { color: #79877e; font-style: italic; }
+.editor-surface .tok-typeName, .editor-surface .tok-className { color: #8a6315; }
+.editor-surface .tok-variableName { color: #365c85; }
+.preview-code-block { margin: 22px 0; overflow: hidden; border: 1px solid #344b3f; border-radius: 12px; background: #1e2b24; }
+.code-block-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; border-bottom: 1px solid #3b4e42; color: #b1c6b7; font: 11px/1.5 "SFMono-Regular", Consolas, monospace; }
+.code-block-header button { display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 4px; padding: 3px 6px; color: #dce8e0; background: transparent; cursor: pointer; }
+.code-block-header button:hover { background: #3b4e42; }
+.markdown-body .preview-code-block pre { margin: 0; border: 0; border-radius: 0; box-shadow: none; tab-size: 2; }
+.preview-code-block .tok-keyword { color: #d6adf5; }
+.preview-code-block .tok-string, .preview-code-block .tok-string2 { color: #a6dbab; }
+.preview-code-block .tok-number, .preview-code-block .tok-bool, .preview-code-block .tok-null { color: #f4bd88; }
+.preview-code-block .tok-propertyName { color: #8ecff3; }
+.preview-code-block .tok-comment { color: #a0afa5; font-style: italic; }
+.preview-code-block .tok-typeName, .preview-code-block .tok-className { color: #edd494; }
+.preview-code-block .tok-variableName { color: #b0d3f8; }
+.preview-link-error { position: sticky; top: 0; z-index: 2; padding: 8px 12px; border-radius: 6px; color: #8e341d; background: #fff0e6; font-size: 12px; }
+.markdown-body :is(h1,h2,h3,h4,h5,h6) { scroll-margin-top: 20px; }

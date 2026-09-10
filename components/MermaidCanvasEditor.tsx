@@ -2073,6 +2073,37 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     });
   }
 
+  const fitContentRef = useRef(fitContent);
+  useLayoutEffect(() => {
+    fitContentRef.current = fitContent;
+  });
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!active || suspended || !viewport) return;
+    let width = viewport.clientWidth;
+    let height = viewport.clientHeight;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      const nextWidth = viewport.clientWidth;
+      const nextHeight = viewport.clientHeight;
+      if (!nextWidth || !nextHeight || (width === nextWidth && height === nextHeight)) return;
+      width = nextWidth;
+      height = nextHeight;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        // Fullscreen and window resizing change the viewport, not the graph.
+        // Preserve node positions and refit only the zoom and scroll offset.
+        fitContentRef.current(0.9);
+      });
+    });
+    observer.observe(viewport);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [active, suspended]);
+
   function handleViewportPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button === 0 || event.button === 1) editorRef.current?.focus({ preventScroll: true });
     const target = event.target as Element;

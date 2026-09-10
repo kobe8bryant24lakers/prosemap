@@ -360,7 +360,12 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
                   <span
                     className="mermaid-fullscreen-svg"
                     style={{
-                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${fullscreenZoom})`,
+                      // Resize the SVG viewport so labels and strokes are repainted
+                      // at the target resolution instead of scaling a cached layer.
+                      width: `${fullscreenZoom * 100}%`,
+                      height: `${fullscreenZoom * 100}%`,
+                      left: `calc(${(1 - fullscreenZoom) * 50}% + ${pan.x}px)`,
+                      top: `calc(${(1 - fullscreenZoom) * 50}% + ${pan.y}px)`,
                     }}
                     dangerouslySetInnerHTML={{ __html: fullscreenSvg }}
                   />

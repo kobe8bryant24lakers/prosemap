@@ -1,5 +1,8 @@
 'use client';
 
+import { t, uiMessage } from '@/lib/i18n';
+import { useLocale } from '@/lib/use-locale';
+
 import DOMPurify from 'dompurify';
 import { Check, Copy, Maximize2, PencilRuler, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
@@ -36,6 +39,7 @@ const EMPTY_RENDER_STATE: MermaidRenderState = {
 };
 
 export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
+  useLocale();
   const reactId = useId();
   const fullscreenTitleId = `mermaid-fullscreen-${reactId.replace(/:/g, '')}`;
   const fullscreenBackdropRef = useRef<HTMLDivElement>(null);
@@ -74,7 +78,7 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
         setRenderState({ code, error: '', intrinsicHeight: dimensions.height, intrinsicWidth: dimensions.width, svg: clean });
       } catch (reason) {
         if (!active) return;
-        const message = reason instanceof Error ? reason.message : '图表语法无法解析';
+        const message = reason instanceof Error ? reason.message : t("图表语法无法解析");
         setRenderState({ code, error: message.replace(/^Error:\s*/i, '').split('\n')[0], intrinsicHeight: 0, intrinsicWidth: 0, svg: '' });
       }
     }, 220);
@@ -100,7 +104,7 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
         setFullscreenRenderState({ code, error: '', intrinsicHeight: dimensions.height, intrinsicWidth: dimensions.width, svg: clean });
       } catch (reason) {
         if (!active || fullscreenRenderSequenceRef.current !== renderSequence) return;
-        const message = reason instanceof Error ? reason.message : '图表语法无法解析';
+        const message = reason instanceof Error ? reason.message : t("图表语法无法解析");
         setFullscreenRenderState({ code, error: message.replace(/^Error:\s*/i, '').split('\n')[0], intrinsicHeight: 0, intrinsicWidth: 0, svg: '' });
       }
     }, 0);
@@ -245,48 +249,48 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
 
   return (
     <>
-      <span className="mermaid-diagram" role="figure" aria-label="Mermaid 图表">
+      <span className="mermaid-diagram" role="figure" aria-label={t("Mermaid 图表")}>
         <span className="mermaid-toolbar">
           <span className="diagram-label"><span className="live-dot" />Mermaid</span>
           <span className="diagram-actions">
             {onEdit ? (
-              <button type="button" className="diagram-edit-action" onClick={onEdit} aria-label="在可视化画布中编辑图表" title="在可视化画布中编辑">
-                <PencilRuler size={13} /><span>画布编辑</span>
+              <button type="button" className="diagram-edit-action" onClick={onEdit} aria-label={t("在可视化画布中编辑图表")} title={t("在可视化画布中编辑")}>
+                <PencilRuler size={13} /><span>{t("画布编辑")}</span>
               </button>
             ) : null}
-            <button type="button" onClick={() => setZoom((value) => Math.max(MERMAID_PREVIEW_MIN_ZOOM, value - 0.15))} aria-label="缩小图表" title="缩小">
+            <button type="button" onClick={() => setZoom((value) => Math.max(MERMAID_PREVIEW_MIN_ZOOM, value - 0.15))} aria-label={t("缩小图表")} title={t("缩小")}>
               <ZoomOut size={14} />
             </button>
-            <button type="button" className="diagram-zoom-value" onClick={() => setZoom(1)} aria-label={`重置图表缩放，当前 ${Math.round(zoom * 100)}%`} title="重置为 100%">
+            <button type="button" className="diagram-zoom-value" onClick={() => setZoom(1)} aria-label={t("重置图表缩放，当前 {0}%", Math.round(zoom * 100))} title={t("重置为 100%")}>
               {Math.round(zoom * 100)}%
             </button>
-            <button type="button" onClick={() => setZoom((value) => Math.min(MERMAID_PREVIEW_MAX_ZOOM, value + 0.15))} aria-label="放大图表" title="放大">
+            <button type="button" onClick={() => setZoom((value) => Math.min(MERMAID_PREVIEW_MAX_ZOOM, value + 0.15))} aria-label={t("放大图表")} title={t("放大")}>
               <ZoomIn size={14} />
             </button>
-            <button type="button" onClick={openFullscreen} disabled={!diagramSvg} aria-label="全屏查看图表" title="全屏查看">
+            <button type="button" onClick={openFullscreen} disabled={!diagramSvg} aria-label={t("全屏查看图表")} title={t("全屏查看")}>
               <Maximize2 size={14} />
             </button>
-            <button type="button" onClick={copySource} aria-label="复制 Mermaid 源码" title="复制源码">
+            <button type="button" onClick={copySource} aria-label={t("复制 Mermaid 源码")} title={t("复制源码")}>
               {copied ? <Check size={14} /> : <Copy size={14} />}
             </button>
           </span>
         </span>
         {currentRender?.error ? (
           <span className="mermaid-error">
-            <strong>图表暂时无法渲染</strong>
-            <span>{currentRender.error}</span>
+            <strong>{t("图表暂时无法渲染")}</strong>
+            <span>{uiMessage(currentRender.error)}</span>
             <code>{code}</code>
           </span>
         ) : diagramSvg ? (
           <span
             className={`mermaid-canvas${onEdit ? ' editable' : ''}`}
             onDoubleClick={onEdit}
-            title={onEdit ? '双击进入可视化画布编辑' : undefined}
+            title={onEdit ? t("双击进入可视化画布编辑") : undefined}
           >
             <span className={`mermaid-svg${portrait ? ' is-portrait' : ''}`} style={{ width: inlineWidth }} dangerouslySetInnerHTML={{ __html: diagramSvg }} />
           </span>
         ) : (
-          <span className="mermaid-loading"><i /><span>正在绘制图表…</span></span>
+          <span className="mermaid-loading"><i /><span>{t("正在绘制图表…")}</span></span>
         )}
       </span>
 
@@ -303,25 +307,25 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
             <header className="mermaid-fullscreen-header">
               <div>
                 <span className="live-dot" />
-                <strong id={fullscreenTitleId}>Mermaid 单图查看</strong>
-                <small>鼠标滚轮缩放 · 拖动画布平移 · 点击百分比复位</small>
+                <strong id={fullscreenTitleId}>{t("Mermaid 单图查看")}</strong>
+                <small>{t("鼠标滚轮缩放 · 拖动画布平移 · 点击百分比复位")}</small>
               </div>
               <div className="mermaid-fullscreen-actions">
-                <button type="button" onClick={() => changeFullscreenZoom(-0.15)} disabled={!fullscreenSvg} aria-label="缩小全屏图表" title="缩小">
+                <button type="button" onClick={() => changeFullscreenZoom(-0.15)} disabled={!fullscreenSvg} aria-label={t("缩小全屏图表")} title={t("缩小")}>
                   <ZoomOut size={16} />
                 </button>
-                <button type="button" className="diagram-zoom-value" onClick={resetFullscreenZoom} disabled={!fullscreenSvg} aria-label={`重置全屏图表为适配视图，当前 ${Math.round(fullscreenZoom * 100)}%`} title="适配窗口">
+                <button type="button" className="diagram-zoom-value" onClick={resetFullscreenZoom} disabled={!fullscreenSvg} aria-label={t("重置全屏图表为适配视图，当前 {0}%", Math.round(fullscreenZoom * 100))} title={t("适配窗口")}>
                   {Math.round(fullscreenZoom * 100)}%
                 </button>
-                <button type="button" onClick={() => changeFullscreenZoom(0.15)} disabled={!fullscreenSvg} aria-label="放大全屏图表" title="放大">
+                <button type="button" onClick={() => changeFullscreenZoom(0.15)} disabled={!fullscreenSvg} aria-label={t("放大全屏图表")} title={t("放大")}>
                   <ZoomIn size={16} />
                 </button>
-                <button ref={fullscreenCloseRef} type="button" className="mermaid-fullscreen-close" onClick={() => setFullscreenOpen(false)} aria-label="关闭全屏图表" title="关闭（Esc）">
+                <button ref={fullscreenCloseRef} type="button" className="mermaid-fullscreen-close" onClick={() => setFullscreenOpen(false)} aria-label={t("关闭全屏图表")} title={t("关闭（Esc）")}>
                   <X size={18} />
                 </button>
               </div>
             </header>
-            <div ref={fullscreenStageRef} className={`mermaid-fullscreen-stage${panning ? ' is-panning' : ''}`} title="滚动鼠标缩放，按住鼠标拖动画布"
+            <div ref={fullscreenStageRef} className={`mermaid-fullscreen-stage${panning ? ' is-panning' : ''}`} title={t("滚动鼠标缩放，按住鼠标拖动画布")}
               onPointerDown={(event) => {
                 if (event.button !== 0 || !fullscreenSvg) return;
                 event.preventDefault();
@@ -348,8 +352,8 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
               <div className="mermaid-fullscreen-stage-inner">
                 {currentFullscreenRender?.error ? (
                   <span className="mermaid-error mermaid-fullscreen-error" role="alert">
-                    <strong>图表暂时无法渲染</strong>
-                    <span>{currentFullscreenRender.error}</span>
+                    <strong>{t("图表暂时无法渲染")}</strong>
+                    <span>{uiMessage(currentFullscreenRender.error)}</span>
                     <code>{code}</code>
                   </span>
                 ) : fullscreenSvg ? (
@@ -361,7 +365,7 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
                     dangerouslySetInnerHTML={{ __html: fullscreenSvg }}
                   />
                 ) : (
-                  <span className="mermaid-loading mermaid-fullscreen-loading" role="status" aria-live="polite"><i aria-hidden="true" /><span>正在准备全屏图表…</span></span>
+                  <span className="mermaid-loading mermaid-fullscreen-loading" role="status" aria-live="polite"><i aria-hidden="true" /><span>{t("正在准备全屏图表…")}</span></span>
                 )}
               </div>
             </div>

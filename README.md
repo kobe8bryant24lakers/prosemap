@@ -4,7 +4,7 @@
 
 ProseMap is a local-first AI Markdown and Mermaid editor for macOS and Windows. It combines focused writing, live visual preview, native file and folder workflows, and reviewable AI-assisted edits in a single desktop application.
 
-The application interface is currently localized in Simplified Chinese. The repository documentation and project metadata are maintained in English.
+The application starts in English and supports instant switching to Simplified Chinese. Your language choice is saved locally; documents and diagram drafts keep their original content.
 
 ## In pictures
 
@@ -174,3 +174,9 @@ AI features require network access to the provider selected by the user. Local e
 ## License
 
 ProseMap is available under the [MIT License](LICENSE).
+
+### Interface language and workspace size
+
+The app starts in English. Use **EN / 中文** in the top bar or **Settings → Interface language** to switch languages. The choice is saved locally and applies immediately; changing the interface language does not translate or replace your document or diagram draft.
+
+In the Mermaid workspace, use **Expand workspace** in the upper-right corner to fill the app window, and **Restore workspace** to return to the dialog. Canvas, templates, AI assist, and source editing all retain the current draft when resizing.

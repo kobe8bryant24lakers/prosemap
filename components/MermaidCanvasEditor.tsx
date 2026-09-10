@@ -1,5 +1,8 @@
 'use client';
 
+import { t } from '@/lib/i18n';
+import { useLocale } from '@/lib/use-locale';
+
 import {
   ArrowDown,
   ArrowLeft,
@@ -163,58 +166,58 @@ const MIN_ZOOM = MIN_MERMAID_CANVAS_ZOOM;
 const MAX_ZOOM = 2;
 
 const SHAPE_OPTIONS: Array<{ value: MermaidNodeShape; label: string; icon: typeof Square }> = [
-  { value: 'rectangle', label: '矩形', icon: Square },
-  { value: 'rounded', label: '圆角', icon: Square },
-  { value: 'terminal', label: '起止', icon: Circle },
-  { value: 'decision', label: '判断', icon: Diamond },
-  { value: 'circle', label: '圆形', icon: Circle },
-  { value: 'database', label: '数据', icon: Database },
+  { value: 'rectangle', get label() { return t("矩形"); }, icon: Square },
+  { value: 'rounded', get label() { return t("圆角"); }, icon: Square },
+  { value: 'terminal', get label() { return t("起止"); }, icon: Circle },
+  { value: 'decision', get label() { return t("判断"); }, icon: Diamond },
+  { value: 'circle', get label() { return t("圆形"); }, icon: Circle },
+  { value: 'database', get label() { return t("数据"); }, icon: Database },
 ];
 
 const NODE_PRESETS: Record<MermaidFlowGraph['kind'], CanvasNodePreset[]> = {
   flowchart: [
-    { id: 'flow-process', label: '流程', description: '添加处理步骤', icon: Square },
-    { id: 'flow-decision', label: '判断', description: '添加条件分支', icon: Diamond },
-    { id: 'flow-data', label: '数据', description: '添加数据或存储', icon: Database },
-    { id: 'flow-terminal', label: '起止', description: '添加开始或结束', icon: Circle },
+    { id: 'flow-process', get label() { return t("流程"); }, get description() { return t("添加处理步骤"); }, icon: Square },
+    { id: 'flow-decision', get label() { return t("判断"); }, get description() { return t("添加条件分支"); }, icon: Diamond },
+    { id: 'flow-data', get label() { return t("数据"); }, get description() { return t("添加数据或存储"); }, icon: Database },
+    { id: 'flow-terminal', get label() { return t("起止"); }, get description() { return t("添加开始或结束"); }, icon: Circle },
   ],
   sequence: [
-    { id: 'sequence-participant', label: '参与者', description: '添加系统或组件', icon: Square },
-    { id: 'sequence-actor', label: '角色', description: '添加用户或外部角色', icon: Circle },
+    { id: 'sequence-participant', get label() { return t("参与者"); }, get description() { return t("添加系统或组件"); }, icon: Square },
+    { id: 'sequence-actor', get label() { return t("角色"); }, get description() { return t("添加用户或外部角色"); }, icon: Circle },
   ],
   state: [
-    { id: 'state-state', label: '状态', description: '添加普通状态', icon: Square },
-    { id: 'state-start', label: '起点', description: '连接到当前状态', icon: Circle, requiresSelection: true },
-    { id: 'state-end', label: '终点', description: '从当前状态连接', icon: Circle, requiresSelection: true },
+    { id: 'state-state', get label() { return t("状态"); }, get description() { return t("添加普通状态"); }, icon: Square },
+    { id: 'state-start', get label() { return t("起点"); }, get description() { return t("连接到当前状态"); }, icon: Circle, requiresSelection: true },
+    { id: 'state-end', get label() { return t("终点"); }, get description() { return t("从当前状态连接"); }, icon: Circle, requiresSelection: true },
   ],
-  class: [{ id: 'class-class', label: '类', description: '添加类或接口', icon: Square }],
-  er: [{ id: 'er-entity', label: '实体', description: '添加数据实体', icon: Database }],
-  mindmap: [{ id: 'mind-topic', label: '主题', description: '添加子主题', icon: Circle }],
+  class: [{ id: 'class-class', get label() { return t("类"); }, get description() { return t("添加类或接口"); }, icon: Square }],
+  er: [{ id: 'er-entity', get label() { return t("实体"); }, get description() { return t("添加数据实体"); }, icon: Database }],
+  mindmap: [{ id: 'mind-topic', get label() { return t("主题"); }, get description() { return t("添加子主题"); }, icon: Circle }],
   gantt: [
-    { id: 'gantt-task', label: '任务', description: '添加普通任务', icon: Square },
-    { id: 'gantt-milestone', label: '里程碑', description: '添加里程碑任务', icon: Diamond },
+    { id: 'gantt-task', get label() { return t("任务"); }, get description() { return t("添加普通任务"); }, icon: Square },
+    { id: 'gantt-milestone', get label() { return t("里程碑"); }, get description() { return t("添加里程碑任务"); }, icon: Diamond },
   ],
 };
 
 const EDGE_OPTIONS: Array<{ value: MermaidEdgeStyle; label: string }> = [
-  { value: 'arrow', label: '箭头' },
-  { value: 'line', label: '直线' },
-  { value: 'dotted', label: '虚线' },
-  { value: 'thick', label: '强调' },
+  { value: 'arrow', get label() { return t("箭头"); } },
+  { value: 'line', get label() { return t("直线"); } },
+  { value: 'dotted', get label() { return t("虚线"); } },
+  { value: 'thick', get label() { return t("强调"); } },
 ];
 
 const DIRECTION_OPTIONS: Array<{ value: MermaidFlowDirection; label: string; icon: typeof ArrowDown }> = [
-  { value: 'TD', label: '向下', icon: ArrowDown },
-  { value: 'LR', label: '向右', icon: ArrowRight },
-  { value: 'BT', label: '向上', icon: ArrowUp },
-  { value: 'RL', label: '向左', icon: ArrowLeft },
+  { value: 'TD', get label() { return t("向下"); }, icon: ArrowDown },
+  { value: 'LR', get label() { return t("向右"); }, icon: ArrowRight },
+  { value: 'BT', get label() { return t("向上"); }, icon: ArrowUp },
+  { value: 'RL', get label() { return t("向左"); }, icon: ArrowLeft },
 ];
 
 const QUICK_ADD_OPTIONS: Array<{ value: QuickAddDirection; label: string; icon: typeof ArrowDown }> = [
-  { value: 'top', label: '在上方创建并连接', icon: ArrowUp },
-  { value: 'right', label: '在右侧创建并连接', icon: ArrowRight },
-  { value: 'bottom', label: '在下方创建并连接', icon: ArrowDown },
-  { value: 'left', label: '在左侧创建并连接', icon: ArrowLeft },
+  { value: 'top', get label() { return t("在上方创建并连接"); }, icon: ArrowUp },
+  { value: 'right', get label() { return t("在右侧创建并连接"); }, icon: ArrowRight },
+  { value: 'bottom', get label() { return t("在下方创建并连接"); }, icon: ArrowDown },
+  { value: 'left', get label() { return t("在左侧创建并连接"); }, icon: ArrowLeft },
 ];
 
 const KIND_COPY: Record<MermaidFlowGraph['kind'], {
@@ -227,44 +230,44 @@ const KIND_COPY: Record<MermaidFlowGraph['kind'], {
   empty: string;
   newLabel: string;
 }> = {
-  flowchart: { node: '节点', nodes: '节点', edge: '连线', edges: '连线', add: '节点', connect: '连线模式', empty: '添加第一个节点', newLabel: '新节点' },
-  sequence: { node: '参与者', nodes: '参与者', edge: '消息', edges: '消息', add: '参与者', connect: '发送消息', empty: '添加第一个参与者', newLabel: '新参与者' },
-  state: { node: '状态', nodes: '状态', edge: '转换', edges: '转换', add: '状态', connect: '添加转换', empty: '添加第一个状态', newLabel: '新状态' },
-  class: { node: '类', nodes: '类', edge: '关系', edges: '关系', add: '类', connect: '添加关系', empty: '添加第一个类', newLabel: '新类' },
-  er: { node: '实体', nodes: '实体', edge: '关系', edges: '关系', add: '实体', connect: '添加关系', empty: '添加第一个实体', newLabel: '新实体' },
-  mindmap: { node: '主题', nodes: '主题', edge: '父子关系', edges: '父子关系', add: '主题', connect: '设置父子', empty: '添加根主题', newLabel: '新主题' },
-  gantt: { node: '任务', nodes: '任务', edge: '依赖', edges: '依赖', add: '任务', connect: '添加依赖', empty: '添加第一个任务', newLabel: '新任务' },
+  flowchart: { get node() { return t("节点"); }, get nodes() { return t("节点"); }, get edge() { return t("连线"); }, get edges() { return t("连线"); }, get add() { return t("节点"); }, get connect() { return t("连线模式"); }, get empty() { return t("添加第一个节点"); }, get newLabel() { return t("新节点"); } },
+  sequence: { get node() { return t("参与者"); }, get nodes() { return t("参与者"); }, get edge() { return t("消息"); }, get edges() { return t("消息"); }, get add() { return t("参与者"); }, get connect() { return t("发送消息"); }, get empty() { return t("添加第一个参与者"); }, get newLabel() { return t("新参与者"); } },
+  state: { get node() { return t("状态"); }, get nodes() { return t("状态"); }, get edge() { return t("转换"); }, get edges() { return t("转换"); }, get add() { return t("状态"); }, get connect() { return t("添加转换"); }, get empty() { return t("添加第一个状态"); }, get newLabel() { return t("新状态"); } },
+  class: { get node() { return t("类"); }, get nodes() { return t("类"); }, get edge() { return t("关系"); }, get edges() { return t("关系"); }, get add() { return t("类"); }, get connect() { return t("添加关系"); }, get empty() { return t("添加第一个类"); }, get newLabel() { return t("新类"); } },
+  er: { get node() { return t("实体"); }, get nodes() { return t("实体"); }, get edge() { return t("关系"); }, get edges() { return t("关系"); }, get add() { return t("实体"); }, get connect() { return t("添加关系"); }, get empty() { return t("添加第一个实体"); }, get newLabel() { return t("新实体"); } },
+  mindmap: { get node() { return t("主题"); }, get nodes() { return t("主题"); }, get edge() { return t("父子关系"); }, get edges() { return t("父子关系"); }, get add() { return t("主题"); }, get connect() { return t("设置父子"); }, get empty() { return t("添加根主题"); }, get newLabel() { return t("新主题"); } },
+  gantt: { get node() { return t("任务"); }, get nodes() { return t("任务"); }, get edge() { return t("依赖"); }, get edges() { return t("依赖"); }, get add() { return t("任务"); }, get connect() { return t("添加依赖"); }, get empty() { return t("添加第一个任务"); }, get newLabel() { return t("新任务"); } },
 };
 
 const SEQUENCE_MESSAGE_OPTIONS = [
-  { value: '->>', label: '实线消息' },
-  { value: '-->>', label: '返回消息' },
-  { value: '->', label: '开放箭头' },
-  { value: '-->', label: '虚线开放箭头' },
-  { value: '-)', label: '异步消息' },
-  { value: '--)', label: '异步返回' },
-  { value: '-x', label: '失败消息' },
-  { value: '--x', label: '虚线失败' },
-  { value: '<<->>', label: '双向消息' },
-  { value: '<<-->>', label: '虚线双向' },
+  { value: '->>', get label() { return t("实线消息"); } },
+  { value: '-->>', get label() { return t("返回消息"); } },
+  { value: '->', get label() { return t("开放箭头"); } },
+  { value: '-->', get label() { return t("虚线开放箭头"); } },
+  { value: '-)', get label() { return t("异步消息"); } },
+  { value: '--)', get label() { return t("异步返回"); } },
+  { value: '-x', get label() { return t("失败消息"); } },
+  { value: '--x', get label() { return t("虚线失败"); } },
+  { value: '<<->>', get label() { return t("双向消息"); } },
+  { value: '<<-->>', get label() { return t("虚线双向"); } },
 ] as const;
 
 const CLASS_RELATION_OPTIONS = [
-  { value: '-->', label: '关联' },
-  { value: '--', label: '连接' },
-  { value: '<|--', label: '继承' },
-  { value: '*--', label: '组合' },
-  { value: 'o--', label: '聚合' },
-  { value: '..>', label: '依赖' },
-  { value: '..|>', label: '实现' },
-  { value: '..', label: '虚线连接' },
+  { value: '-->', get label() { return t("关联"); } },
+  { value: '--', get label() { return t("连接"); } },
+  { value: '<|--', get label() { return t("继承"); } },
+  { value: '*--', get label() { return t("组合"); } },
+  { value: 'o--', get label() { return t("聚合"); } },
+  { value: '..>', get label() { return t("依赖"); } },
+  { value: '..|>', get label() { return t("实现"); } },
+  { value: '..', get label() { return t("虚线连接"); } },
 ] as const;
 
 const ER_CARDINALITIES = [
-  { value: 'one', label: '一' },
-  { value: 'zero-one', label: '零或一' },
-  { value: 'one-many', label: '一或多' },
-  { value: 'zero-many', label: '零或多' },
+  { value: 'one', get label() { return t("一"); } },
+  { value: 'zero-one', get label() { return t("零或一"); } },
+  { value: 'one-many', get label() { return t("一或多"); } },
+  { value: 'zero-many', get label() { return t("零或多"); } },
 ] as const;
 
 type ErCardinality = typeof ER_CARDINALITIES[number]['value'];
@@ -284,10 +287,10 @@ const ER_RIGHT_TOKEN: Record<ErCardinality, string> = {
 };
 
 const GANTT_STATUS_OPTIONS = [
-  { value: 'active', label: '进行中' },
-  { value: 'done', label: '已完成' },
-  { value: 'crit', label: '关键' },
-  { value: 'milestone', label: '里程碑' },
+  { value: 'active', get label() { return t("进行中"); } },
+  { value: 'done', get label() { return t("已完成"); } },
+  { value: 'crit', get label() { return t("关键"); } },
+  { value: 'milestone', get label() { return t("里程碑"); } },
 ] as const;
 
 const nodeSize = mermaidCanvasNodeSize;
@@ -509,7 +512,7 @@ function defaultNode(kind: MermaidFlowGraph['kind'], id: string, graph: MermaidF
   if (kind === 'gantt') {
     const fallbackSection = selectedNode?.data?.ganttSection
       ?? [...graph.nodes].reverse().find((node) => node.data?.ganttSection)?.data?.ganttSection
-      ?? '未分组';
+      ?? t("未分组");
     return {
       ...base,
       data: {
@@ -526,34 +529,34 @@ function defaultNode(kind: MermaidFlowGraph['kind'], id: string, graph: MermaidF
 
 function applyNodePreset(node: MermaidFlowNode, presetId?: CanvasNodePresetId): MermaidFlowNode {
   if (!presetId) return node;
-  if (presetId === 'flow-process') return { ...node, label: '新流程', shape: 'rectangle' };
-  if (presetId === 'flow-decision') return { ...node, label: '新判断', shape: 'decision' };
-  if (presetId === 'flow-data') return { ...node, label: '新数据', shape: 'database' };
-  if (presetId === 'flow-terminal') return { ...node, label: '开始 / 结束', shape: 'terminal' };
+  if (presetId === 'flow-process') return { ...node, label: t("新流程"), shape: 'rectangle' };
+  if (presetId === 'flow-decision') return { ...node, label: t("新判断"), shape: 'decision' };
+  if (presetId === 'flow-data') return { ...node, label: t("新数据"), shape: 'database' };
+  if (presetId === 'flow-terminal') return { ...node, label: t("开始 / 结束"), shape: 'terminal' };
   if (presetId === 'sequence-participant') {
-    return { ...node, label: '新参与者', shape: 'rectangle', data: { ...node.data, sequenceType: 'participant' } };
+    return { ...node, label: t("新参与者"), shape: 'rectangle', data: { ...node.data, sequenceType: 'participant' } };
   }
   if (presetId === 'sequence-actor') {
-    return { ...node, label: '新角色', shape: 'terminal', data: { ...node.data, sequenceType: 'actor' } };
+    return { ...node, label: t("新角色"), shape: 'terminal', data: { ...node.data, sequenceType: 'actor' } };
   }
   if (presetId === 'state-state') {
-    return { ...node, label: '新状态', shape: 'rounded', data: { ...node.data, stateRole: 'state' } };
+    return { ...node, label: t("新状态"), shape: 'rounded', data: { ...node.data, stateRole: 'state' } };
   }
   if (presetId === 'state-start') {
-    return { ...node, label: '开始', shape: 'circle', data: { ...node.data, ref: '[*]', stateRole: 'start' } };
+    return { ...node, label: t("开始"), shape: 'circle', data: { ...node.data, ref: '[*]', stateRole: 'start' } };
   }
   if (presetId === 'state-end') {
-    return { ...node, label: '结束', shape: 'circle', data: { ...node.data, ref: '[*]', stateRole: 'end' } };
+    return { ...node, label: t("结束"), shape: 'circle', data: { ...node.data, ref: '[*]', stateRole: 'end' } };
   }
-  if (presetId === 'class-class') return { ...node, label: '新类', shape: 'rectangle', data: { ...node.data, details: [] } };
-  if (presetId === 'er-entity') return { ...node, label: '新实体', shape: 'rectangle', data: { ...node.data, details: [] } };
-  if (presetId === 'mind-topic') return { ...node, label: '新主题', shape: 'rounded' };
+  if (presetId === 'class-class') return { ...node, label: t("新类"), shape: 'rectangle', data: { ...node.data, details: [] } };
+  if (presetId === 'er-entity') return { ...node, label: t("新实体"), shape: 'rectangle', data: { ...node.data, details: [] } };
+  if (presetId === 'mind-topic') return { ...node, label: t("新主题"), shape: 'rounded' };
   if (presetId === 'gantt-milestone') {
     const statuses = new Set(node.data?.ganttStatuses ?? []);
     statuses.add('milestone');
-    return { ...node, label: '新里程碑', shape: 'rounded', data: { ...node.data, ganttStatuses: [...statuses] } };
+    return { ...node, label: t("新里程碑"), shape: 'rounded', data: { ...node.data, ganttStatuses: [...statuses] } };
   }
-  if (presetId === 'gantt-task') return { ...node, label: '新任务', shape: 'rounded' };
+  if (presetId === 'gantt-task') return { ...node, label: t("新任务"), shape: 'rounded' };
   return node;
 }
 
@@ -568,7 +571,7 @@ function defaultQuickPreset(kind: MermaidFlowGraph['kind']): CanvasNodePresetId 
 }
 
 function defaultEdge(kind: MermaidFlowGraph['kind'], id: string, from: string, to: string): MermaidFlowEdge {
-  if (kind === 'sequence') return { id, from, to, label: '新消息', style: 'arrow', data: { token: '->>' } };
+  if (kind === 'sequence') return { id, from, to, label: t("新消息"), style: 'arrow', data: { token: '->>' } };
   if (kind === 'state') return { id, from, to, label: '', style: 'arrow', data: { token: '-->' } };
   if (kind === 'class') return { id, from, to, label: '', style: 'arrow', data: { token: '-->' } };
   if (kind === 'er') return { id, from, to, label: '', style: 'line', data: { token: '||--o{' } };
@@ -634,19 +637,19 @@ function erRelationLabel(token?: string) {
 }
 
 function nodeMeta(node: MermaidFlowNode, kind: MermaidFlowGraph['kind']) {
-  if (kind === 'sequence') return node.data?.sequenceType === 'actor' ? '角色' : '参与者';
+  if (kind === 'sequence') return node.data?.sequenceType === 'actor' ? t("角色") : t("参与者");
   if (kind === 'state') {
-    if (node.data?.stateRole === 'start') return '开始状态';
-    if (node.data?.stateRole === 'end') return '结束状态';
-    return '状态';
+    if (node.data?.stateRole === 'start') return t("开始状态");
+    if (node.data?.stateRole === 'end') return t("结束状态");
+    return t("状态");
   }
-  if (kind === 'class') return `类 · ${node.data?.ref ?? node.id}`;
-  if (kind === 'er') return `实体 · ${node.data?.ref ?? node.id}`;
-  if (kind === 'mindmap') return node.data?.mindRoot ? '根主题' : '子主题';
+  if (kind === 'class') return t("类 · {0}", node.data?.ref ?? node.id);
+  if (kind === 'er') return t("实体 · {0}", node.data?.ref ?? node.id);
+  if (kind === 'mindmap') return node.data?.mindRoot ? t("根主题") : t("子主题");
   if (kind === 'gantt') {
     const statuses = node.data?.ganttStatuses ?? [];
-    const status = statuses.includes('done') ? '已完成' : statuses.includes('active') ? '进行中' : statuses.includes('milestone') ? '里程碑' : '任务';
-    return `${node.data?.ganttSection || '未分组'} · ${status}`;
+    const status = statuses.includes('done') ? t("已完成") : statuses.includes('active') ? t("进行中") : statuses.includes('milestone') ? t("里程碑") : t("任务");
+    return `${node.data?.ganttSection || t("未分组")} · ${status}`;
   }
   return node.id;
 }
@@ -684,6 +687,7 @@ function ensureGanttStarts(graph: MermaidFlowGraph, nodes: MermaidFlowNode[], ed
 }
 
 export default function MermaidCanvasEditor({ active = true, suspended = false, graph, onChange }: MermaidCanvasEditorProps) {
+  useLocale();
   const canvasId = useId().replace(/:/g, '');
   const markerId = `canvas-arrow-${canvasId}`;
   const crossMarkerId = `canvas-cross-${canvasId}`;
@@ -1470,7 +1474,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     const duplicate: MermaidFlowNode = {
       ...selectedNode,
       id,
-      label: `${selectedNode.label || copy.node} 副本`,
+      label: t("{0} 副本", selectedNode.label || copy.node),
       data,
     };
     const parentId = graph.kind === 'mindmap'
@@ -1513,7 +1517,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     const groups = graph.data?.groups ?? [];
     let index = groups.length + 1;
     while (groups.some((group) => group.id === `Group${index}`) || graph.nodes.some((node) => node.id === `Group${index}`)) index += 1;
-    commitGraph({ ...graph, data: { ...graph.data, groups: [...groups, { id: `Group${index}`, label: graph.data?.diagramType === 'usecase' ? '系统边界' : '新包' }] } });
+    commitGraph({ ...graph, data: { ...graph.data, groups: [...groups, { id: `Group${index}`, label: graph.data?.diagramType === 'usecase' ? t("系统边界") : t("新包") }] } });
   }
 
   function removeGroup(id: string) {
@@ -1528,7 +1532,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   function addUseCaseObject(actor: boolean) {
     const id = nextMermaidNodeId(graph.nodes, actor ? 'Actor' : 'UseCase', graph.data?.groups);
     commitGraph({ ...graph, nodes: [...graph.nodes, {
-      id, label: actor ? '«actor» 新参与者' : '新用例', shape: actor ? 'rectangle' : 'terminal',
+      id, label: actor ? t("«actor» 新参与者") : t("新用例"), shape: actor ? 'rectangle' : 'terminal',
       ...(!actor && graph.data?.groups?.[0] ? { data: { groupId: selectedNode?.data?.groupId ?? graph.data.groups[0].id } } : {}),
     }] });
     setSelection({ kind: 'node', id });
@@ -1768,7 +1772,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       ...graph,
       nodes: graph.nodes.map((candidate) => candidate.id === id ? {
         ...candidate,
-        label: role === 'start' ? '开始' : role === 'end' ? '结束' : candidate.label,
+        label: role === 'start' ? t("开始") : role === 'end' ? t("结束") : candidate.label,
         shape: role === 'state' ? 'rounded' : 'circle',
         data: { ...candidate.data, ref, stateRole: role },
       } : candidate),
@@ -2142,19 +2146,19 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       className={`mermaid-canvas-editor canvas-style-${canvasStyle}`}
       ref={editorRef}
       role="region"
-      aria-label="Mermaid 可视化画布编辑器"
+      aria-label={t("Mermaid 可视化画布编辑器")}
       tabIndex={0}
       onKeyDown={handleEditorKeyDown}
     >
       <div className="canvas-editor-toolbar">
-        {graph.kind === 'flowchart' ? <div className="canvas-tool-group"><button type="button" onClick={addGroup}>{graph.data?.diagramType === 'usecase' ? '系统边界' : '包 / 分组'}</button></div> : null}
+        {graph.kind === 'flowchart' ? <div className="canvas-tool-group"><button type="button" onClick={addGroup}>{graph.data?.diagramType === 'usecase' ? t("系统边界") : t("包 / 分组")}</button></div> : null}
         {graph.data?.diagramType === 'usecase' ? <div className="canvas-tool-group">
-          <button type="button" onClick={() => addUseCaseObject(true)}>参与者</button>
-          <button type="button" onClick={() => addUseCaseObject(false)}>用例</button>
+          <button type="button" onClick={() => addUseCaseObject(true)}>{t("参与者")}</button>
+          <button type="button" onClick={() => addUseCaseObject(false)}>{t("用例")}</button>
         </div> : null}
-        <div className="canvas-tool-group history-tools" role="group" aria-label="编辑历史">
-          <button type="button" onClick={undoGraphChange} disabled={!historyStatus.undo} title="撤销（⌘/Ctrl Z）" aria-label="撤销"><Undo2 size={14} /></button>
-          <button type="button" onClick={redoGraphChange} disabled={!historyStatus.redo} title="重做（⌘/Ctrl Shift Z）" aria-label="重做"><Redo2 size={14} /></button>
+        <div className="canvas-tool-group history-tools" role="group" aria-label={t("编辑历史")}>
+          <button type="button" onClick={undoGraphChange} disabled={!historyStatus.undo} title={t("撤销（⌘/Ctrl Z）")} aria-label={t("撤销")}><Undo2 size={14} /></button>
+          <button type="button" onClick={redoGraphChange} disabled={!historyStatus.redo} title={t("重做（⌘/Ctrl Shift Z）")} aria-label={t("重做")}><Redo2 size={14} /></button>
         </div>
         <div className="canvas-tool-group primary-tools">
           <button type="button" onClick={() => addNode()}><Plus size={15} /> {copy.add}</button>
@@ -2176,11 +2180,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           >
             <Link2 size={15} /> {copy.connect}
           </button>
-          <button type="button" onClick={() => applyAutomaticLayout()} title={`重新排列${copy.nodes}`}><RefreshCcw size={14} /> 自动排列</button>
+          <button type="button" onClick={() => applyAutomaticLayout()} title={t("重新排列{0}", copy.nodes)}><RefreshCcw size={14} />  {t("自动排列")}</button>
         </div>
 
-        <div className="canvas-node-library" role="group" aria-label={`${copy.node}库`}>
-          <span>对象</span>
+        <div className="canvas-node-library" role="group" aria-label={t("{0}库", copy.node)}>
+          <span>{t("对象")}</span>
           {nodePresets.map((preset) => {
             const Icon = preset.icon;
             const disabled = Boolean(preset.requiresSelection && (!selectedNode || selectedNode.data?.stateRole !== 'state'));
@@ -2190,7 +2194,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                 key={preset.id}
                 disabled={disabled}
                 onClick={() => addPresetNode(preset)}
-                title={`${preset.description}${preset.requiresSelection ? '（先选择普通状态）' : ''}`}
+                title={`${preset.description}${preset.requiresSelection ? t("（先选择普通状态）") : ''}`}
               >
                 <Icon size={13} /><span>{preset.label}</span>
               </button>
@@ -2199,7 +2203,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         </div>
 
         {graph.kind === 'flowchart' || graph.kind === 'state' ? (
-          <div className="canvas-direction-tools" role="group" aria-label="图表方向">
+          <div className="canvas-direction-tools" role="group" aria-label={t("图表方向")}>
             {DIRECTION_OPTIONS.map(({ value, label, icon: Icon }) => (
               <button
                 type="button"
@@ -2215,48 +2219,48 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           </div>
         ) : null}
 
-        <div className="canvas-assist-tools" role="group" aria-label="画布辅助">
-          <button type="button" className={snapToGrid ? 'active' : ''} onClick={() => setSnapToGrid((value) => !value)} aria-pressed={snapToGrid} title="拖动时吸附到网格和其他对象"><Square size={12} /> 吸附</button>
+        <div className="canvas-assist-tools" role="group" aria-label={t("画布辅助")}>
+          <button type="button" className={snapToGrid ? 'active' : ''} onClick={() => setSnapToGrid((value) => !value)} aria-pressed={snapToGrid} title={t("拖动时吸附到网格和其他对象")}><Square size={12} />  {t("吸附")}</button>
         </div>
 
-        <div className="canvas-style-tools" role="group" aria-label="画布风格">
-          <button type="button" className={canvasStyle === 'standard' ? 'active' : ''} onClick={() => setCanvasStyle('standard')} aria-pressed={canvasStyle === 'standard'}><Square size={13} /> 标准</button>
-          <button type="button" className={canvasStyle === 'handdrawn' ? 'active' : ''} onClick={() => setCanvasStyle('handdrawn')} aria-pressed={canvasStyle === 'handdrawn'}><Pencil size={13} /> 手绘</button>
+        <div className="canvas-style-tools" role="group" aria-label={t("画布风格")}>
+          <button type="button" className={canvasStyle === 'standard' ? 'active' : ''} onClick={() => setCanvasStyle('standard')} aria-pressed={canvasStyle === 'standard'}><Square size={13} />  {t("标准")}</button>
+          <button type="button" className={canvasStyle === 'handdrawn' ? 'active' : ''} onClick={() => setCanvasStyle('handdrawn')} aria-pressed={canvasStyle === 'handdrawn'}><Pencil size={13} />  {t("手绘")}</button>
         </div>
 
-        <div className="canvas-zoom-tools" role="group" aria-label="画布缩放">
-          <button type="button" onClick={() => zoomAroundViewportCenter(zoomRef.current - 0.1)} aria-label="缩小画布" title="缩小（⌘/Ctrl -）"><ZoomOut size={15} /></button>
-          <button type="button" className="canvas-zoom-value" onClick={() => zoomAroundViewportCenter(1)} aria-label={`当前缩放 ${Math.round(zoom * 100)}%，点击重置`} title="重置为 100%（0 或 ⌘/Ctrl 0）">{Math.round(zoom * 100)}%</button>
-          <button type="button" onClick={() => zoomAroundViewportCenter(zoomRef.current + 0.1)} aria-label="放大画布" title="放大（⌘/Ctrl +）"><ZoomIn size={15} /></button>
-          <button type="button" className="canvas-fit-button" onClick={() => fitContent()} title="适配全部内容（F）"><Maximize2 size={14} /> 适配</button>
+        <div className="canvas-zoom-tools" role="group" aria-label={t("画布缩放")}>
+          <button type="button" onClick={() => zoomAroundViewportCenter(zoomRef.current - 0.1)} aria-label={t("缩小画布")} title={t("缩小（⌘/Ctrl -）")}><ZoomOut size={15} /></button>
+          <button type="button" className="canvas-zoom-value" onClick={() => zoomAroundViewportCenter(1)} aria-label={t("当前缩放 {0}%，点击重置", Math.round(zoom * 100))} title={t("重置为 100%（0 或 ⌘/Ctrl 0）")}>{Math.round(zoom * 100)}%</button>
+          <button type="button" onClick={() => zoomAroundViewportCenter(zoomRef.current + 0.1)} aria-label={t("放大画布")} title={t("放大（⌘/Ctrl +）")}><ZoomIn size={15} /></button>
+          <button type="button" className="canvas-fit-button" onClick={() => fitContent()} title={t("适配全部内容（F）")}><Maximize2 size={14} />  {t("适配")}</button>
         </div>
       </div>
 
       <div className="canvas-context-bar" aria-live="polite">
         {connectMode ? (
           <>
-            <span className="canvas-selection-title"><Link2 size={13} /><b>{connectingNode ? `起点：${connectingNode.label || connectingNode.id}` : `添加${copy.edge}`}</b></span>
+            <span className="canvas-selection-title"><Link2 size={13} /><b>{connectingNode ? t("起点：{0}", connectingNode.label || connectingNode.id) : t("添加{0}", copy.edge)}</b></span>
             <span className="canvas-context-divider" />
             <span className="canvas-connect-guidance">
               {connectingNode
-                ? `点击目标${copy.node}${graph.kind === 'sequence' ? '或其生命线' : ''}完成${copy.edge}；可连续添加`
-                : `先点击一个${copy.node}作为起点`}
+                ? t("点击目标{0}{1}完成{2}；可连续添加", copy.node, graph.kind === 'sequence' ? t("或其生命线") : '', copy.edge)
+                : t("先点击一个{0}作为起点", copy.node)}
             </span>
-            {connectingNode ? <button type="button" onClick={() => { setConnectingFrom(null); setSelection(null); }}>重选起点</button> : null}
-            <button type="button" onClick={() => { setConnectMode(false); setConnectingFrom(null); }}>完成</button>
+            {connectingNode ? <button type="button" onClick={() => { setConnectingFrom(null); setSelection(null); }}>{t("重选起点")}</button> : null}
+            <button type="button" onClick={() => { setConnectMode(false); setConnectingFrom(null); }}>{t("完成")}</button>
           </>
         ) : selectedNode ? (
           <>
             <span className="canvas-selection-title"><MousePointer2 size={13} /><b>{selectedNode.label || selectedNode.id}</b></span>
-            {graph.data?.groups?.length ? <label className="canvas-group-membership">所属包 / 边界 <select aria-label="所属包 / 边界" value={selectedNode.data?.groupId ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { groupId: event.target.value || undefined })}>
-              <option value="">外部</option>
+            {graph.data?.groups?.length ? <label className="canvas-group-membership">{t("所属包 / 边界")} <select aria-label={t("所属包 / 边界")} value={selectedNode.data?.groupId ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { groupId: event.target.value || undefined })}>
+              <option value="">{t("外部")}</option>
               {graph.data.groups.map((group) => <option key={group.id} value={group.id}>{group.label}</option>)}
             </select></label> : null}
             <span className="canvas-context-divider" />
-            {canRenameSelectedNode ? <button type="button" onClick={() => setEditingNodeId(selectedNode.id)}><Pencil size={13} /> 改名</button> : null}
-            {!(graph.kind === 'state' && selectedNode.data?.stateRole !== 'state') ? <button type="button" onClick={duplicateSelectedNode} title="复制（⌘/Ctrl D）"><Plus size={13} /> 复制</button> : null}
+            {canRenameSelectedNode ? <button type="button" onClick={() => setEditingNodeId(selectedNode.id)}><Pencil size={13} />  {t("改名")}</button> : null}
+            {!(graph.kind === 'state' && selectedNode.data?.stateRole !== 'state') ? <button type="button" onClick={duplicateSelectedNode} title={t("复制（⌘/Ctrl D）")}><Plus size={13} />  {t("复制")}</button> : null}
             {graph.kind === 'flowchart' ? (
-              <div className="canvas-shape-tools" role="group" aria-label="节点形状与快速创建">
+              <div className="canvas-shape-tools" role="group" aria-label={t("节点形状与快速创建")}>
                 {SHAPE_OPTIONS.map(({ value, label, icon: Icon }) => (
                   <button
                     type="button"
@@ -2269,84 +2273,84 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                     <Icon size={13} /><span>{label}</span>
                   </button>
                 ))}
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'flow-process')}><ArrowRight size={13} /> 下游流程</button>
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'bottom', 'flow-decision')}><Diamond size={13} /> 分支判断</button>
+                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'flow-process')}><ArrowRight size={13} />  {t("下游流程")}</button>
+                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'bottom', 'flow-decision')}><Diamond size={13} />  {t("分支判断")}</button>
               </div>
             ) : null}
             {graph.kind === 'sequence' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label="参与者类型">
-                <button type="button" className={selectedNode.data?.sequenceType === 'actor' ? 'active' : ''} onClick={() => updateNodeData(selectedNode.id, { sequenceType: 'actor' })}>角色</button>
-                <button type="button" className={selectedNode.data?.sequenceType !== 'actor' ? 'active' : ''} onClick={() => updateNodeData(selectedNode.id, { sequenceType: 'participant' })}>参与者</button>
-                <button type="button" onClick={() => beginConnectionFrom(selectedNode.id)}><Link2 size={13} /> 从这里发消息</button>
-                <button type="button" disabled={selectedNodeIndex <= 0} onClick={() => addSequenceMessageToNeighbor(selectedNode.id, -1)}><ArrowLeft size={13} /> 发给上一个</button>
-                <button type="button" disabled={selectedNodeIndex < 0 || selectedNodeIndex >= graph.nodes.length - 1} onClick={() => addSequenceMessageToNeighbor(selectedNode.id, 1)}><ArrowRight size={13} /> 发给下一个</button>
-                <button type="button" onClick={() => addConnection(selectedNode.id, selectedNode.id)}>自消息</button>
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'sequence-participant')}><Plus size={13} /> 新参与者并发送</button>
+              <div className="canvas-semantic-tools" role="group" aria-label={t("参与者类型")}>
+                <button type="button" className={selectedNode.data?.sequenceType === 'actor' ? 'active' : ''} onClick={() => updateNodeData(selectedNode.id, { sequenceType: 'actor' })}>{t("角色")}</button>
+                <button type="button" className={selectedNode.data?.sequenceType !== 'actor' ? 'active' : ''} onClick={() => updateNodeData(selectedNode.id, { sequenceType: 'participant' })}>{t("参与者")}</button>
+                <button type="button" onClick={() => beginConnectionFrom(selectedNode.id)}><Link2 size={13} />  {t("从这里发消息")}</button>
+                <button type="button" disabled={selectedNodeIndex <= 0} onClick={() => addSequenceMessageToNeighbor(selectedNode.id, -1)}><ArrowLeft size={13} />  {t("发给上一个")}</button>
+                <button type="button" disabled={selectedNodeIndex < 0 || selectedNodeIndex >= graph.nodes.length - 1} onClick={() => addSequenceMessageToNeighbor(selectedNode.id, 1)}><ArrowRight size={13} />  {t("发给下一个")}</button>
+                <button type="button" onClick={() => addConnection(selectedNode.id, selectedNode.id)}>{t("自消息")}</button>
+                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'sequence-participant')}><Plus size={13} />  {t("新参与者并发送")}</button>
               </div>
             ) : null}
             {graph.kind === 'state' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label="状态类型">
-                <button type="button" className={selectedNode.data?.stateRole === 'state' ? 'active' : ''} onClick={() => changeStateRole(selectedNode.id, 'state')}>普通状态</button>
-                <button type="button" className={selectedNode.data?.stateRole === 'start' ? 'active' : ''} disabled={selectedNode.data?.stateRole !== 'start' && (selectedNodeIncoming !== 0 || selectedNodeOutgoing !== 1)} onClick={() => changeStateRole(selectedNode.id, 'start')}>开始</button>
-                <button type="button" className={selectedNode.data?.stateRole === 'end' ? 'active' : ''} disabled={selectedNode.data?.stateRole !== 'end' && (selectedNodeIncoming !== 1 || selectedNodeOutgoing !== 0)} onClick={() => changeStateRole(selectedNode.id, 'end')}>结束</button>
-                {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'state-state')}><ArrowRight size={13} /> 下一状态</button> : null}
-                {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'top', 'state-start', 'to-parent')}><Circle size={12} /> 添加起点</button> : null}
-                {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'bottom', 'state-end')}><Circle size={12} /> 添加终点</button> : null}
+              <div className="canvas-semantic-tools" role="group" aria-label={t("状态类型")}>
+                <button type="button" className={selectedNode.data?.stateRole === 'state' ? 'active' : ''} onClick={() => changeStateRole(selectedNode.id, 'state')}>{t("普通状态")}</button>
+                <button type="button" className={selectedNode.data?.stateRole === 'start' ? 'active' : ''} disabled={selectedNode.data?.stateRole !== 'start' && (selectedNodeIncoming !== 0 || selectedNodeOutgoing !== 1)} onClick={() => changeStateRole(selectedNode.id, 'start')}>{t("开始")}</button>
+                <button type="button" className={selectedNode.data?.stateRole === 'end' ? 'active' : ''} disabled={selectedNode.data?.stateRole !== 'end' && (selectedNodeIncoming !== 1 || selectedNodeOutgoing !== 0)} onClick={() => changeStateRole(selectedNode.id, 'end')}>{t("结束")}</button>
+                {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'state-state')}><ArrowRight size={13} />  {t("下一状态")}</button> : null}
+                {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'top', 'state-start', 'to-parent')}><Circle size={12} />  {t("添加起点")}</button> : null}
+                {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'bottom', 'state-end')}><Circle size={12} />  {t("添加终点")}</button> : null}
               </div>
             ) : null}
             {graph.kind === 'mindmap' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label="主题结构">
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'mind-topic')}><Plus size={13} /> 子主题</button>
-                <button type="button" onClick={() => addMindmapSibling(selectedNode.id)}><ArrowDown size={13} /> 同级主题</button>
+              <div className="canvas-semantic-tools" role="group" aria-label={t("主题结构")}>
+                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'mind-topic')}><Plus size={13} />  {t("子主题")}</button>
+                <button type="button" onClick={() => addMindmapSibling(selectedNode.id)}><ArrowDown size={13} />  {t("同级主题")}</button>
               </div>
             ) : null}
             {graph.kind === 'gantt' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label="任务结构">
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'gantt-task')}><ArrowRight size={13} /> 后续任务</button>
-                <button type="button" onClick={() => addGanttParallel(selectedNode.id)}><ArrowDown size={13} /> 并行任务</button>
-                <button type="button" onClick={() => addGanttParallel(selectedNode.id, 'gantt-milestone')}><Diamond size={12} /> 里程碑</button>
+              <div className="canvas-semantic-tools" role="group" aria-label={t("任务结构")}>
+                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'gantt-task')}><ArrowRight size={13} />  {t("后续任务")}</button>
+                <button type="button" onClick={() => addGanttParallel(selectedNode.id)}><ArrowDown size={13} />  {t("并行任务")}</button>
+                <button type="button" onClick={() => addGanttParallel(selectedNode.id, 'gantt-milestone')}><Diamond size={12} />  {t("里程碑")}</button>
               </div>
             ) : null}
-            {graph.kind === 'class' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'class-class')}><Plus size={13} /> 关联类</button> : null}
-            {graph.kind === 'er' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'er-entity')}><Plus size={13} /> 关联实体</button> : null}
-            <button type="button" className="danger" disabled={(graph.kind === 'mindmap' || graph.kind === 'gantt') && graph.nodes.length === 1} onClick={removeSelection}><Trash2 size={13} /> 删除</button>
+            {graph.kind === 'class' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'class-class')}><Plus size={13} />  {t("关联类")}</button> : null}
+            {graph.kind === 'er' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'er-entity')}><Plus size={13} />  {t("关联实体")}</button> : null}
+            <button type="button" className="danger" disabled={(graph.kind === 'mindmap' || graph.kind === 'gantt') && graph.nodes.length === 1} onClick={removeSelection}><Trash2 size={13} />  {t("删除")}</button>
           </>
         ) : selectedEdge ? (
           <>
-            <span className="canvas-selection-title"><Link2 size={13} /><b>{selectedEdge.label || `已选${copy.edge}`}</b></span>
+            <span className="canvas-selection-title"><Link2 size={13} /><b>{selectedEdge.label || t("已选{0}", copy.edge)}</b></span>
             <span className="canvas-context-divider" />
-            {edgeSupportsLabel ? <button type="button" onClick={() => setEditingEdgeId(selectedEdge.id)}><Pencil size={13} /> {selectedEdge.label ? `改${graph.kind === 'sequence' ? '消息' : '说明'}` : `加${graph.kind === 'sequence' ? '消息' : '说明'}`}</button> : null}
+            {edgeSupportsLabel ? <button type="button" onClick={() => setEditingEdgeId(selectedEdge.id)}><Pencil size={13} /> {selectedEdge.label ? t("改{0}", graph.kind === 'sequence' ? t("消息") : t("说明")) : t("加{0}", graph.kind === 'sequence' ? t("消息") : t("说明"))}</button> : null}
             {graph.kind === 'flowchart' ? (
-              <div className="canvas-edge-style-tools" role="group" aria-label="连线样式">
+              <div className="canvas-edge-style-tools" role="group" aria-label={t("连线样式")}>
                 {EDGE_OPTIONS.map(({ value, label }) => (
                   <button type="button" key={value} className={selectedEdge.style === value ? 'active' : ''} onClick={() => updateEdge(selectedEdge.id, { style: value })}>{label}</button>
                 ))}
               </div>
             ) : null}
             {graph.kind === 'sequence' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label="消息顺序">
-                <label className="canvas-context-select"><span>类型</span><select value={selectedEdge.data?.token ?? '->>'} onChange={(event) => updateEdgeToken(selectedEdge.id, event.target.value)}>{SEQUENCE_MESSAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                <button type="button" disabled={selectedSequenceIndex <= 0} onClick={() => moveEdge(selectedEdge.id, -1)}><ArrowUp size={13} /> 提前</button>
-                <button type="button" disabled={selectedSequenceIndex < 0 || selectedSequenceIndex >= graph.edges.length - 1} onClick={() => moveEdge(selectedEdge.id, 1)}><ArrowDown size={13} /> 延后</button>
+              <div className="canvas-semantic-tools" role="group" aria-label={t("消息顺序")}>
+                <label className="canvas-context-select"><span>{t("类型")}</span><select value={selectedEdge.data?.token ?? '->>'} onChange={(event) => updateEdgeToken(selectedEdge.id, event.target.value)}>{SEQUENCE_MESSAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                <button type="button" disabled={selectedSequenceIndex <= 0} onClick={() => moveEdge(selectedEdge.id, -1)}><ArrowUp size={13} />  {t("提前")}</button>
+                <button type="button" disabled={selectedSequenceIndex < 0 || selectedSequenceIndex >= graph.edges.length - 1} onClick={() => moveEdge(selectedEdge.id, 1)}><ArrowDown size={13} />  {t("延后")}</button>
               </div>
             ) : null}
-            {canReverseSelectedEdge ? <button type="button" onClick={reverseSelectedEdge}><RefreshCcw size={13} /> 反向{copy.edge}</button> : null}
-            {canRemoveSelectedEdge ? <button type="button" className="danger" onClick={removeSelection}><Trash2 size={13} /> {graph.kind === 'mindmap' ? '移到根主题' : '删除'}</button> : null}
+            {canReverseSelectedEdge ? <button type="button" onClick={reverseSelectedEdge}><RefreshCcw size={13} />  {t("反向")}{copy.edge}</button> : null}
+            {canRemoveSelectedEdge ? <button type="button" className="danger" onClick={removeSelection}><Trash2 size={13} /> {graph.kind === 'mindmap' ? t("移到根主题") : t("删除")}</button> : null}
           </>
         ) : (
           <span className="canvas-idle-hint">
             {connectMode
-              ? connectingFrom ? `再点一个${copy.node}完成${copy.edge}；可连续操作` : `点一个${copy.node}作为${copy.edge}起点`
+              ? connectingFrom ? t("再点一个{0}完成{1}；可连续操作", copy.node, copy.edge) : t("点一个{0}作为{1}起点", copy.node, copy.edge)
               : graph.kind === 'sequence'
-                ? '移入对象生命线显示调整区域 · 左右拖动调宽 · 底部拖动调长 · 从连接点或生命线拖动创建消息'
-                : `选择${copy.node}后用方向箭头快速创建 · 右下角端点可连接已有${copy.node} · 双击空白新增`}
+                ? t("移入对象生命线显示调整区域 · 左右拖动调宽 · 底部拖动调长 · 从连接点或生命线拖动创建消息")
+                : t("选择{0}后用方向箭头快速创建 · 右下角端点可连接已有{1} · 双击空白新增", copy.node, copy.node)}
           </span>
         )}
       </div>
 
       {selectedNode && (graph.kind === 'class' || graph.kind === 'er') ? (
         <div className="canvas-semantic-inspector canvas-details-inspector">
-          <span className="canvas-inspector-heading">{graph.kind === 'class' ? '类成员' : '实体字段'}</span>
+          <span className="canvas-inspector-heading">{graph.kind === 'class' ? t("类成员") : t("实体字段")}</span>
           <div className="canvas-detail-list">
             {(selectedNode.data?.details ?? []).map((detail, index) => (
               <label key={`${selectedNode.id}-detail-editor-${index}`}>
@@ -2354,25 +2358,25 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                 <input
                   value={detail}
                   onChange={(event) => updateNodeDetail(selectedNode.id, index, event.target.value)}
-                  placeholder={graph.kind === 'class' ? '+String id 或 +save()' : 'string id PK'}
-                  aria-label={`${graph.kind === 'class' ? '类成员' : '实体字段'} ${index + 1}`}
+                  placeholder={graph.kind === 'class' ? t("+String id 或 +save()") : 'string id PK'}
+                  aria-label={`${graph.kind === 'class' ? t("类成员") : t("实体字段")} ${index + 1}`}
                 />
-                <button type="button" className="canvas-detail-remove" onClick={() => removeNodeDetail(selectedNode.id, index)} aria-label={`删除第 ${index + 1} 项`}><Trash2 size={12} /></button>
+                <button type="button" className="canvas-detail-remove" onClick={() => removeNodeDetail(selectedNode.id, index)} aria-label={t("删除第 {0} 项", index + 1)}><Trash2 size={12} /></button>
               </label>
             ))}
-            <button type="button" className="canvas-detail-add" onClick={() => addNodeDetail(selectedNode.id)}><Plus size={12} /> 添加{graph.kind === 'class' ? '成员' : '字段'}</button>
+            <button type="button" className="canvas-detail-add" onClick={() => addNodeDetail(selectedNode.id)}><Plus size={12} />  {t("添加")}{graph.kind === 'class' ? t("成员") : t("字段")}</button>
           </div>
         </div>
       ) : null}
 
       {selectedNode && graph.kind === 'gantt' ? (
         <div className="canvas-semantic-inspector canvas-gantt-inspector">
-          <label><span>分组</span><input value={selectedNode.data?.ganttSection ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { ganttSection: event.target.value })} placeholder="例如：设计" /></label>
-          <label><span>任务 ID</span><input value={selectedNode.data?.ref ?? selectedNode.id} onChange={(event) => updateNodeData(selectedNode.id, { ref: event.target.value })} placeholder="唯一 ID" /></label>
-          <label><span>开始</span><input disabled={selectedGanttHasDependency} value={selectedGanttStart} onChange={(event) => updateNodeData(selectedNode.id, { ganttStart: event.target.value })} placeholder={selectedGanttHasDependency ? '由依赖关系决定' : 'YYYY-MM-DD'} /></label>
-          <label><span>工期 / 结束</span><input value={selectedNode.data?.ganttTiming?.[0] || '1d'} onChange={(event) => updateGanttTiming(selectedNode.id, 0, event.target.value)} placeholder="例如：5d 或 2026-01-10" /></label>
-          <div className="canvas-gantt-statuses" role="group" aria-label="任务状态">
-            <span>状态</span>
+          <label><span>{t("分组")}</span><input value={selectedNode.data?.ganttSection ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { ganttSection: event.target.value })} placeholder={t("例如：设计")} /></label>
+          <label><span>{t("任务 ID")}</span><input value={selectedNode.data?.ref ?? selectedNode.id} onChange={(event) => updateNodeData(selectedNode.id, { ref: event.target.value })} placeholder={t("唯一 ID")} /></label>
+          <label><span>{t("开始")}</span><input disabled={selectedGanttHasDependency} value={selectedGanttStart} onChange={(event) => updateNodeData(selectedNode.id, { ganttStart: event.target.value })} placeholder={selectedGanttHasDependency ? t("由依赖关系决定") : 'YYYY-MM-DD'} /></label>
+          <label><span>{t("工期 / 结束")}</span><input value={selectedNode.data?.ganttTiming?.[0] || '1d'} onChange={(event) => updateGanttTiming(selectedNode.id, 0, event.target.value)} placeholder={t("例如：5d 或 2026-01-10")} /></label>
+          <div className="canvas-gantt-statuses" role="group" aria-label={t("任务状态")}>
+            <span>{t("状态")}</span>
             {GANTT_STATUS_OPTIONS.map((option) => (
               <button type="button" key={option.value} className={selectedNode.data?.ganttStatuses?.includes(option.value) ? 'active' : ''} onClick={() => toggleGanttStatus(selectedNode.id, option.value)}>{option.label}</button>
             ))}
@@ -2385,48 +2389,48 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           {!selectedEdgeTouchesStatePseudo ? (
             <>
               <label>
-                <span>{graph.kind === 'mindmap' ? '父主题' : graph.kind === 'gantt' ? '前置任务' : '起点'}</span>
+                <span>{graph.kind === 'mindmap' ? t("父主题") : graph.kind === 'gantt' ? t("前置任务") : t("起点")}</span>
                 <select value={selectedEdge.from} onChange={(event) => retargetEdge(selectedEdge.id, 'from', event.target.value)}>
                   {graph.nodes.map((node) => <option key={node.id} value={node.id} disabled={!canRetargetEdge(selectedEdge, 'from', node.id)}>{node.label || node.id}</option>)}
                 </select>
               </label>
               <label>
-                <span>{graph.kind === 'mindmap' ? '子主题' : graph.kind === 'gantt' ? '后续任务' : '终点'}</span>
+                <span>{graph.kind === 'mindmap' ? t("子主题") : graph.kind === 'gantt' ? t("后续任务") : t("终点")}</span>
                 <select value={selectedEdge.to} onChange={(event) => retargetEdge(selectedEdge.id, 'to', event.target.value)}>
                   {graph.nodes.map((node) => <option key={node.id} value={node.id} disabled={!canRetargetEdge(selectedEdge, 'to', node.id)}>{node.label || node.id}</option>)}
                 </select>
               </label>
             </>
-          ) : <span className="canvas-inspector-note">开始或结束状态的连接端点由状态语义固定</span>}
+          ) : <span className="canvas-inspector-note">{t("开始或结束状态的连接端点由状态语义固定")}</span>}
           {graph.kind === 'class' && selectedClassRelation ? (
             <>
-              <label><span>关系类型</span><select value={selectedClassRelation.relation} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassRelation(selectedEdge.data?.token, event.target.value))}>{CLASS_RELATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label><span>起点多重性</span><input value={selectedClassRelation.fromMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'from', event.target.value))} placeholder="例如 1" /></label>
-              <label><span>终点多重性</span><input value={selectedClassRelation.toMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'to', event.target.value))} placeholder="例如 0..*" /></label>
+              <label><span>{t("关系类型")}</span><select value={selectedClassRelation.relation} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassRelation(selectedEdge.data?.token, event.target.value))}>{CLASS_RELATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+              <label><span>{t("起点多重性")}</span><input value={selectedClassRelation.fromMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'from', event.target.value))} placeholder={t("例如 1")} /></label>
+              <label><span>{t("终点多重性")}</span><input value={selectedClassRelation.toMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'to', event.target.value))} placeholder={t("例如 0..*")} /></label>
             </>
           ) : null}
           {graph.kind === 'er' && selectedErRelation ? (
             <>
-              <label><span>起点基数</span><select value={selectedErRelation.from} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(event.target.value as ErCardinality, selectedErRelation.to, selectedErRelation.identifying))}>{ER_CARDINALITIES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label><span>终点基数</span><select value={selectedErRelation.to} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(selectedErRelation.from, event.target.value as ErCardinality, selectedErRelation.identifying))}>{ER_CARDINALITIES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label><span>关系</span><select value={selectedErRelation.identifying ? 'identifying' : 'non-identifying'} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(selectedErRelation.from, selectedErRelation.to, event.target.value === 'identifying'))}><option value="identifying">标识关系</option><option value="non-identifying">非标识关系</option></select></label>
+              <label><span>{t("起点基数")}</span><select value={selectedErRelation.from} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(event.target.value as ErCardinality, selectedErRelation.to, selectedErRelation.identifying))}>{ER_CARDINALITIES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+              <label><span>{t("终点基数")}</span><select value={selectedErRelation.to} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(selectedErRelation.from, event.target.value as ErCardinality, selectedErRelation.identifying))}>{ER_CARDINALITIES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+              <label><span>{t("关系")}</span><select value={selectedErRelation.identifying ? 'identifying' : 'non-identifying'} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(selectedErRelation.from, selectedErRelation.to, event.target.value === 'identifying'))}><option value="identifying">{t("标识关系")}</option><option value="non-identifying">{t("非标识关系")}</option></select></label>
             </>
           ) : null}
-          {graph.kind === 'class' ? <span className="canvas-inspector-note">{classRelationLabel(selectedEdge.data?.token)} · 可直接更换连接两端</span> : null}
+          {graph.kind === 'class' ? <span className="canvas-inspector-note">{classRelationLabel(selectedEdge.data?.token)}  {t("· 可直接更换连接两端")}</span> : null}
         </div>
       ) : null}
 
       {graph.kind === 'sequence' && graph.data?.sequenceItems ? <details className="canvas-groups-panel canvas-sequence-structure">
-        <summary>时序控制结构已保留</summary>
-        <p>画布可编辑参与者与消息；分支、循环、注释和激活指令按原顺序保留。新增消息追加到末尾，控制结构请在源码页调整。</p>
+        <summary>{t("时序控制结构已保留")}</summary>
+        <p>{t("画布可编辑参与者与消息；分支、循环、注释和激活指令按原顺序保留。新增消息追加到末尾，控制结构请在源码页调整。")}</p>
         <pre>{graph.data.sequenceItems.filter((item) => item.kind === 'directive').map((item) => item.source).join('\n')}</pre>
       </details> : null}
       {graph.data?.groups?.length ? <details className="canvas-groups-panel">
-        <summary>包与系统边界（{graph.data.groups.length}）</summary>
+        <summary>{t("包与系统边界（")}{graph.data.groups.length}）</summary>
         <div>{graph.data.groups.map((group) => <div key={group.id}>
-          <input aria-label={`分组名称 ${group.id}`} value={group.label} onChange={(event) => commitGraph({ ...graph, data: { ...graph.data, groups: graph.data!.groups!.map((entry) => entry.id === group.id ? { ...entry, label: event.target.value } : entry) } })} />
-          <select aria-label={`父级分组 ${group.id}`} value={group.parentId ?? ''} onChange={(event) => commitGraph({ ...graph, data: { ...graph.data, groups: graph.data!.groups!.map((entry) => entry.id === group.id ? { ...entry, parentId: event.target.value || undefined } : entry) } })}>
-            <option value="">顶层</option>
+          <input aria-label={t("分组名称 {0}", group.id)} value={group.label} onChange={(event) => commitGraph({ ...graph, data: { ...graph.data, groups: graph.data!.groups!.map((entry) => entry.id === group.id ? { ...entry, label: event.target.value } : entry) } })} />
+          <select aria-label={t("父级分组 {0}", group.id)} value={group.parentId ?? ''} onChange={(event) => commitGraph({ ...graph, data: { ...graph.data, groups: graph.data!.groups!.map((entry) => entry.id === group.id ? { ...entry, parentId: event.target.value || undefined } : entry) } })}>
+            <option value="">{t("顶层")}</option>
             {graph.data!.groups!.filter((candidate) => {
               let current: typeof candidate | undefined = candidate;
               while (current) {
@@ -2436,7 +2440,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
               return true;
             }).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
           </select>
-          <button type="button" onClick={() => removeGroup(group.id)} aria-label={`解散分组 ${group.label}`} title="保留内容并移到父级">解散</button>
+          <button type="button" onClick={() => removeGroup(group.id)} aria-label={t("解散分组 {0}", group.label)} title={t("保留内容并移到父级")}>{t("解散")}</button>
         </div>)}</div>
       </details> : null}
 
@@ -2592,12 +2596,12 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
               if (!geometry || (!semanticLabel && !edge.label && editingEdgeId !== edge.id && selection?.id !== edge.id)) return null;
               const editing = editingEdgeId === edge.id;
               const fallbackLabel = graph.kind === 'sequence'
-                ? '消息'
+                ? t("消息")
                 : graph.kind === 'class'
                   ? classRelationLabel(edge.data?.token)
                   : graph.kind === 'er'
                     ? erRelationLabel(edge.data?.token)
-                    : graph.kind === 'gantt' ? '依赖' : '添加说明';
+                    : graph.kind === 'gantt' ? t("依赖") : t("添加说明");
               return (
                 <div
                   key={`label-${edge.id}`}
@@ -2619,8 +2623,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                         if (event.key === 'Enter') { event.preventDefault(); setEditingEdgeId(null); }
                         if (event.key === 'Escape') { event.preventDefault(); setEditingEdgeId(null); }
                       }}
-                      placeholder={`${copy.edge}说明`}
-                      aria-label={`${copy.edge}说明`}
+                      placeholder={t("{0}说明", copy.edge)}
+                      aria-label={t("{0}说明", copy.edge)}
                     />
                   ) : <span>{edge.label || fallbackLabel}</span>}
                   {graph.kind === 'class' && edge.label ? <small>{classRelationLabel(edge.data?.token)}</small> : null}
@@ -2677,7 +2681,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                       data-mermaid-node-id={node.id}
                       role="button"
                       tabIndex={-1}
-                      aria-label={`选择 ${node.label} 对象生命线`}
+                      aria-label={t("选择 {0} 对象生命线", node.label)}
                       onPointerDown={(event) => {
                         if (event.button !== 0 || spacePressedRef.current) return;
                         event.preventDefault();
@@ -2701,8 +2705,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                         onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                         onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
                         onClick={(event) => event.stopPropagation()}
-                        aria-label={`从 ${node.label} 生命线拖动创建消息`}
-                        title="拖动生命线创建消息"
+                        aria-label={t("从 {0} 生命线拖动创建消息", node.label)}
+                        title={t("拖动生命线创建消息")}
                       />
                     </div>
                   ) : null}
@@ -2727,7 +2731,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                           if (event.key === 'Enter') { event.preventDefault(); setEditingNodeId(null); }
                           if (event.key === 'Escape') setEditingNodeId(null);
                         }}
-                        aria-label={`${copy.node}名称`}
+                        aria-label={t("{0}名称", copy.node)}
                       />
                     ) : <span className="canvas-node-title">{node.label || node.id}</span>}
                     <small className="canvas-node-meta">{nodeMeta(node, graph.kind)}</small>
@@ -2735,12 +2739,12 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                       <div className="canvas-node-details">
                         {(node.data?.details ?? []).length
                           ? (node.data?.details ?? []).slice(0, 6).map((detail, index) => <span key={`${node.id}-detail-${index}`}>{detail || '\u00a0'}</span>)
-                          : <em>{graph.kind === 'class' ? '暂无成员' : '暂无字段'}</em>}
+                          : <em>{graph.kind === 'class' ? t("暂无成员") : t("暂无字段")}</em>}
                       </div>
                     ) : null}
                     {graph.kind === 'gantt' ? (
                       <div className="canvas-node-gantt-meta">
-                        <span>{node.data?.ganttStart || '未设开始'} · {node.data?.ganttTiming?.filter(Boolean).join(' → ') || '未设工期'}</span>
+                        <span>{node.data?.ganttStart || t("未设开始")} · {node.data?.ganttTiming?.filter(Boolean).join(' → ') || t("未设工期")}</span>
                       </div>
                     ) : null}
                   </div>
@@ -2748,14 +2752,14 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                     <div
                       className="canvas-node-resize-frame"
                       style={{ height: lifelineHeight + 14 }}
-                      aria-label={`调整 ${node.label} 对象生命线大小`}
+                      aria-label={t("调整 {0} 对象生命线大小", node.label)}
                     >
                       {([
-                        ['west', '左边缘', '横向调整宽度'],
-                        ['east', '右边缘', '横向调整宽度'],
-                        ['south-west', '左下角', '同时调整宽度与长度'],
-                        ['south', '底部边缘', '纵向调整生命线长度'],
-                        ['south-east', '右下角', '同时调整宽度与长度'],
+                        ['west', t("左边缘"), t("横向调整宽度")],
+                        ['east', t("右边缘"), t("横向调整宽度")],
+                        ['south-west', t("左下角"), t("同时调整宽度与长度")],
+                        ['south', t("底部边缘"), t("纵向调整生命线长度")],
+                        ['south-east', t("右下角"), t("同时调整宽度与长度")],
                       ] as const).map(([handle, label, action]) => (
                         <button
                           type="button"
@@ -2766,14 +2770,14 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                           onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                           onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
                           onClick={(event) => event.stopPropagation()}
-                          aria-label={`从${label}${action} ${node.label}`}
-                          title={`拖动${label}${action}`}
+                          aria-label={t("从{0}{1} {2}", label, action, node.label)}
+                          title={t("拖动{0}{1}", label, action)}
                         />
                       ))}
                     </div>
                   ) : null}
                   {graph.kind === 'sequence' && !editing ? (
-                    <div className="canvas-node-connection-points" aria-label={`从 ${node.label} 拖动创建消息`}>
+                    <div className="canvas-node-connection-points" aria-label={t("从 {0} 拖动创建消息", node.label)}>
                       {(['top', 'right', 'bottom', 'left'] as const).map((side) => (
                         <button
                           type="button"
@@ -2784,14 +2788,14 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                           onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                           onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
                           onClick={(event) => event.stopPropagation()}
-                          aria-label={`从 ${node.label} 的${side === 'top' ? '上方' : side === 'right' ? '右侧' : side === 'bottom' ? '下方' : '左侧'}连接点拖动创建消息`}
-                          title="拖动以连接（Drag to connect）"
+                          aria-label={t("从 {0} 的{1}连接点拖动创建消息", node.label, side === 'top' ? t("上方") : side === 'right' ? t("右侧") : side === 'bottom' ? t("下方") : t("左侧"))}
+                          title={t("拖动以连接（Drag to connect）")}
                         />
                       ))}
                     </div>
                   ) : null}
                   {selected && quickAddDirections.length ? (
-                    <div className="canvas-node-quick-add" aria-label={`围绕 ${node.label} 快速创建`}>
+                    <div className="canvas-node-quick-add" aria-label={t("围绕 {0} 快速创建", node.label)}>
                       {QUICK_ADD_OPTIONS.filter((option) => quickAddDirections.includes(option.value)).map(({ value, label, icon: Icon }) => (
                         <button
                           type="button"
@@ -2804,7 +2808,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                             addConnectedNode(node.id, value, defaultQuickPreset(graph.kind));
                           }}
                           aria-label={`${label}${copy.node}`}
-                          title={`${label}${copy.node}（Tab 可快速向右创建）`}
+                          title={t("{0}{1}（Tab 可快速向右创建）", label, copy.node)}
                         >
                           <Icon size={12} />
                         </button>
@@ -2819,8 +2823,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                       onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                       onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
                       onClick={(event) => event.stopPropagation()}
-                      aria-label={`从 ${node.label} 创建${copy.edge}`}
-                      title={`点击后再选目标，或直接拖到另一${copy.node}`}
+                      aria-label={t("从 {0} 创建{1}", node.label, copy.edge)}
+                      title={t("点击后再选目标，或直接拖到另一{0}", copy.node)}
                     >
                       <Plus size={13} />
                     </button>
@@ -2831,7 +2835,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
 
             {!graph.nodes.length ? (
               <button type="button" className="canvas-empty-action" onClick={(event) => { event.stopPropagation(); addNode(); }}>
-                <Plus size={22} /><strong>{copy.empty}</strong><span>也可以双击画布任意位置</span>
+                <Plus size={22} /><strong>{copy.empty}</strong><span>{t("也可以双击画布任意位置")}</span>
               </button>
             ) : null}
             </div>
@@ -2839,8 +2843,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         </div>
       </div>
       <div className="canvas-editor-status">
-        <span>{graph.nodes.length} 个{copy.nodes} · {graph.edges.length} 条{copy.edges}</span>
-        <span>{graph.kind === 'sequence' ? '点击参与者或生命线选择 · ' : ''}Tab 创建并连接 · C 连线 · N 新建 · 拖动空白平移 · 滚轮缩放 · F 适配</span>
+        <span>{graph.nodes.length}  {t("个")}{copy.nodes} · {graph.edges.length}  {t("条")}{copy.edges}</span>
+        <span>{graph.kind === 'sequence' ? t("点击参与者或生命线选择 · ") : ''}{t("Tab 创建并连接 · C 连线 · N 新建 · 拖动空白平移 · 滚轮缩放 · F 适配")}</span>
       </div>
     </div>
   );

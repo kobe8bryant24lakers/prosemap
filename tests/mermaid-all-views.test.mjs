@@ -41,18 +41,22 @@ test('the workbench renders actual canvas controls for every view, before and af
   });
   try {
     const { default: Workbench } = await server.ssrLoadModule(resolve(root, 'components/MermaidWorkbench.tsx'));
-    for (const { name, source } of cases) {
-      const graph = parseMermaidVisualSource(source);
-      for (const initialSource of [source, serializeMermaidVisualGraph(graph)]) {
-        const html = renderToString(React.createElement(Workbench, {
-          sessionId: 1, initialSource, config: {}, contextDocuments: [], mode: 'edit',
-          onApply() {}, onClose() {}, onOpenSettings() {}, onPickContext() {}, onRemoveContext() {},
-          onRequestConfirmation: async () => false,
-        }));
-        assert.ok(html.includes('Mermaid 可视化画布编辑器'), `${name}: no canvas`);
-        assert.ok(html.includes('canvas-editor-toolbar'), `${name}: no editing controls`);
-        assert.ok(html.includes('mermaid-canvas-node'), `${name}: no editable objects`);
-        assert.ok(!html.includes('只读图表预览'), `${name}: fell back to read-only`);
+    const { setLocale } = await server.ssrLoadModule(resolve(root, 'lib/i18n.ts'));
+    for (const locale of ['en', 'zh-CN']) {
+      setLocale(locale);
+      for (const { name, source } of cases) {
+        const graph = parseMermaidVisualSource(source);
+        for (const initialSource of [source, serializeMermaidVisualGraph(graph)]) {
+          const html = renderToString(React.createElement(Workbench, {
+            sessionId: 1, initialSource, config: {}, contextDocuments: [], mode: 'edit',
+            onApply() {}, onClose() {}, onOpenSettings() {}, onPickContext() {}, onRemoveContext() {},
+            onRequestConfirmation: async () => false,
+          }));
+          assert.ok(html.includes(locale === 'en' ? 'Mermaid visual canvas editor' : 'Mermaid 可视化画布编辑器'), `${name}: no canvas`);
+          assert.ok(html.includes('canvas-editor-toolbar'), `${name}: no editing controls`);
+          assert.ok(html.includes('mermaid-canvas-node'), `${name}: no editable objects`);
+          assert.ok(!html.includes(locale === 'en' ? 'Read-only diagram preview' : '只读图表预览'), `${name}: fell back to read-only`);
+        }
       }
     }
   } finally {

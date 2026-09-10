@@ -1,5 +1,8 @@
 'use client';
 
+import { t, uiMessage } from '@/lib/i18n';
+import { useLocale } from '@/lib/use-locale';
+
 import { diffLines } from 'diff';
 import { BrainCircuit, Check, ChevronDown, ChevronRight, CircleAlert, GitCompareArrows, LoaderCircle, Square, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -13,6 +16,7 @@ type DiffModalProps = {
 };
 
 export default function DiffModal({ proposal, onAccept, onReject, onStop }: DiffModalProps) {
+  useLocale();
   const [reasoningOpen, setReasoningOpen] = useState(true);
   const changes = useMemo(() => diffLines(proposal.original, proposal.modified), [proposal.original, proposal.modified]);
   const stats = useMemo(() => {
@@ -47,35 +51,35 @@ export default function DiffModal({ proposal, onAccept, onReject, onStop }: Diff
           <div className="diff-heading-icon"><GitCompareArrows size={20} /></div>
           <div>
             <div className="diff-title-row">
-              <h2 id="diff-title">{proposal.title}</h2>
-              {proposal.status === 'streaming' ? <span className="stream-badge"><LoaderCircle size={12} /> 正在生成</span> : null}
+              <h2 id="diff-title">{uiMessage(proposal.title)}</h2>
+              {proposal.status === 'streaming' ? <span className="stream-badge"><LoaderCircle size={12} />  {t("正在生成")}</span> : null}
             </div>
-            <p>AI 的建议尚未写入文档，请检查差异后再决定。</p>
+            <p>{t("AI 的建议尚未写入文档，请检查差异后再决定。")}</p>
           </div>
-          <button type="button" className="icon-button modal-close" onClick={proposal.status === 'streaming' ? onStop : onReject} aria-label="关闭差异预览"><X size={18} /></button>
+          <button type="button" className="icon-button modal-close" onClick={proposal.status === 'streaming' ? onStop : onReject} aria-label={t("关闭差异预览")}><X size={18} /></button>
         </header>
 
         <div className="diff-meta">
-          <span>原文</span><span className="diff-arrow">→</span><span>建议版本</span>
+          <span>{t("原文")}</span><span className="diff-arrow">→</span><span>{t("建议版本")}</span>
           <span className="diff-stats"><b>+{stats.added}</b><i>−{stats.removed}</i></span>
         </div>
 
         <section className={`reasoning-panel${reasoningOpen ? ' open' : ''}`}>
           <button type="button" className="reasoning-toggle" onClick={() => setReasoningOpen((open) => !open)} aria-expanded={reasoningOpen}>
             <BrainCircuit size={16} />
-            <span><strong>AI 思考过程</strong><small>{reasoning ? `已接收 ${reasoning.length} 个字符` : proposal.status === 'streaming' ? '等待模型返回推理内容' : '模型未返回推理内容'}</small></span>
+            <span><strong>{t("AI 思考过程")}</strong><small>{reasoning ? t("已接收 {0} 个字符", reasoning.length) : proposal.status === 'streaming' ? t("等待模型返回推理内容") : t("模型未返回推理内容")}</small></span>
             {proposal.status === 'streaming' ? <LoaderCircle className="spinning" size={14} /> : reasoningOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
           {reasoningOpen ? (
             <div className="reasoning-content" aria-live="polite">
-              {reasoning ? <pre>{reasoning}</pre> : <p>{proposal.status === 'streaming' ? '正在等待模型提供可展示的思考过程…' : '当前模型或接口没有返回可展示的思考过程。'}</p>}
+              {reasoning ? <pre>{reasoning}</pre> : <p>{proposal.status === 'streaming' ? t("正在等待模型提供可展示的思考过程…") : t("当前模型或接口没有返回可展示的思考过程。")}</p>}
             </div>
           ) : null}
         </section>
 
         <div className="diff-content" aria-live="polite">
           {proposal.status === 'error' && !proposal.modified ? (
-            <div className="diff-waiting diff-failed"><CircleAlert size={22} /><span>未收到模型返回内容</span></div>
+            <div className="diff-waiting diff-failed"><CircleAlert size={22} /><span>{t("未收到模型返回内容")}</span></div>
           ) : proposal.modified || proposal.status === 'streaming' ? (
             <pre>
               {changes.map((change, changeIndex) => {
@@ -93,21 +97,21 @@ export default function DiffModal({ proposal, onAccept, onReject, onStop }: Diff
               {proposal.status === 'streaming' ? <span className="stream-caret" /> : null}
             </pre>
           ) : (
-            <div className="diff-waiting"><LoaderCircle size={22} /><span>正在准备第一段建议…</span></div>
+            <div className="diff-waiting"><LoaderCircle size={22} /><span>{t("正在准备第一段建议…")}</span></div>
           )}
         </div>
 
-        {proposal.error ? <div className="diff-error" role="alert">{proposal.error}</div> : null}
+        {proposal.error ? <div className="diff-error" role="alert">{uiMessage(proposal.error)}</div> : null}
 
         <footer className="diff-footer">
-          <div className="privacy-note">修改仅在你接受后写入编辑器</div>
+          <div className="privacy-note">{t("修改仅在你接受后写入编辑器")}</div>
           <div className="diff-buttons">
             {proposal.status === 'streaming' ? (
-              <button type="button" className="secondary-button" onClick={onStop}><Square size={14} /> 停止生成</button>
+              <button type="button" className="secondary-button" onClick={onStop}><Square size={14} />  {t("停止生成")}</button>
             ) : (
-              <button type="button" className="secondary-button" onClick={onReject}><X size={15} /> 拒绝</button>
+              <button type="button" className="secondary-button" onClick={onReject}><X size={15} />  {t("拒绝")}</button>
             )}
-            <button type="button" className="confirm-button" onClick={onAccept} disabled={proposal.status !== 'ready' || !proposal.modified.trim()}><Check size={15} /> 接受并替换</button>
+            <button type="button" className="confirm-button" onClick={onAccept} disabled={proposal.status !== 'ready' || !proposal.modified.trim()}><Check size={15} />  {t("接受并替换")}</button>
           </div>
         </footer>
       </section>

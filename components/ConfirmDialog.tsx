@@ -1,5 +1,8 @@
 'use client';
 
+import { t, uiMessage } from '@/lib/i18n';
+import { useLocale } from '@/lib/use-locale';
+
 import { AlertTriangle, X } from 'lucide-react';
 import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -20,12 +23,13 @@ type ConfirmDialogProps = ConfirmationRequest & {
 export default function ConfirmDialog({
   title,
   message,
-  confirmLabel = '继续',
-  cancelLabel = '取消',
+  confirmLabel = t("继续"),
+  cancelLabel = t("取消"),
   destructive = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  useLocale();
   const titleId = useId();
   const messageId = useId();
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -68,14 +72,14 @@ export default function ConfirmDialog({
         <header>
           <span className="confirmation-icon"><AlertTriangle size={19} /></span>
           <div>
-            <h2 id={titleId}>{title}</h2>
-            <p id={messageId}>{message}</p>
+            <h2 id={titleId}>{uiMessage(title)}</h2>
+            <p id={messageId}>{uiMessage(message)}</p>
           </div>
-          <button type="button" className="icon-button" onClick={onCancel} aria-label="关闭确认对话框"><X size={17} /></button>
+          <button type="button" className="icon-button" onClick={onCancel} aria-label={t("关闭确认对话框")}><X size={17} /></button>
         </header>
         <footer>
-          <button ref={cancelRef} type="button" className="secondary-button" onClick={onCancel}>{cancelLabel}</button>
-          <button type="button" className={`confirmation-submit${destructive ? ' destructive' : ''}`} onClick={onConfirm}>{confirmLabel}</button>
+          <button ref={cancelRef} type="button" className="secondary-button" onClick={onCancel}>{uiMessage(cancelLabel)}</button>
+          <button type="button" className={`confirmation-submit${destructive ? ' destructive' : ''}`} onClick={onConfirm}>{uiMessage(confirmLabel)}</button>
         </footer>
       </section>
     </div>,

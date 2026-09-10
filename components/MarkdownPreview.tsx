@@ -1,5 +1,8 @@
 'use client';
 
+import { t, uiMessage } from '@/lib/i18n';
+import { useLocale } from '@/lib/use-locale';
+
 import { useState } from 'react';
 import { isDesktopRuntime } from '@/lib/ai-client';
 import { previewHeadingIds, isExternalPreviewLink } from '@/lib/preview-links';
@@ -17,13 +20,14 @@ type MarkdownPreviewProps = {
 };
 
 export default function MarkdownPreview({ markdown, onEditMermaid }: MarkdownPreviewProps) {
+  useLocale();
   const [linkError, setLinkError] = useState('');
   if (!markdown.trim()) {
     return (
       <div className="preview-empty">
         <span><FileText size={23} /></span>
-        <strong>预览会出现在这里</strong>
-        <p>从左侧开始写 Markdown，内容会实时呈现。</p>
+        <strong>{t("预览会出现在这里")}</strong>
+        <p>{t("从左侧开始写 Markdown，内容会实时呈现。")}</p>
       </div>
     );
   }
@@ -38,13 +42,13 @@ export default function MarkdownPreview({ markdown, onEditMermaid }: MarkdownPre
             const id = decodeURIComponent(href.slice(1));
             const target = Array.from(event.currentTarget.closest('article')?.querySelectorAll('[id]') ?? []).find((element) => element.id === id);
             if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            else setLinkError('未找到对应的文档标题');
-          } catch { setLinkError('标题链接无效'); }
+            else setLinkError(t("未找到对应的文档标题"));
+          } catch { setLinkError(t("标题链接无效")); }
           return;
         }
         if (!href || !isExternalPreviewLink(href)) {
           event.preventDefault();
-          setLinkError('暂不支持此链接类型，请使用完整网页地址或页内标题链接。');
+          setLinkError(t("暂不支持此链接类型，请使用完整网页地址或页内标题链接。"));
           return;
         }
         // Prevent default before awaiting desktop detection; browser windows must
@@ -56,7 +60,7 @@ export default function MarkdownPreview({ markdown, onEditMermaid }: MarkdownPre
               const { invoke } = await import('@tauri-apps/api/core');
               await invoke('open_external_url', { url: href });
             }
-          } catch { setLinkError('无法打开链接，请检查系统默认浏览器或邮件应用。'); }
+          } catch { setLinkError(t("无法打开链接，请检查系统默认浏览器或邮件应用。")); }
         }
       }}>{children}</a>;
     },
@@ -96,7 +100,7 @@ export default function MarkdownPreview({ markdown, onEditMermaid }: MarkdownPre
 
   return (
     <article className="markdown-body">
-      <>{linkError && <div className="preview-link-error" role="alert">{linkError}</div>}<ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[previewHeadingIds]} components={components}>{markdown}</ReactMarkdown></>
+      <>{linkError && <div className="preview-link-error" role="alert">{uiMessage(linkError)}</div>}<ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[previewHeadingIds]} components={components}>{markdown}</ReactMarkdown></>
     </article>
   );
 }

@@ -78,7 +78,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .icon-button { width: 34px; height: 34px; display: inline-grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--muted); }
 .icon-button:hover { background: var(--paper-deep); color: var(--ink); }
 
-.mobile-view-tabs { display: none; }
 .workspace { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 55px minmax(360px, 1fr) minmax(400px, 1.08fr); overflow: hidden; }
 .workspace.with-assistant { grid-template-columns: 55px minmax(330px, .92fr) minmax(360px, 1fr) 380px; }
 .workspace.with-files, .workspace.with-files.with-assistant { grid-template-columns: 55px 230px minmax(340px, 1fr) minmax(380px, 1.08fr); }
@@ -390,16 +389,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .topbar { height: 58px; grid-template-columns: 1fr auto; padding: 0 11px; }
   .brand small, .document-control, .model-pill { display: none; }
   .header-primary { width: 34px; padding: 0; font-size: 0; }.header-primary svg { margin: 0; }
-  .mobile-view-tabs { height: 39px; flex: none; display: grid; grid-template-columns: 1fr 1fr; padding: 4px; border-bottom: 1px solid var(--line); background: #edf1ed; }
-  .mobile-view-tabs button { display: flex; align-items: center; justify-content: center; gap: 5px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: var(--font-ui); font-weight: 700; }
-  .mobile-view-tabs button.active { background: #fff; color: var(--green); box-shadow: 0 2px 7px rgb(24 52 39 / 8%); }
   .workspace, .workspace.with-assistant, .workspace.with-files, .workspace.with-files.with-assistant { grid-template-columns: 49px 1fr; }
   .file-explorer { left: 49px; width: min(270px, calc(100% - 49px)); }
-  .preview-pane { display: none; }
-  .view-preview .editor-pane { display: none; }
-  .view-preview .preview-pane { display: flex; }
-  .view-preview .workspace { grid-template-columns: 49px 1fr; }
-  .view-split .mobile-view-tabs button:first-child { background: #fff; color: var(--green); }
   .assistant-panel { width: min(370px, calc(100% - 49px)); }
   .markdown-body { padding: 34px clamp(18px, 5vw, 36px) 72px; }
 }
@@ -472,4 +463,33 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .import-button, .folder-button, .export-button, .header-primary { width: 29px; }
   .language-switcher { max-width: 62px; }
   .settings-header, .diff-header { align-items: flex-start; }
+}
+
+/* View controls stay available at every window size. Keep both panes mounted
+   so switching views preserves editor history and selection. */
+.view-controls { display: flex; flex: none; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: #edf1ed; }
+.view-controls button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 12px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: var(--font-ui); font-weight: 700; }
+.view-controls button.active { background: #fff; color: var(--green); box-shadow: 0 2px 7px rgb(24 52 39 / 8%); }
+.view-editor .preview-pane, .view-preview .editor-pane { display: none; }
+.app-shell:not(.view-split) .workspace { grid-template-columns: 55px minmax(0, 1fr); }
+.app-shell:not(.view-split) .workspace.with-assistant { grid-template-columns: 55px minmax(0, 1fr) 380px; }
+.app-shell:not(.view-split) .workspace.with-files { grid-template-columns: 55px 230px minmax(0, 1fr); }
+.preview-image-error { display: inline-block; padding: 10px 12px; border: 1px dashed #d2a28b; border-radius: 6px; color: #8e341d; background: #fff0e6; font-size: var(--font-ui); overflow-wrap: anywhere; }
+@media (max-width: 1360px) {
+  .app-shell:not(.view-split) .workspace.with-assistant:not(.with-files) { grid-template-columns: 55px minmax(0, 1fr); }
+}
+@media (max-width: 1200px) {
+  .app-shell:not(.view-split) .workspace:is(.workspace.with-assistant, .with-files, .workspace) { grid-template-columns: 51px minmax(0, 1fr); }
+}
+@media (max-width: 820px) {
+  .app-shell:not(.view-split) .workspace:is(.workspace.with-assistant, .with-files, .workspace) { grid-template-columns: 49px minmax(0, 1fr); }
+  .app-shell.view-split .workspace { grid-template-columns: 49px minmax(0, 1fr) minmax(0, 1fr); }
+  .view-split .pane-header { overflow-x: auto; }
+  .view-split .preview-tools { display: none; }
+}
+@media (max-width: 560px) {
+  .app-shell:not(.view-split) .workspace:is(.workspace.with-assistant, .with-files, .workspace) { grid-template-columns: minmax(0, 1fr); }
+  .app-shell.view-split .workspace { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .view-controls { padding-inline: 4px; }
+  .view-controls button { flex: 1; padding-inline: 4px; }
 }

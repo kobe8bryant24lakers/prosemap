@@ -413,6 +413,77 @@ fn safe_suggested_name(suggested_name: &str) -> String {
     }
 }
 
+#[derive(Serialize)]
+pub struct LocalImage {
+    bytes: Vec<u8>,
+    mime: &'static str,
+}
+
+fn relative_image_path(document: &Path, source: &str) -> Result<PathBuf, String> {
+    let source = source.replace('\\', "/");
+    if source.is_empty()
+        || source.starts_with('/')
+        || source.starts_with('#')
+        || url::Url::parse(&source).is_ok()
+    {
+        return Err("仅支持相对路径图片".into());
+    }
+    let base = url::Url::from_file_path(document).map_err(|_| "文档路径无效")?;
+    let resolved = base.join(&source).map_err(|_| "图片路径无效")?;
+    resolved.to_file_path().map_err(|_| "图片路径无效".into())
+}
+
+fn load_local_image(
+    document_path: &Path,
+    source: &str,
+    state: &FileAccessState,
+) -> Result<LocalImage, String> {
+    let document = canonical_existing(document_path)?;
+    if !state.is_authorized(&document) || !is_markdown(&document) {
+        return Err("该路径尚未通过系统选择器授权".into());
+    }
+    let path = canonical_existing(&relative_image_path(&document, source)?)?;
+    let extension = path
+        .extension()
+        .and_then(OsStr::to_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let mime = match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        _ => return Err("不支持的图片格式".into()),
+    };
+    // Bound both the allocation and read, even if the file grows after metadata.
+    let file = File::open(&path).map_err(|_| "无法读取图片")?;
+    let metadata = file.metadata().map_err(|_| "无法读取图片")?;
+    const LIMIT: u64 = 20 * 1024 * 1024;
+    if !metadata.is_file() || metadata.len() > LIMIT {
+        return Err("图片必须是小于 20 MB 的文件".into());
+    }
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::Read::take(file, LIMIT + 1), &mut bytes)
+        .map_err(|_| "无法读取图片")?;
+    if bytes.len() as u64 > LIMIT {
+        return Err("图片必须是小于 20 MB 的文件".into());
+    }
+    Ok(LocalImage { bytes, mime })
+}
+
+#[tauri::command]
+pub fn read_local_image(
+    document_path: String,
+    source: String,
+    state: State<'_, FileAccessState>,
+) -> Result<LocalImage, String> {
+    load_local_image(Path::new(&document_path), &source, &state)
+}
+
 fn create_temporary_sibling(destination: &Path) -> io::Result<(PathBuf, File)> {
     let directory = destination
         .parent()
@@ -551,6 +622,53 @@ pub fn read_launch_target(state: State<'_, FileAccessState>) -> Option<LaunchTar
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_paths_resolve_against_document_with_url_decoding() {
+        let root = std::env::temp_dir();
+        let document = root.join("notes").join("draft.md");
+        assert_eq!(
+            relative_image_path(&document, "../images/图%20片.png?v=1#x").unwrap(),
+            root.join("images").join("图 片.png")
+        );
+        assert_eq!(
+            relative_image_path(&document, "assets\\image.png").unwrap(),
+            root.join("notes").join("assets").join("image.png")
+        );
+        for source in [
+            "",
+            "/etc/image.png",
+            "https://example.com/image.png",
+            "file:///tmp/image.png",
+            "//server/image.png",
+            "#icon",
+        ] {
+            assert!(relative_image_path(&document, source).is_err());
+        }
+    }
+
+    #[test]
+    fn images_require_an_authorized_document_and_supported_file() {
+        let root = std::env::temp_dir().join(format!(
+            "prosemap-images-{}-{}",
+            std::process::id(),
+            SAVE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(root.join("notes")).unwrap();
+        let document = root.join("notes/draft.md");
+        fs::write(&document, "![image](../图%20片.png)").unwrap();
+        fs::write(root.join("图 片.png"), b"image bytes").unwrap();
+        fs::write(root.join("secret.txt"), "private text").unwrap();
+        let state = FileAccessState::default();
+        assert!(load_local_image(&document, "../图%20片.png", &state).is_err());
+        state.authorize_file(fs::canonicalize(&document).unwrap());
+        let image = load_local_image(&document, "../图%20片.png", &state).unwrap();
+        assert_eq!(image.mime, "image/png");
+        assert_eq!(image.bytes, b"image bytes");
+        assert!(load_local_image(&document, "../secret.txt", &state).is_err());
+        assert!(load_local_image(&document, "missing.png", &state).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn recognizes_supported_markdown_extensions_case_insensitively() {

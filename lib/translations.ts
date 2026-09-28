@@ -1,5 +1,11 @@
 // UI copy only. Never pass document content through this dictionary.
 export const english: Record<string, string> = {
+  "纯编辑": "Editor only",
+  "纯预览": "Preview only",
+  "左编辑右预览": "Side by side",
+  "请在桌面端打开或保存 Markdown 文件以加载相对路径图片": "Open or save the Markdown file in the desktop app to load relative images.",
+  "图片加载失败，请检查路径和文件是否存在": "Image could not be loaded. Check its path and that the file exists.",
+  "正在加载图片…": "Loading image…",
   "AI 返回的图表包含不允许的指令或 HTML，请调整要求后重试": "The generated diagram contains unsupported directives or HTML. Revise your request and try again.",
   "AI 返回的 Mermaid 语法未通过校验，请重试或简化要求": "The generated Mermaid syntax is invalid. Retry or simplify your request.",
   "ProseMap 入门": "Welcome to ProseMap",

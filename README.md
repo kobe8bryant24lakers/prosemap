@@ -31,7 +31,8 @@ Screenshots show the actual production frontend with sample documents. Native fi
 ## Highlights
 
 - Open individual Markdown files or browse every Markdown document in a local folder.
-- Edit Markdown with a responsive desktop-first workspace and live preview.
+- Edit Markdown in editor-only, preview-only, or side-by-side views using the persistent view controls.
+- Preview relative local images resolved against the saved Markdown document, including parent directories, Unicode names, and URL-encoded paths.
 - Highlight common fenced-code languages in both the editor and preview; copy code directly from each preview block.
 - Edit code with two-space indentation, Tab / Shift+Tab, bracket matching and completion, and folding.
 - Format the current code block with Prettier and undo the change in one step.
@@ -163,7 +164,7 @@ AI features require network access to the provider selected by the user. Local e
 - Credentials in URLs, query strings, fragments, redirects, and unusable network destinations are rejected.
 - Validated hostname results are pinned to the outgoing model request to prevent DNS rebinding between validation and connection.
 - Upstream errors are size-limited and API keys are redacted.
-- File access is limited to paths explicitly selected by the user or delivered through an operating-system file association.
+- Document access is limited to paths explicitly selected by the user or delivered through an operating-system file association. Relative preview images are loaded from references in authorized Markdown documents, restricted to supported image extensions and 20 MB per image.
 - AI context files are selected explicitly, read locally, shown in the request UI, and bounded to 80,000 characters before they are sent to the configured model provider.
 - Workspace traversal skips symlinks and applies file count, depth, extension, and size limits.
 - Saves use a synchronized temporary sibling followed by atomic replacement, protecting the original document from partial writes.

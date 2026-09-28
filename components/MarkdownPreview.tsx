@@ -3,7 +3,8 @@
 import { t, uiMessage } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
 
-import { useState } from 'react';
+import { useCallback, useState, type ImgHTMLAttributes } from 'react';
+import PreviewImage from './PreviewImage';
 import { isDesktopRuntime } from '@/lib/ai-client';
 import { previewHeadingIds, isExternalPreviewLink } from '@/lib/preview-links';
 import CodeBlock from './CodeBlock';
@@ -16,12 +17,16 @@ import MermaidDiagram from './MermaidDiagram';
 
 type MarkdownPreviewProps = {
   markdown: string;
+  documentPath?: string | null;
   onEditMermaid?: (target: NonNullable<MermaidTarget>) => void;
 };
 
-export default function MarkdownPreview({ markdown, onEditMermaid }: MarkdownPreviewProps) {
+export default function MarkdownPreview({ markdown, documentPath, onEditMermaid }: MarkdownPreviewProps) {
   useLocale();
   const [linkError, setLinkError] = useState('');
+  const renderImage = useCallback(({ src, alt, title }: ImgHTMLAttributes<HTMLImageElement>) => (
+    <PreviewImage src={typeof src === 'string' ? src : undefined} alt={alt} title={title} documentPath={documentPath} />
+  ), [documentPath]);
   if (!markdown.trim()) {
     return (
       <div className="preview-empty">
@@ -33,6 +38,7 @@ export default function MarkdownPreview({ markdown, onEditMermaid }: MarkdownPre
   }
 
   const components: Components = {
+    img: renderImage,
     a({ children, href, title }) {
       return <a href={href} title={title} target={href?.startsWith('#') ? undefined : '_blank'} rel="noreferrer noopener" onClick={async (event) => {
         setLinkError('');

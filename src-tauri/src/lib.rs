@@ -109,6 +109,7 @@ pub fn run() {
             files::pick_markdown_folder,
             files::pick_ai_context_files,
             files::read_local_markdown,
+            files::read_local_image,
             files::save_local_markdown,
             files::read_launch_target,
             secure_config::save_model_config,

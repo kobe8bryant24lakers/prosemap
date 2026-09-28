@@ -938,9 +938,10 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="mobile-view-tabs" role="tablist" aria-label={t("编辑器视图")}>
-        <button type="button" className={viewMode === 'editor' ? 'active' : ''} onClick={() => setViewMode('editor')}><PenLine size={14} />  {t("编辑")}</button>
-        <button type="button" className={viewMode === 'preview' ? 'active' : ''} onClick={() => setViewMode('preview')}><Eye size={14} />  {t("预览")}</button>
+      <div className="view-controls" role="group" aria-label={t("编辑器视图")}>
+        <button type="button" aria-pressed={viewMode === 'editor'} className={viewMode === 'editor' ? 'active' : ''} onClick={() => setViewMode('editor')}><PenLine size={14} />  {t("纯编辑")}</button>
+        <button type="button" aria-pressed={viewMode === 'preview'} className={viewMode === 'preview' ? 'active' : ''} onClick={() => setViewMode('preview')}><Eye size={14} />  {t("纯预览")}</button>
+        <button type="button" aria-pressed={viewMode === 'split'} className={viewMode === 'split' ? 'active' : ''} onClick={() => setViewMode('split')}><PanelLeft size={14} /> {t("左编辑右预览")}</button>
       </div>
 
       <section className={`workspace ${assistantOpen ? 'with-assistant' : ''} ${fileExplorerOpen ? 'with-files' : ''}`}>
@@ -1054,7 +1055,7 @@ export default function Home() {
               <button type="button" className="ai-chip" onClick={() => openAssistant('custom')}><Sparkles size={13} />  {t("AI 助手")}</button>
             </div>
           </header>
-          <div ref={previewScrollRef} className="preview-scroll"><MarkdownPreview markdown={content} onEditMermaid={openMermaidTarget} /></div>
+          <div ref={previewScrollRef} className="preview-scroll"><MarkdownPreview markdown={content} documentPath={localPath} onEditMermaid={openMermaidTarget} /></div>
         </section>
 
         {assistantOpen ? (

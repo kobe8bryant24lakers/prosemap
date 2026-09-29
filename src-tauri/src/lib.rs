@@ -112,8 +112,9 @@ pub fn run() {
             files::read_local_image,
             files::save_local_markdown,
             files::read_launch_target,
-            secure_config::save_model_config,
-            secure_config::load_model_config,
+            secure_config::save_model_profiles,
+            secure_config::load_model_profiles,
+            secure_config::select_model_profile,
         ])
         .build(tauri::generate_context!())
         .expect("无法初始化 ProseMap 桌面端");

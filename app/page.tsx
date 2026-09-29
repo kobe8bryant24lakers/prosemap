@@ -24,7 +24,6 @@ import {
   FolderOpen,
   Heading2,
   Italic,
-  KeyRound,
   Link as LinkIcon,
   List,
   PanelLeft,
@@ -32,7 +31,6 @@ import {
   Quote,
   Save,
   Settings2,
-  ShieldCheck,
   Sparkles,
   Table2,
   TextQuote,
@@ -48,13 +46,14 @@ import MermaidWorkbench from '@/components/MermaidWorkbench';
 import SettingsModal from '@/components/SettingsModal';
 import { isDesktopRuntime, streamAi } from '@/lib/ai-client';
 import { createAiContextBlock, mergeAiContextDocuments, type AiContextDocument } from '@/lib/ai-context';
-import { loadModelConfig, saveModelConfig } from '@/lib/model-config';
+import { loadModelProfiles, saveModelProfiles, selectModelProfile } from '@/lib/model-config';
+import { activeModelProfile, emptyModelConfig, emptyModelProfiles, type ModelProfiles } from '@/lib/model-profiles';
+import ModelSwitcher from '@/components/ModelSwitcher';
 import { parseMermaid } from '@/lib/mermaid-runtime';
 import { UML_AI_GUIDANCE } from '@/lib/mermaid-workbench';
 import { synchronizedScrollTop } from '@/lib/scroll-sync';
 import {
   ACTION_LABELS,
-  OPENAI_BASE_URL,
   countReadableCharacters,
   createMermaidDocumentEdit,
   findMermaidTarget,
@@ -62,7 +61,6 @@ import {
   stripCodeFence,
   type AssistAction,
   type MermaidTarget,
-  type ModelConfig,
   type Proposal,
   type SelectionRange,
 } from '@/lib/editor';
@@ -168,7 +166,11 @@ export default function Home() {
   const [assistantAction, setAssistantAction] = useState<AssistAction>('polish');
   const [mermaidWorkbench, setMermaidWorkbench] = useState<MermaidWorkbenchSession | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [config, setConfig] = useState<ModelConfig>({ provider: 'openai', baseUrl: OPENAI_BASE_URL, model: '', apiKey: '' });
+  const [modelProfiles, setModelProfiles] = useState<ModelProfiles>(emptyModelProfiles);
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsSaving, setModelsSaving] = useState(false);
+  const modelsSavingRef = useRef(false);
+  const config = activeModelProfile(modelProfiles) ?? emptyModelConfig;
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [dragging, setDragging] = useState(false);
   const [localPath, setLocalPath] = useState<string | null>(null);
@@ -193,7 +195,7 @@ export default function Home() {
   const workbenchSessionIdRef = useRef(0);
   const dirtyRef = useRef(false);
   const configChangedRef = useRef(false);
-  const configLoadRef = useRef<Promise<ModelConfig | null> | null>(null);
+  const configLoadRef = useRef<Promise<ModelProfiles | null> | null>(null);
   const confirmationIdRef = useRef(0);
   const confirmationResolverRef = useRef<{ id: number; resolve: (confirmed: boolean) => void } | null>(null);
   const closeConfirmationPendingRef = useRef(false);
@@ -292,16 +294,36 @@ export default function Home() {
 
   useEffect(() => {
     let active = true;
-    configLoadRef.current ??= loadModelConfig();
+    configLoadRef.current ??= loadModelProfiles();
     void configLoadRef.current
       .then((saved) => {
-        if (active && saved && !configChangedRef.current) setConfig(saved);
+        if (active && saved && !configChangedRef.current) setModelProfiles(saved);
       })
       .catch((reason: unknown) => {
         if (active) showToast('error', reason instanceof Error ? reason.message : t("无法读取已保存的模型配置"));
-      });
+      }).finally(() => { if (active) setModelsLoading(false); });
     return () => { active = false; };
   }, [showToast]);
+
+  async function switchModel(id: string) {
+    if (modelsLoading || modelsSavingRef.current || id === modelProfiles.activeId || !modelProfiles.profiles.some((profile) => profile.id === id)) return;
+    modelsSavingRef.current = true;
+    setModelsSaving(true);
+    const next = { ...modelProfiles, activeId: id };
+    try {
+      await selectModelProfile(id);
+      configChangedRef.current = true;
+      setModelProfiles(next);
+      showToast('success', t('已切换到 {0}', activeModelProfile(next)!.name));
+    } catch (reason) {
+      showToast('error', typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t('模型配置保存失败'));
+    } finally {
+      modelsSavingRef.current = false;
+      setModelsSaving(false);
+    }
+  }
+
+  const modelSwitcher = <ModelSwitcher settings={modelProfiles} disabled={modelsLoading || modelsSaving || settingsOpen} onSelect={(id) => void switchModel(id)} onManage={() => setSettingsOpen(true)} />;
 
   const applyLocalDocument = useCallback((document: ReplaceableDocument, announcement: string | false = t("已打开 {0}", document.name)) => {
     abortRef.current?.abort();
@@ -926,10 +948,7 @@ export default function Home() {
             <option value="en" lang="en">EN</option>
             <option value="zh-CN" lang="zh-CN">中文</option>
           </select>
-          <button type="button" className={`model-pill ${configured ? 'connected' : ''}`} onClick={() => setSettingsOpen(true)}>
-            {configured ? <ShieldCheck size={14} /> : <KeyRound size={14} />}
-            <span>{configured ? config.model : t("连接模型")}</span>
-          </button>
+          <div className="header-model-switcher"><ModelSwitcher settings={modelProfiles} disabled={modelsLoading || modelsSaving || settingsOpen} onSelect={(id) => void switchModel(id)} onManage={() => setSettingsOpen(true)} /></div>
           <button type="button" className="header-button import-button" onClick={() => void openFile()}><FolderOpen size={15} />  {t("打开文件")}</button>
           <button type="button" className="header-button folder-button" onClick={() => void openFolder()}><Folder size={15} />  {t("打开文件夹")}</button>
           <button type="button" className="header-button export-button" onClick={() => void saveDocument(true)}><FileDown size={15} />  {t("另存为")}</button>
@@ -1062,6 +1081,7 @@ export default function Home() {
           <AssistantPanel
             action={assistantAction}
             config={config}
+            modelSwitcher={modelSwitcher}
             targetLength={targetLength}
             hasSelection={selection.from !== selection.to}
             hasMermaidTarget={Boolean(mermaidTarget)}
@@ -1082,6 +1102,7 @@ export default function Home() {
           key={mermaidWorkbench.id}
           sessionId={mermaidWorkbench.id}
           config={config}
+          modelSwitcher={modelSwitcher}
           contextDocuments={aiContextDocuments}
           initialSource={mermaidWorkbench.target?.source}
           inactive={settingsOpen}
@@ -1096,15 +1117,15 @@ export default function Home() {
           interactionSuspended={Boolean(confirmation)}
         />
       ) : null}
-      {settingsOpen ? (
+      {settingsOpen && !modelsLoading && !modelsSaving ? (
         <SettingsModal
-          config={config}
+          settings={modelProfiles}
           onClose={() => setSettingsOpen(false)}
           onSave={async (next) => {
             try {
-              const storage = await saveModelConfig(next);
+              const storage = await saveModelProfiles(next);
               configChangedRef.current = true;
-              setConfig(next);
+              setModelProfiles(next);
               setSettingsOpen(false);
               showToast(
                 storage === 'memory' ? 'info' : 'success',
@@ -1113,7 +1134,7 @@ export default function Home() {
                   : t("浏览器预览环境不会持久化密钥，配置仅保留在本次会话"),
               );
             } catch (reason) {
-              showToast('error', reason instanceof Error ? reason.message : t("模型配置保存失败"));
+              showToast('error', typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("模型配置保存失败"));
             }
           }}
         />

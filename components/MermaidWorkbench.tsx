@@ -1,5 +1,7 @@
 'use client';
 
+import type { ReactNode } from 'react';
+
 import { templateSource } from '@/lib/localized-content';
 import { t, uiMessage } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
@@ -55,6 +57,7 @@ type AiDraftValidation = {
 type MermaidWorkbenchProps = {
   sessionId: number;
   config: ModelConfig;
+  modelSwitcher: ReactNode;
   initialSource?: string;
   inactive?: boolean;
   interactionSuspended?: boolean;
@@ -122,6 +125,7 @@ function isEditingTarget(target: EventTarget | null): boolean {
 export default function MermaidWorkbench({
   sessionId,
   config,
+  modelSwitcher,
   initialSource = '',
   inactive = false,
   interactionSuspended = false,
@@ -536,6 +540,7 @@ export default function MermaidWorkbench({
                       ) : null}
                     </section>
                   ) : null}
+                  {modelSwitcher}
                   {!configured ? (
                     <button type="button" className="workbench-configure" onClick={onOpenSettings}>{t("先连接模型")}</button>
                   ) : null}

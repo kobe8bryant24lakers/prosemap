@@ -1,5 +1,7 @@
 'use client';
 
+import type { ReactNode } from 'react';
+
 import { t } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
 
@@ -11,6 +13,7 @@ import { ACTION_LABELS, type AssistAction, type ModelConfig } from '@/lib/editor
 type AssistantPanelProps = {
   action: AssistAction;
   config: ModelConfig;
+  modelSwitcher: ReactNode;
   targetLength: number;
   hasSelection: boolean;
   hasMermaidTarget: boolean;
@@ -33,6 +36,7 @@ const textActions: Array<{ action: Exclude<AssistAction, 'mermaid'>; icon: typeo
 export default function AssistantPanel({
   action,
   config,
+  modelSwitcher,
   targetLength,
   hasSelection,
   hasMermaidTarget,
@@ -122,7 +126,7 @@ export default function AssistantPanel({
               <KeyRound size={16} /><span><strong>{t("先连接一个模型")}</strong><small>{t("支持 OpenAI-compatible 与 Anthropic Claude")}</small></span><ChevronRight size={15} />
             </button>
           ) : (
-            <div className="active-model"><span className="live-dot" /><span>{config.provider === 'openai' ? 'OpenAI-compatible' : 'Anthropic Claude'}</span><b>{config.model}</b><button type="button" onClick={onOpenSettings}>{t("更换")}</button></div>
+            <div className="active-model">{modelSwitcher}</div>
           )}
           <button type="button" className="run-button" onClick={() => onRun(instruction.trim())} disabled={!configured || (instructionRequired && !instruction.trim())}>
             <Sparkles size={15} />  {t("生成建议")} </button>

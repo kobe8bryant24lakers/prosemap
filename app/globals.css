@@ -493,3 +493,22 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .view-controls { padding-inline: 4px; }
   .view-controls button { flex: 1; padding-inline: 4px; }
 }
+
+/* Saved model profiles and shared quick switcher. */
+.model-switcher { display: flex; align-items: center; gap: 4px; min-width: 0; width: 100%; }
+.model-switcher select { min-width: 0; width: 100%; height: 34px; padding: 0 8px; border: 1px solid #bcd9cb; border-radius: 8px; background: var(--green-soft); color: var(--green); font: inherit; text-overflow: ellipsis; }
+.header-model-switcher { max-width: 240px; min-width: 120px; }
+.active-model > .model-switcher { flex: 1; }
+fieldset.settings-body { margin: 0; border: 0; min-width: 0; }
+.profile-manager { margin-bottom: 14px; }
+.profile-manager-heading, .profile-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.profile-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 140px; overflow: auto; }
+.profile-list button { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
+.profile-list button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-list button.selected { background: var(--green-soft); border-color: var(--green); }
+.profile-list small { flex: none; color: var(--green); }
+.profile-actions { justify-content: flex-end; }
+.profile-actions + .field-group { margin-bottom: 16px; }
+.profile-validation { color: var(--amber); font-size: var(--font-caption); }
+@media (max-width: 760px) { .header-model-switcher { max-width: 165px; min-width: 90px; } }
+@media (max-width: 480px) { .header-model-switcher { max-width: 125px; } }

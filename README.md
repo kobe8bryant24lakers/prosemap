@@ -30,6 +30,7 @@ Screenshots show the actual production frontend with sample documents. Native fi
 
 ## Highlights
 
+- Save multiple named model connections and switch from the header, writing assistant, or Mermaid AI panel. Each profile keeps its own provider, endpoint, model, and API key; the last selection is restored on restart. Existing single-model credentials migrate automatically when saved.
 - Open individual Markdown files or browse every Markdown document in a local folder.
 - Edit Markdown in editor-only, preview-only, or side-by-side views using the persistent view controls.
 - Preview relative local images resolved against the saved Markdown document, including parent directories, Unicode names, and URL-encoded paths.

@@ -12,7 +12,7 @@ import { FileText } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { createMermaidTarget, type MermaidTarget } from '@/lib/editor';
-import { compactJsonPreviewIndentation } from '@/lib/markdown-preview';
+import { compactJsonPreviewIndentation, previewLineBreaks } from '@/lib/markdown-preview';
 import MermaidDiagram from './MermaidDiagram';
 
 type MarkdownPreviewProps = {
@@ -106,7 +106,7 @@ export default function MarkdownPreview({ markdown, documentPath, onEditMermaid 
 
   return (
     <article className="markdown-body">
-      <>{linkError && <div className="preview-link-error" role="alert">{uiMessage(linkError)}</div>}<ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[previewHeadingIds]} components={components}>{markdown}</ReactMarkdown></>
+      <>{linkError && <div className="preview-link-error" role="alert">{uiMessage(linkError)}</div>}<ReactMarkdown remarkPlugins={[remarkGfm, previewLineBreaks]} rehypePlugins={[previewHeadingIds]} components={components}>{markdown}</ReactMarkdown></>
     </article>
   );
 }

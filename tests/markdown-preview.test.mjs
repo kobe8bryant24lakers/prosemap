@@ -6,14 +6,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import rehypeSanitize from 'rehype-sanitize';
+import { previewHtmlSanitize } from '../lib/preview-html.ts';
 import { previewHeadingIds } from '../lib/preview-links.ts';
 import { compactJsonPreviewIndentation, previewLineBreaks } from '../lib/markdown-preview.ts';
 
 const renderPreview = (markdown) => renderToStaticMarkup(createElement(
   ReactMarkdown, {
     remarkPlugins: [remarkGfm, previewLineBreaks],
-    rehypePlugins: [rehypeRaw, rehypeSanitize, previewHeadingIds],
+    rehypePlugins: [rehypeRaw, previewHtmlSanitize, previewHeadingIds],
   }, markdown,
 ));
 
@@ -31,6 +31,30 @@ test('preview filters executable HTML, event handlers and unsafe URLs', () => {
   assert.doesNotMatch(output, /script|iframe|onclick|onerror|javascript:|alert\(1\)/i);
   assert.match(output, /<a>链接<\/a>/);
   assert.match(output, /<img src="x"\/>/);
+});
+
+test('preview preserves literal text and background colors on HTML spans', () => {
+  for (const color of ['red', 'rebeccapurple', '#f00', '#f008', '#ff0000', '#ff000080', 'rgb(255, 0, 0)', 'rgba(255, 0, 0, 0.5)', 'rgb(255 0 0 / 50%)', 'hsl(120deg 100% 50%)']) {
+    assert.equal(renderPreview(`<span style="color: ${color}">彩色文字</span>`),
+      `<p><span style="color:${color}">彩色文字</span></p>`);
+  }
+  assert.equal(renderPreview('<span style=" COLOR : red ; background-color: #fff; ">颜色</span>'),
+    '<p><span style="color:red;background-color:#fff">颜色</span></p>');
+  assert.equal(renderPreview('<span style="color: red">红色<span style="color: blue">蓝色</span></span>'),
+    '<p><span style="color:red">红色<span style="color:blue">蓝色</span></span></p>');
+});
+
+test('preview filters unsafe and unrelated CSS while retaining safe colors', () => {
+  assert.equal(renderPreview('<span onclick="alert(1)" style="position: fixed; color: red; background-image: url(https://example.com/track); z-index: 99999">文字</span>'),
+    '<p><span style="color:red">文字</span></p>');
+  for (const value of ['expression(alert(1))', 'url(javascript:alert(1))', 'var(--app-color)', 'r\\65 d', 'rgb(0 0 0); position: fixed']) {
+    const output = renderPreview(`<span style="background-color: ${value}">文字</span>`);
+    assert.doesNotMatch(output, /expression|alert|url\(|var\(|position|fixed|\\65/);
+  }
+  assert.equal(renderPreview('<span style="color: expression(alert(1)); background-color: url(https://example.com/track)">文字</span>'),
+    '<p><span>文字</span></p>');
+  assert.equal(renderPreview('`<span style="color: red">文字</span>`'),
+    '<p><code>&lt;span style=&quot;color: red&quot;&gt;文字&lt;/span&gt;</code></p>');
 });
 
 test('preview leaves HTML in code blocks escaped and headings linkable', () => {

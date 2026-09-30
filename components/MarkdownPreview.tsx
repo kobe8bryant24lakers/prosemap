@@ -12,7 +12,7 @@ import { FileText } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import rehypeSanitize from 'rehype-sanitize';
+import { previewHtmlSanitize } from '@/lib/preview-html';
 import { createMermaidTarget, type MermaidTarget } from '@/lib/editor';
 import { compactJsonPreviewIndentation, previewLineBreaks } from '@/lib/markdown-preview';
 import MermaidDiagram from './MermaidDiagram';
@@ -41,8 +41,8 @@ export default function MarkdownPreview({ markdown, documentPath, onEditMermaid 
 
   const components: Components = {
     img: renderImage,
-    a({ children, href, title }) {
-      return <a href={href} title={title} target={href?.startsWith('#') ? undefined : '_blank'} rel="noreferrer noopener" onClick={async (event) => {
+    a({ children, href, title, style }) {
+      return <a href={href} title={title} style={style} target={href?.startsWith('#') ? undefined : '_blank'} rel="noreferrer noopener" onClick={async (event) => {
         setLinkError('');
         if (href?.startsWith('#')) {
           event.preventDefault();
@@ -108,7 +108,7 @@ export default function MarkdownPreview({ markdown, documentPath, onEditMermaid 
 
   return (
     <article className="markdown-body">
-      <>{linkError && <div className="preview-link-error" role="alert">{uiMessage(linkError)}</div>}<ReactMarkdown remarkPlugins={[remarkGfm, previewLineBreaks]} rehypePlugins={[rehypeRaw, rehypeSanitize, previewHeadingIds]} components={components}>{markdown}</ReactMarkdown></>
+      <>{linkError && <div className="preview-link-error" role="alert">{uiMessage(linkError)}</div>}<ReactMarkdown remarkPlugins={[remarkGfm, previewLineBreaks]} rehypePlugins={[rehypeRaw, previewHtmlSanitize, previewHeadingIds]} components={components}>{markdown}</ReactMarkdown></>
     </article>
   );
 }

@@ -50,7 +50,19 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
         }
         Ok(())
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        // The validated URL is a single argument; never interpolate it into a shell.
+        let status = std::process::Command::new("xdg-open")
+            .arg(url.as_str())
+            .status()
+            .map_err(|error| format!("无法打开链接: {error}"))?;
+        if !status.success() {
+            return Err("系统未能打开链接".into());
+        }
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = url;
         Err("当前平台暂不支持打开外部链接".into())

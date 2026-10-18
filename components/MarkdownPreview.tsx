@@ -3,7 +3,7 @@
 import { t, uiMessage } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
 
-import { useCallback, useState, type ImgHTMLAttributes } from 'react';
+import { createContext, memo, useContext, useMemo, useState, type ImgHTMLAttributes } from 'react';
 import PreviewImage from './PreviewImage';
 import { isDesktopRuntime } from '@/lib/ai-client';
 import { previewHeadingIds, isExternalPreviewLink } from '@/lib/preview-links';
@@ -23,12 +23,52 @@ type MarkdownPreviewProps = {
   onEditMermaid?: (target: NonNullable<MermaidTarget>) => void;
 };
 
-export default function MarkdownPreview({ markdown, documentPath, onEditMermaid }: MarkdownPreviewProps) {
+const PreviewImg = ({ src, alt, title }: ImgHTMLAttributes<HTMLImageElement>) => {
+  const { documentPath } = useContext(PreviewContext);
+  return <PreviewImage src={typeof src === 'string' ? src : undefined} alt={alt} title={title} documentPath={documentPath} />;
+};
+
+const PreviewContext = createContext<MarkdownPreviewProps>({ markdown: '' });
+
+const PreviewPre: Components['pre'] = ({ children, node }) => {
+  const code = node?.children.find((child) => child.type === 'element' && child.tagName === 'code');
+  if (code?.type === 'element') {
+    const language = /language-([^\s]+)/.exec(String(code.properties.className ?? ''))?.[1]?.toLowerCase() ?? '';
+    if (language !== 'mermaid') {
+      const source = code.children.map((child) => child.type === 'text' ? child.value : '').join('').replace(/\n$/, '');
+      return <CodeBlock source={language === 'json' ? compactJsonPreviewIndentation(source) : source} language={language} />;
+    }
+  }
+  return <pre>{children}</pre>;
+};
+
+const PreviewCode: Components['code'] = ({ className, children, node, ...props }) => {
+  const { markdown, onEditMermaid } = useContext(PreviewContext);
+  const language = /language-([^\s]+)/.exec(className ?? '')?.[1]?.toLowerCase();
+  const value = String(children).replace(/\n$/, '');
+  if (language === 'mermaid') {
+    const from = node?.position?.start.offset;
+    const to = node?.position?.end.offset;
+    const target = typeof from === 'number' && typeof to === 'number'
+      ? createMermaidTarget(markdown, from, to, value)
+      : null;
+    return (
+      <MermaidDiagram
+        code={value}
+        onEdit={target && onEditMermaid ? () => onEditMermaid(target) : undefined}
+      />
+    );
+  }
+  if (language === 'json') {
+    return <code className={className} {...props}>{compactJsonPreviewIndentation(String(children))}</code>;
+  }
+  return <code className={className} {...props}>{children}</code>;
+};
+
+function MarkdownPreview({ markdown, documentPath, onEditMermaid }: MarkdownPreviewProps) {
   useLocale();
   const [linkError, setLinkError] = useState('');
-  const renderImage = useCallback(({ src, alt, title }: ImgHTMLAttributes<HTMLImageElement>) => (
-    <PreviewImage src={typeof src === 'string' ? src : undefined} alt={alt} title={title} documentPath={documentPath} />
-  ), [documentPath]);
+  const context = useMemo(() => ({ markdown, documentPath, onEditMermaid }), [markdown, documentPath, onEditMermaid]);
   if (!markdown.trim()) {
     return (
       <div className="preview-empty">
@@ -40,7 +80,7 @@ export default function MarkdownPreview({ markdown, documentPath, onEditMermaid 
   }
 
   const components: Components = {
-    img: renderImage,
+    img: PreviewImg,
     a({ children, href, title, style }) {
       return <a href={href} title={title} style={style} target={href?.startsWith('#') ? undefined : '_blank'} rel="noreferrer noopener" onClick={async (event) => {
         setLinkError('');
@@ -72,43 +112,15 @@ export default function MarkdownPreview({ markdown, documentPath, onEditMermaid 
         }
       }}>{children}</a>;
     },
-    pre({ children, node }) {
-      const code = node?.children.find((child) => child.type === 'element' && child.tagName === 'code');
-      if (code?.type === 'element') {
-        const language = /language-([^\s]+)/.exec(String(code.properties.className ?? ''))?.[1]?.toLowerCase() ?? '';
-        if (language !== 'mermaid') {
-          const source = code.children.map((child) => child.type === 'text' ? child.value : '').join('').replace(/\n$/, '');
-          return <CodeBlock source={language === 'json' ? compactJsonPreviewIndentation(source) : source} language={language} />;
-        }
-      }
-      return <pre>{children}</pre>;
-    },
-    code({ className, children, node, ...props }) {
-      const language = /language-([^\s]+)/.exec(className ?? '')?.[1]?.toLowerCase();
-      const value = String(children).replace(/\n$/, '');
-      if (language === 'mermaid') {
-        const from = node?.position?.start.offset;
-        const to = node?.position?.end.offset;
-        const target = typeof from === 'number' && typeof to === 'number'
-          ? createMermaidTarget(markdown, from, to, value)
-          : null;
-        return (
-          <MermaidDiagram
-            code={value}
-            onEdit={target && onEditMermaid ? () => onEditMermaid(target) : undefined}
-          />
-        );
-      }
-      if (language === 'json') {
-        return <code className={className} {...props}>{compactJsonPreviewIndentation(String(children))}</code>;
-      }
-      return <code className={className} {...props}>{children}</code>;
-    },
+    pre: PreviewPre,
+    code: PreviewCode,
   };
 
   return (
-    <article className="markdown-body">
+    <PreviewContext.Provider value={context}><article className="markdown-body">
       <>{linkError && <div className="preview-link-error" role="alert">{uiMessage(linkError)}</div>}<ReactMarkdown remarkPlugins={[remarkGfm, previewLineBreaks]} rehypePlugins={[rehypeRaw, previewHtmlSanitize, previewHeadingIds]} components={components}>{markdown}</ReactMarkdown></>
-    </article>
+    </article></PreviewContext.Provider>
   );
 }
+
+export default memo(MarkdownPreview);

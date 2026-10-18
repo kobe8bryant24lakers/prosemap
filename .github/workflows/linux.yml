@@ -1,0 +1,102 @@
+name: Build Linux desktop packages
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      publish:
+        description: Attach packages to an existing tagged release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Linux x64 (Ubuntu 22.04)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.13.0"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        with:
+          toolchain: "1.98.0"
+          components: rustfmt
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libwebkit2gtk-4.1-dev libssl-dev \
+            libdbus-1-dev libxdo-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libfuse2 xdg-utils
+      - name: Verify application versions
+        env:
+          PUBLISH: ${{ inputs.publish || false }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+          const tauri = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+          const cargo = readFileSync('src-tauri/Cargo.toml', 'utf8').match(/^version = "([^"]+)"/m)?.[1];
+          if (pkg.version !== tauri.version || pkg.version !== cargo) throw new Error('Application versions differ');
+          if (process.env.PUBLISH === 'true' && (process.env.GITHUB_REF_TYPE !== 'tag' || process.env.GITHUB_REF_NAME !== `v${pkg.version}`)) throw new Error('Publishing requires a matching version tag');
+          JS
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:mermaid
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - run: cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets
+      - name: Build Debian and AppImage packages
+        run: npm run desktop:build:linux -- --ci
+      - name: Verify and normalize Linux assets
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          shopt -s nullglob
+          debs=(src-tauri/target/release/bundle/deb/*.deb)
+          images=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          [[ ${#debs[@]} -eq 1 && ${#images[@]} -eq 1 ]]
+          [[ "$(dpkg-deb --field "${debs[0]}" Architecture)" == amd64 ]]
+          [[ "$(dpkg-deb --field "${debs[0]}" Version)" == "$version" ]]
+          file src-tauri/target/release/prosemap | grep -q 'ELF 64-bit.*x86-64'
+          mkdir -p artifacts
+          cp "${debs[0]}" "artifacts/ProseMap-Linux-x64-v$version.deb"
+          cp "${images[0]}" "artifacts/ProseMap-Linux-x64-v$version.AppImage"
+          test -s "artifacts/ProseMap-Linux-x64-v$version.deb"
+          test -s "artifacts/ProseMap-Linux-x64-v$version.AppImage"
+          chmod +x "artifacts/ProseMap-Linux-x64-v$version.AppImage"
+          (cd artifacts && sha256sum *.deb *.AppImage > SHA256SUMS-Linux.txt)
+      - name: Retain packages for testing
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ProseMap-Linux-x64
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    if: ${{ inputs.publish && github.ref_type == 'tag' }}
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download and attach verified packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name ProseMap-Linux-x64 --dir artifacts
+          (cd artifacts && sha256sum --check SHA256SUMS-Linux.txt)
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json id >/dev/null
+          gh release upload "$GITHUB_REF_NAME" artifacts/*.deb artifacts/*.AppImage artifacts/SHA256SUMS-Linux.txt --repo "$GITHUB_REPOSITORY" --clobber

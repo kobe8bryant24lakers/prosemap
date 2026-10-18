@@ -17,13 +17,16 @@
     "typecheck": "tsc --noEmit --pretty false",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
-    "desktop:build:windows": "tauri build --bundles nsis msi"
+    "desktop:build:windows": "tauri build --bundles nsis msi",
+    "desktop:build:linux": "tauri build --bundles deb,appimage"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",
     "@codemirror/lang-markdown": "^6.5.2",
     "@codemirror/language": "^6.12.4",
     "@codemirror/language-data": "^6.5.2",
+    "@codemirror/search": "^6.7.1",
+    "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.9",
     "@lezer/highlight": "^1.2.3",
     "@tauri-apps/api": "^2.11.1",

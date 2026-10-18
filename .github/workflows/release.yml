@@ -9,6 +9,16 @@ permissions:
   contents: write
 
 jobs:
+  linux:
+    name: Linux x64
+    needs: windows
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/linux.yml
+    with:
+      publish: true
+
   windows:
     name: Windows 10/11 x64
     runs-on: windows-latest
@@ -128,12 +138,12 @@ jobs:
           $releaseExists = $LASTEXITCODE -eq 0
 
           if ($releaseExists) {
-            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title "ProseMap v$version for Windows and macOS" --notes-file $notes --prerelease
+            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title "ProseMap v$version desktop" --notes-file $notes --prerelease
             if ($LASTEXITCODE -ne 0) { throw "Failed to update release metadata" }
             gh release upload $tag $exe $msi $checksums --repo $env:GITHUB_REPOSITORY --clobber
             if ($LASTEXITCODE -ne 0) { throw "Failed to upload Windows release assets" }
           } else {
-            gh release create $tag $exe $msi $checksums --repo $env:GITHUB_REPOSITORY --verify-tag --title "ProseMap v$version for Windows and macOS" --notes-file $notes --prerelease
+            gh release create $tag $exe $msi $checksums --repo $env:GITHUB_REPOSITORY --verify-tag --title "ProseMap v$version desktop" --notes-file $notes --prerelease
             if ($LASTEXITCODE -ne 0) { throw "Failed to create the GitHub pre-release" }
           }
 
@@ -249,5 +259,5 @@ jobs:
 
           test -f "$notes"
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json id >/dev/null
-          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "ProseMap v$version for Windows and macOS" --notes-file "$notes" --prerelease
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "ProseMap v$version desktop" --notes-file "$notes" --prerelease
           gh release upload "$tag" "$dmg" "$checksums" --repo "$GITHUB_REPOSITORY" --clobber

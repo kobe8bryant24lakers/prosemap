@@ -55,6 +55,8 @@ Screenshots show the actual production frontend with sample documents. Native fi
 
 ## Code editing
 
+The Markdown toolbar preserves the current selection. Bold, italic, inline code, headings, lists, quotes and task lists toggle their markers; line actions support multiline selections. Use `Cmd/Ctrl+B`, `Cmd/Ctrl+I`, and `Cmd/Ctrl+K` for inline formatting, or `Cmd/Ctrl+F` for find and replace.
+
 Add a language after the opening fence, such as `json`, `jsonc`, `javascript`, `typescript`, `python`, `sql`, or `yaml`. Highlighting grammars are loaded locally on demand; unknown languages remain readable as plain text.
 
 | Action | Shortcut / control |
@@ -70,12 +72,31 @@ Formatting supports JSON, JSONC, JSON5, JavaScript/JSX, TypeScript/TSX, CSS/SCSS
 
 Preview heading links use lowercase, punctuation-free IDs with spaces replaced by hyphens (for example, `#hello-world`); Chinese headings are supported. Duplicate headings receive numeric suffixes. Relative file links are not yet resolved against the active document.
 
+## Canvas controls
+
+For flowcharts, class diagrams and ER diagrams, drag a selection rectangle on empty canvas, or Shift/Cmd/Ctrl-click nodes to select multiple objects. Move, duplicate or delete the selection together; use the contextual toolbar to align or distribute it. Other diagram types retain their specialized individual editing behavior.
+
+| Action | Control |
+| --- | --- |
+| Selection / hand tool | `V` / `H` |
+| Pan | Wheel, hand tool drag, Space+drag, or middle-button drag |
+| Horizontal pan | Shift+wheel |
+| Zoom | Cmd/Ctrl+wheel or zoom buttons |
+| Select all nodes | Cmd/Ctrl+A while canvas has focus |
+| Nudge selection | Arrow keys; Shift moves 10 pixels |
+| Duplicate selection | Cmd/Ctrl+D |
+| Rename | Double-click or Enter; Enter commits, Escape cancels |
+| Undo / redo | Cmd/Ctrl+Z / Cmd/Ctrl+Shift+Z |
+
+Dragging, alignment and a continuous rename each undo as one action. Manual positions belong to the current canvas session; Mermaid source and rendered previews still use automatic layout. Toolbars wrap to keep actions visible in smaller windows.
+
 ## Desktop support
 
 | Platform | Status |
 | --- | --- |
 | macOS 11+ on Apple silicon | Built and locally verified |
 | Windows 10/11 x64 | NSIS and MSI packages share one compatible build; WebView2 bootstrapper configuration is included |
+| Linux x64 | Debian and AppImage build/release workflows configured on Ubuntu 22.04; native Linux runtime acceptance pending |
 | macOS on Intel | Source-compatible; a dedicated x86_64 or universal build is still required |
 | iOS and Android | Tauri library entry point reserved for future work; not implemented or verified |
 
@@ -87,6 +108,7 @@ Preview heading links use lowercase, punctuation-free IDs with spaces replaced b
 - Rust stable
 - macOS: Xcode Command Line Tools
 - Windows: Rust MSVC toolchain, Visual Studio C++ Build Tools, Windows SDK, and WebView2
+- Linux: WebKitGTK 4.1, GTK 3, OpenSSL and D-Bus development libraries; see [Linux packaging](docs/linux-desktop.md).
 
 Install dependencies and start the desktop application:
 
@@ -116,13 +138,27 @@ npm run desktop:build:windows
 
 Production distribution requires a Windows code-signing certificate. Windows installers should be built and tested on a real Windows machine or Windows CI runner.
 
+### Linux
+
+Run on a Linux machine with the dependencies listed in [Linux packaging](docs/linux-desktop.md):
+
+```bash
+npm ci
+npm run desktop:build:linux
+```
+
+The **Build Linux desktop packages** GitHub Actions workflow can be run manually to produce `.deb`, `.AppImage` and SHA-256 checksums as test artifacts. Tagged releases call the same workflow and attach successful Linux builds to the existing pre-release. Manual builds do not publish a release.
+
 ## Validation
+
+Use [the complex Markdown fixture](docs/fixtures/complex-markdown.md) for manual regression testing. It includes seven diagram types, code, tables, nested lists, image/link boundaries and 80 long-document sections. See [the usability validation report](docs/usability-validation.md) for actual coverage and remaining limits.
 
 ```bash
 npm run lint
 npm run typecheck
 npm run test:mermaid
 npm run build
+node --experimental-strip-types scripts/benchmark-markdown.mjs
 cargo fmt --manifest-path src-tauri/Cargo.toml --check
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml --all-targets
@@ -144,6 +180,7 @@ Platform-specific configuration lives in:
 
 - `src-tauri/tauri.macos.conf.json`
 - `src-tauri/tauri.windows.conf.json`
+- `src-tauri/tauri.linux.conf.json`
 
 ## AI providers
 
@@ -152,7 +189,7 @@ ProseMap supports:
 - OpenAI-compatible Chat Completions endpoints
 - Anthropic Claude Messages endpoints
 
-Provider settings and API keys are stored across sessions in the operating system credential store (Windows Credential Manager or macOS Keychain). They are never written to source files, browser local storage, cookies, or application logs.
+Provider settings and API keys are stored across sessions in the operating system credential store (Windows Credential Manager, macOS Keychain, or Linux Secret Service). Linux needs an available, unlocked Secret Service provider such as GNOME Keyring. They are never written to source files, browser local storage, cookies, or application logs.
 
 AI features require network access to the provider selected by the user. Local editing, file management, Markdown preview, and Mermaid rendering do not require an online application service.
 

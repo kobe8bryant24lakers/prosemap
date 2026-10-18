@@ -6,13 +6,20 @@ import { useLocale } from '@/lib/use-locale';
 
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { markdown as markdownLanguage } from '@codemirror/lang-markdown';
-import { EditorView, keymap } from '@codemirror/view';
-import { indentWithTab, isolateHistory } from '@codemirror/commands';
+import { inlineMarkdownEdit, lineMarkdownEdit, type MarkdownEdit, type MarkdownLineStyle } from '@/lib/markdown-editing';
+import { EditorState } from '@codemirror/state';
+import { openSearchPanel, search } from '@codemirror/search';
+import { EditorView, keymap, type ViewUpdate } from '@codemirror/view';
+import { undo, redo, indentWithTab, isolateHistory } from '@codemirror/commands';
 import { indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { classHighlighter } from '@lezer/highlight';
 import { findCodeBlock, formatCode, languages } from '@/lib/code-blocks';
 import {
   Bold,
+  Undo2,
+  Redo2,
+  Search,
+  ListChecks,
   Bot,
   Braces,
   Check,
@@ -37,7 +44,7 @@ import {
   Workflow,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import AssistantPanel from '@/components/AssistantPanel';
 import ConfirmDialog, { type ConfirmationRequest } from '@/components/ConfirmDialog';
 import DiffModal from '@/components/DiffModal';
@@ -105,7 +112,24 @@ type EditorSelection = {
   head: number;
 };
 
-const baseEditorExtensions = [markdownLanguage({ codeLanguages: languages }), indentUnit.of('  '), syntaxHighlighting(classHighlighter), keymap.of([indentWithTab]), EditorView.lineWrapping];
+function applyMarkdownEdit(view: EditorView, edit: MarkdownEdit) {
+  view.dispatch({ changes: { from: edit.from, to: edit.to, insert: edit.insert }, selection: { anchor: edit.anchor, head: edit.head }, scrollIntoView: true, userEvent: 'input.format', annotations: isolateHistory.of('full') });
+  view.focus();
+  return true;
+}
+function inlineCommand(before: string, after = before, placeholder = '文字') {
+  return (view: EditorView) => {
+    const { anchor, head } = view.state.selection.main;
+    return applyMarkdownEdit(view, inlineMarkdownEdit(view.state.doc.toString(), anchor, head, before, after, t(placeholder)));
+  };
+}
+const editorBasicSetup = { lineNumbers: true, highlightActiveLine: true, highlightActiveLineGutter: true, foldGutter: true, autocompletion: true, bracketMatching: true, closeBrackets: true, history: true };
+// Keep search state installed when React reconfigures the editor (e.g. locale changes).
+const baseEditorExtensions = [search(), keymap.of([
+  { key: 'Mod-b', run: inlineCommand('**') },
+  { key: 'Mod-i', run: inlineCommand('*') },
+  { key: 'Mod-k', run: inlineCommand('[', '](https://)', '链接文字') },
+]), markdownLanguage({ codeLanguages: languages }), indentUnit.of('  '), syntaxHighlighting(classHighlighter), keymap.of([indentWithTab]), EditorView.lineWrapping];
 
 function normalizeMermaidStream(value: string): string {
   return value
@@ -159,6 +183,7 @@ function createAiPrompts(
 export default function Home() {
   const locale = useLocale();
   const [content, setContent] = useState(initialDocument);
+  const previewContent = useDeferredValue(content);
   const [documentName, setDocumentName] = useState(t("ProseMap 入门"));
   const [selection, setSelection] = useState<SelectionRange>({ from: 0, to: 0, text: '' });
   const [viewMode, setViewMode] = useState<ViewMode>('split');
@@ -230,9 +255,14 @@ export default function Home() {
       showToast('error', error instanceof Error ? t("格式化失败：{0}", error.message) : t("格式化失败，请检查代码语法"));
     }
   }, [showToast]);
-  const editorExtensions = useMemo(() => [...baseEditorExtensions, keymap.of([
+  const editorExtensions = useMemo(() => [...baseEditorExtensions, EditorState.phrases.of(locale === 'zh-CN' ? {
+    'Find': '查找', 'Replace': '替换为', 'next': '下一个', 'previous': '上一个', 'all': '全选匹配',
+    'match case': '区分大小写', 'regexp': '正则表达式', 'by word': '全词匹配',
+    'replace': '替换', 'replace all': '全部替换', 'close': '关闭查找',
+    'current match': '当前匹配', 'on line': '所在行', 'No matches': '没有匹配项',
+  } : {}), keymap.of([
     { key: 'Mod-Shift-f', run: () => { void formatCurrentCodeBlock(); return true; } },
-  ])], [formatCurrentCodeBlock]);
+  ])], [formatCurrentCodeBlock, locale]);
 
   const addAiContextFiles = useCallback(async () => {
     try {
@@ -252,6 +282,17 @@ export default function Home() {
   const updateDirtyState = useCallback((dirty: boolean) => {
     dirtyRef.current = dirty;
     setIsDirty(dirty);
+  }, []);
+
+  const handleEditorChange = useCallback((value: string) => {
+    documentRevisionRef.current += 1;
+    setContent(value);
+    updateDirtyState(true);
+  }, [updateDirtyState]);
+  const handleEditorUpdate = useCallback((update: ViewUpdate) => {
+    if (!update.selectionSet && !update.docChanged) return;
+    const main = update.state.selection.main;
+    setSelection({ from: main.from, to: main.to, text: update.state.sliceDoc(main.from, main.to) });
   }, []);
 
   const askConfirmation = useCallback((request: ConfirmationRequest) => new Promise<boolean>((resolve) => {
@@ -589,7 +630,7 @@ export default function Home() {
     if (viewMode !== 'split') return;
     const animationFrame = window.requestAnimationFrame(() => syncPreviewFromEditorRef.current?.());
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [content, viewMode]);
+  }, [previewContent, viewMode]);
 
   function readEditorSnapshot(): EditorSnapshot {
     const view = editorRef.current?.view;
@@ -664,12 +705,20 @@ export default function Home() {
   }
 
   function formatSelection(before: string, after = before, placeholder = t("文字")) {
-    const selected = content.slice(selection.from, selection.to);
-    const body = selected || placeholder;
-    const replacement = `${before}${body}${after}`;
-    const from = selection.from + before.length;
-    const to = from + body.length;
-    replaceRange(selection.from, selection.to, replacement, false, { anchor: from, head: to });
+    const view = editorRef.current?.view;
+    if (view) inlineCommand(before, after, placeholder)(view);
+  }
+
+  function formatLines(style: MarkdownLineStyle) {
+    const view = editorRef.current?.view;
+    if (!view) return;
+    const { anchor, head } = view.state.selection.main;
+    applyMarkdownEdit(view, lineMarkdownEdit(view.state.doc.toString(), anchor, head, style, t("文字")));
+  }
+
+  function editorAction(action: (view: EditorView) => boolean) {
+    const view = editorRef.current?.view;
+    if (view) { action(view); view.focus(); }
   }
 
   function insertBlock(block: string) {
@@ -765,6 +814,17 @@ export default function Home() {
       target,
     });
   }
+
+  const openMermaidTargetRef = useRef(openMermaidTarget);
+  useEffect(() => { openMermaidTargetRef.current = openMermaidTarget; });
+  const editPreviewMermaid = useCallback((target: NonNullable<MermaidTarget>) => {
+    const document = editorRef.current?.view?.state.doc.toString();
+    if (document !== undefined && document.slice(target.from, target.to) !== target.fenced) {
+      showToast('info', t("预览正在更新，请稍后再打开图表"));
+      return;
+    }
+    openMermaidTargetRef.current(target);
+  }, [showToast]);
 
   function closeMermaidWorkbench(sessionId: number) {
     if (activeWorkbenchSessionRef.current === sessionId) {
@@ -1007,15 +1067,20 @@ export default function Home() {
         <section className="editor-pane">
           <header className="pane-header editor-header">
             <div className="pane-title"><span className="status-dot" />  {t("编辑器")} <small>Markdown</small></div>
-            <div className="format-actions" aria-label={t("格式工具栏")}>
-              <button type="button" onClick={() => formatSelection('## ', '', t("小标题"))} title={t("二级标题")} aria-label={t("二级标题")}><Heading2 size={15} /></button>
-              <button type="button" onClick={() => formatSelection('**', '**')} title={t("粗体")} aria-label={t("粗体")}><Bold size={15} /></button>
-              <button type="button" onClick={() => formatSelection('*', '*')} title={t("斜体")} aria-label={t("斜体")}><Italic size={15} /></button>
-              <button type="button" onClick={() => formatSelection('[', '](https://)', t("链接文字"))} title={t("链接")} aria-label={t("链接")}><LinkIcon size={15} /></button>
+            <div className="format-actions" aria-label={t("格式工具栏")} onMouseDown={(event) => event.preventDefault()}>
+              <button type="button" onClick={() => editorAction(undo)} title={t("撤销（⌘/Ctrl Z）")} aria-label={t("撤销")}><Undo2 size={15} /></button>
+              <button type="button" onClick={() => editorAction(redo)} title={t("重做（⌘/Ctrl Shift Z）")} aria-label={t("重做")}><Redo2 size={15} /></button>
+              <button type="button" onClick={() => { const view = editorRef.current?.view; if (view) openSearchPanel(view); }} title={t("查找与替换（⌘/Ctrl F）")} aria-label={t("查找与替换")}><Search size={15} /></button>
+              <span className="format-divider" />
+              <button type="button" onClick={() => formatLines('heading')} title={t("二级标题")} aria-label={t("二级标题")}><Heading2 size={15} /></button>
+              <button type="button" onClick={() => formatSelection('**', '**')} title={t("粗体") + " (⌘/Ctrl B)"} aria-label={t("粗体")}><Bold size={15} /></button>
+              <button type="button" onClick={() => formatSelection('*', '*')} title={t("斜体") + " (⌘/Ctrl I)"} aria-label={t("斜体")}><Italic size={15} /></button>
+              <button type="button" onClick={() => formatSelection('[', '](https://)', t("链接文字"))} title={t("链接") + " (⌘/Ctrl K)"} aria-label={t("链接")}><LinkIcon size={15} /></button>
               <button type="button" onClick={() => formatSelection('`', '`', t("代码"))} title={t("行内代码")} aria-label={t("行内代码")}><Code2 size={15} /></button>
-              <button type="button" onClick={() => formatSelection('- ', '', t("列表项"))} title={t("列表")} aria-label={t("列表")}><List size={15} /></button>
-              <button type="button" onClick={() => formatSelection('> ', '', t("引用内容"))} title={t("引用")} aria-label={t("引用")}><Quote size={15} /></button>
-              <button type="button" onClick={() => insertBlock('| 列一 | 列二 |\n| --- | --- |\n| 内容 | 内容 |')} title={t("表格")} aria-label={t("插入表格")}><Table2 size={15} /></button>
+              <button type="button" onClick={() => formatLines('list')} title={t("列表")} aria-label={t("列表")}><List size={15} /></button>
+              <button type="button" onClick={() => formatLines('task')} title={t("任务清单")} aria-label={t("任务清单")}><ListChecks size={15} /></button>
+              <button type="button" onClick={() => formatLines('quote')} title={t("引用")} aria-label={t("引用")}><Quote size={15} /></button>
+              <button type="button" onClick={() => insertBlock(t('| 列一 | 列二 |\n| --- | --- |\n| 内容 | 内容 |'))} title={t("表格")} aria-label={t("插入表格")}><Table2 size={15} /></button>
               <button type="button" onClick={() => insertBlock('```json\n{\n  "name": "ProseMap"\n}\n```')} title={t("插入 JSON 代码块（可修改语言标记）")} aria-label={t("插入代码块")}><Braces size={15} /></button>
               <button type="button" onClick={() => void formatCurrentCodeBlock()} title={t("格式化当前代码块（⌘/Ctrl+Shift+F）")} aria-label={t("格式化代码块")}><Sparkles size={15} /></button>
             </div>
@@ -1035,26 +1100,9 @@ export default function Home() {
               value={content}
               height="100%"
               extensions={editorExtensions}
-              basicSetup={{
-                lineNumbers: true,
-                highlightActiveLine: true,
-                highlightActiveLineGutter: true,
-                foldGutter: true,
-                autocompletion: true,
-                bracketMatching: true,
-                closeBrackets: true,
-                history: true,
-              }}
-              onChange={(value) => {
-                documentRevisionRef.current += 1;
-                setContent(value);
-                updateDirtyState(true);
-              }}
-              onUpdate={(update) => {
-                if (!update.selectionSet && !update.docChanged) return;
-                const main = update.state.selection.main;
-                setSelection({ from: main.from, to: main.to, text: update.state.sliceDoc(main.from, main.to) });
-              }}
+              basicSetup={editorBasicSetup}
+              onChange={handleEditorChange}
+              onUpdate={handleEditorUpdate}
               theme="light"
               aria-label={t("Markdown 编辑器")}
             />
@@ -1074,7 +1122,7 @@ export default function Home() {
               <button type="button" className="ai-chip" onClick={() => openAssistant('custom')}><Sparkles size={13} />  {t("AI 助手")}</button>
             </div>
           </header>
-          <div ref={previewScrollRef} className="preview-scroll"><MarkdownPreview markdown={content} documentPath={localPath} onEditMermaid={openMermaidTarget} /></div>
+          <div ref={previewScrollRef} className="preview-scroll"><MarkdownPreview markdown={previewContent} documentPath={localPath} onEditMermaid={editPreviewMermaid} /></div>
         </section>
 
         {assistantOpen ? (

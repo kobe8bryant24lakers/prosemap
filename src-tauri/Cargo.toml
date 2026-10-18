@@ -28,3 +28,7 @@ url = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Persist credentials through the desktop Secret Service, never the mock backend.
+keyring = { version = "3.6.3", features = ["sync-secret-service", "crypto-rust"] }

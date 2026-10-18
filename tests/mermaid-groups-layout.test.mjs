@@ -39,3 +39,15 @@ test('empty nested packages remain visible and boundaries follow dragged nodes',
   const after = mermaidGroupBounds(graph, layout.positions);
   assert.ok(after.App.maxX > before.App.maxX);
 });
+
+test('ordinary unquoted group titles stay editable and survive serialization', async () => {
+  const { serializeMermaidVisualGraph } = await import('../lib/mermaid-workbench.ts');
+  const graph = parseMermaidVisualSource('flowchart LR\nsubgraph Outer[外层]\nsubgraph Inner [编辑流程]\nA[输入] --> B[输出]\nend\nend');
+  assert.ok(graph);
+  assert.deepEqual(graph.data.groups.map(({ id, label, parentId }) => ({ id, label, parentId })), [
+    { id: 'Outer', label: '外层', parentId: undefined },
+    { id: 'Inner', label: '编辑流程', parentId: 'Outer' },
+  ]);
+  assert.deepEqual(parseMermaidVisualSource(serializeMermaidVisualGraph(graph)), graph);
+  assert.equal(parseMermaidVisualSource('flowchart LR\nsubgraph X[broken[title]]\nA\nend'), null);
+});

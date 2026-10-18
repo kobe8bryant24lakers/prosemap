@@ -390,10 +390,10 @@ export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
       continue;
     }
     if (line.startsWith('%%')) return null;
-    const group = line.match(/^subgraph\s+([A-Za-z_][\w-]*)(?:\["([^"\n]*)"\])?$/);
+    const group = line.match(/^subgraph\s+([A-Za-z_][\w-]*)(?:\s*\[(?:"([^"\n]*)"|([^\]"[\n]+))\])?$/);
     if (group) {
       if (groups.some((entry) => entry.id === group[1]) || nodeMap.has(group[1])) return null;
-      groups.push({ id: group[1], label: group[2] ?? group[1], ...(groupStack.length ? { parentId: groupStack.at(-1) } : {}) });
+      groups.push({ id: group[1], label: group[2] ?? group[3]?.trim() ?? group[1], ...(groupStack.length ? { parentId: groupStack.at(-1) } : {}) });
       groupStack.push(group[1]);
       continue;
     }

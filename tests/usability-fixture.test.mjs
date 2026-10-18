@@ -3,9 +3,11 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { parseMermaidVisualSource, serializeMermaidVisualGraph } from '../lib/mermaid-workbench.ts';
 
-test('all seven diagrams in the complex Markdown fixture are editable and round-trip', () => {
-  const text = readFileSync(new URL('../docs/fixtures/complex-markdown.md', import.meta.url), 'utf8');
-  const diagrams = [...text.matchAll(/```mermaid\n([\s\S]*?)\n```/g)];
+const fixture = readFileSync(new URL('../docs/fixtures/complex-markdown.md', import.meta.url), 'utf8');
+for (const newline of ['\n', '\r\n']) {
+test(`all seven diagrams are editable and round-trip with ${newline === '\n' ? 'LF' : 'CRLF'} line endings`, () => {
+  const text = fixture.replace(/\r?\n/g, newline);
+  const diagrams = [...text.matchAll(/```mermaid\r?\n([\s\S]*?)\r?\n```/g)];
   assert.equal(diagrams.length, 7);
   for (const [, source] of diagrams) {
     const graph = parseMermaidVisualSource(source);
@@ -18,3 +20,4 @@ test('all seven diagrams in the complex Markdown fixture are editable and round-
     assert.equal(restored.edges.length, graph.edges.length);
   }
 });
+}

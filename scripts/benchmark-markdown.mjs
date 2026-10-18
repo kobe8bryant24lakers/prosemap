@@ -13,7 +13,7 @@ import { previewHeadingIds } from '../lib/preview-links.ts';
 import { parseMermaidVisualSource } from '../lib/mermaid-workbench.ts';
 import { layoutMermaidGraph } from '../lib/mermaid-canvas-layout.ts';
 const markdown = readFileSync(new URL('../docs/fixtures/complex-markdown.md', import.meta.url), 'utf8');
-const graphs = [...markdown.matchAll(/```mermaid\n([\s\S]*?)\n```/g)].map((match) => parseMermaidVisualSource(match[1]));
+const graphs = [...markdown.matchAll(/```mermaid\r?\n([\s\S]*?)\r?\n```/g)].map((match) => parseMermaidVisualSource(match[1]));
 function measure(run, samples = 30) {
   for (let i = 0; i < 5; i++) run();
   const times = [];

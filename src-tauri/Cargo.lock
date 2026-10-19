@@ -3004,8 +3004,10 @@ dependencies = [
 
 [[package]]
 name = "prosemap"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
+ "base64 0.22.1",
+ "dunce",
  "futures-util",
  "keyring",
  "reqwest 0.12.28",

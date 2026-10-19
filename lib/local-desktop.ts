@@ -52,6 +52,22 @@ export async function saveLocalMarkdown(path: string | null, suggestedName: stri
   return desktopInvoke<LocalDocument | null>('save_local_markdown', { path, suggestedName, content });
 }
 
+export async function openRelativeFile(documentPath: string, source: string): Promise<void> {
+  if (!(await isDesktopRuntime())) throw new Error('请在桌面应用中打开本地文件链接。');
+  return desktopInvoke('open_relative_file', { documentPath, source });
+}
+
+export type SavedImage = { relativePath: string; name: string };
+export async function savePastedImage(documentPath: string, file: File): Promise<SavedImage> {
+  const data = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1]);
+    reader.onerror = () => reject(new Error('无法读取剪贴板图片'));
+    reader.readAsDataURL(file);
+  });
+  return desktopInvoke('save_pasted_image', { documentPath, name: file.name, data });
+}
+
 export async function readLaunchTarget(): Promise<LaunchTarget> {
   if (!(await isDesktopRuntime())) return null;
   return desktopInvoke<LaunchTarget>('read_launch_target');

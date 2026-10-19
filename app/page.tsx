@@ -59,6 +59,7 @@ import ModelSwitcher from '@/components/ModelSwitcher';
 import { parseMermaid } from '@/lib/mermaid-runtime';
 import { UML_AI_GUIDANCE } from '@/lib/mermaid-workbench';
 import { synchronizedScrollTop } from '@/lib/scroll-sync';
+import { clipboardImageFiles, imageMarkdown } from '@/lib/image-paste';
 import {
   ACTION_LABELS,
   countReadableCharacters,
@@ -79,6 +80,7 @@ import {
   readLaunchTarget,
   readLocalMarkdown,
   saveLocalMarkdown,
+  savePastedImage,
   type LocalDocument,
   type LocalFileEntry,
   type LocalWorkspace,
@@ -226,6 +228,10 @@ export default function Home() {
   const closeConfirmationPendingRef = useRef(false);
   const activeWorkbenchSessionRef = useRef<number | null>(null);
   const workbenchPendingRef = useRef(false);
+  const documentPathRef = useRef<string | null>(null);
+  const imagePasteHandlerRef = useRef<((files: File[], view: EditorView) => void) | null>(null);
+  const imagePasteQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingPastesRef = useRef(new Set<{ from: number; to: number; selected: string }>());
 
   const readableCharacters = useMemo(() => countReadableCharacters(content), [content]);
   const mermaidTarget = useMemo(() => findMermaidTarget(content, selection.from), [content, selection.from]);
@@ -255,7 +261,16 @@ export default function Home() {
       showToast('error', error instanceof Error ? t("格式化失败：{0}", error.message) : t("格式化失败，请检查代码语法"));
     }
   }, [showToast]);
-  const editorExtensions = useMemo(() => [...baseEditorExtensions, EditorState.phrases.of(locale === 'zh-CN' ? {
+  const editorExtensions = useMemo(() => [...baseEditorExtensions, EditorView.domEventHandlers({
+    paste(event, view) {
+      if (!event.clipboardData) return false;
+      const files = clipboardImageFiles(event.clipboardData);
+      if (!files.length) return false;
+      event.preventDefault();
+      imagePasteHandlerRef.current?.(files, view);
+      return true;
+    },
+  }), EditorState.phrases.of(locale === 'zh-CN' ? {
     'Find': '查找', 'Replace': '替换为', 'next': '下一个', 'previous': '上一个', 'all': '全选匹配',
     'match case': '区分大小写', 'regexp': '正则表达式', 'by word': '全词匹配',
     'replace': '替换', 'replace all': '全部替换', 'close': '关闭查找',
@@ -291,6 +306,11 @@ export default function Home() {
   }, [updateDirtyState]);
   const handleEditorUpdate = useCallback((update: ViewUpdate) => {
     if (!update.selectionSet && !update.docChanged) return;
+    if (update.docChanged) for (const paste of pendingPastesRef.current) {
+      const collapsed = paste.from === paste.to;
+      paste.from = update.changes.mapPos(paste.from, 1);
+      paste.to = collapsed ? paste.from : update.changes.mapPos(paste.to, -1);
+    }
     const main = update.state.selection.main;
     setSelection({ from: main.from, to: main.to, text: update.state.sliceDoc(main.from, main.to) });
   }, []);
@@ -403,7 +423,7 @@ export default function Home() {
     const documentRevision = documentRevisionRef.current;
     const path = saveAs ? null : localPath;
     const suggestedName = `${safeDocumentName(documentName)}.md`;
-    const snapshot = content;
+    const snapshot = editorRef.current?.view?.state.doc.toString() ?? content;
     try {
       const saved = await saveLocalMarkdown(path, suggestedName, snapshot);
       if (!saved) return;
@@ -412,6 +432,7 @@ export default function Home() {
         || documentSession !== documentSessionRef.current
       ) return;
       setLocalPath(saved.path);
+      documentPathRef.current = saved.path;
       setDocumentName(safeDocumentName(saved.name));
       const savedLatestRevision = documentRevision === documentRevisionRef.current;
       if (savedLatestRevision) updateDirtyState(false);
@@ -421,6 +442,7 @@ export default function Home() {
           ? !saveAs && localPath ? t("文件已保存") : t("已保存为 {0}", saved.name)
           : t("已保存到 {0}，保存期间产生的新修改仍待保存", saved.name),
       );
+      return saved;
     } catch (reason) {
       if (
         requestId !== saveRequestIdRef.current
@@ -429,6 +451,57 @@ export default function Home() {
       showToast('error', reason instanceof Error ? reason.message : t("文件保存失败，请重试"));
     }
   }, [content, documentName, localPath, showToast, updateDirtyState]);
+
+  useEffect(() => { documentPathRef.current = localPath; }, [localPath]);
+  useEffect(() => {
+    imagePasteHandlerRef.current = (files, view) => {
+      const session = documentSessionRef.current;
+      const { from, to } = view.state.selection.main;
+      const paste = { from, to, selected: view.state.sliceDoc(from, to) };
+      pendingPastesRef.current.add(paste);
+      const run = async () => {
+        const current = () => session === documentSessionRef.current && editorRef.current?.view === view;
+        try {
+          if (!current()) return;
+          if (!('__TAURI_INTERNALS__' in window)) throw new Error(t("请在桌面应用中粘贴图片，以保存到文档的 images 文件夹。"));
+          if (files.length > 10 || files.some((file) => !file.size || file.size > 20 * 1024 * 1024)) {
+            throw new Error(t("每次最多粘贴 10 张图片，每张不超过 20 MB。"));
+          }
+          let path = documentPathRef.current;
+          if (!path) {
+            showToast('info', t("请先保存文档，图片将放入同目录的 images 文件夹。"));
+            path = (await saveDocument())?.path ?? null;
+          }
+          if (!path || !current()) return;
+          const locationUnchanged = () => current() && documentPathRef.current === path
+            && paste.to >= paste.from && view.state.sliceDoc(paste.from, paste.to) === paste.selected;
+          if (!locationUnchanged()) throw new Error(t("粘贴位置或文档已变化，请重新粘贴图片。"));
+          showToast('info', t("正在保存图片…"));
+          const references: string[] = [];
+          let failure: unknown;
+          for (const file of files) {
+            if (!locationUnchanged()) break;
+            try {
+              const saved = await savePastedImage(path, file);
+              references.push(imageMarkdown(saved.relativePath, file.name || 'image'));
+            } catch (error) { failure = error; break; }
+          }
+          if (!locationUnchanged()) throw new Error(t("文档已变化；已保存的图片保留在 images 中，请重新插入引用。"));
+          if (references.length) {
+            const insert = references.join('\n');
+            pendingPastesRef.current.delete(paste);
+            view.dispatch({ changes: { from: paste.from, to: paste.to, insert }, selection: { anchor: paste.from + insert.length }, scrollIntoView: true, userEvent: 'input.paste', annotations: isolateHistory.of('full') });
+            view.focus();
+            showToast('success', t("已插入 {0} 张图片，保存在 images 文件夹", references.length));
+          }
+          if (failure) throw failure;
+        } catch (error) {
+          if (current()) showToast('error', uiMessage(error instanceof Error ? error.message : String(error)));
+        } finally { pendingPastesRef.current.delete(paste); }
+      };
+      imagePasteQueueRef.current = imagePasteQueueRef.current.then(run, run);
+    };
+  }, [saveDocument, showToast]);
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {

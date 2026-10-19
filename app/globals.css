@@ -153,6 +153,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .markdown-body p { margin: 14px 0; color: #4e5f56; }
 .markdown-body strong { color: var(--ink); font-weight: 750; }
 .markdown-body a { color: #147251; text-decoration-color: #8cbca6; text-underline-offset: 3px; }
+.markdown-body img { max-width: 100%; height: auto; }
 .markdown-body ul, .markdown-body ol { margin: 15px 0; padding-left: 1.45em; color: #4d5e55; }
 .markdown-body li { margin: 6px 0; padding-left: 3px; }
 .markdown-body li::marker { color: #5a9378; }

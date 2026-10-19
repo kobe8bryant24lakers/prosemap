@@ -5,6 +5,11 @@ export function isExternalPreviewLink(href: string): boolean {
   catch { return false; }
 }
 
+export function isRelativeFileLink(href: string): boolean {
+  return Boolean(href) && href.trim() === href && !Array.from(href).some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
+    && !/^(?:[a-z][a-z\d+.-]*:|[/\\]|#)/i.test(href);
+}
+
 export function headingSlug(text: string): string {
   return text.toLowerCase().trim().replace(/[^\p{L}\p{N}\p{M}_\-\s]/gu, '').replace(/\s/g, '-');
 }

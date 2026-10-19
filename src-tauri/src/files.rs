@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
 use std::{
     collections::HashSet,
@@ -10,7 +11,7 @@ use std::{
         Mutex,
     },
 };
-use tauri::State;
+use tauri::{Manager, State};
 
 const MAX_DOCUMENT_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_CONTEXT_DOCUMENT_BYTES: u64 = 2 * 1024 * 1024;
@@ -420,17 +421,183 @@ pub struct LocalImage {
 }
 
 fn relative_image_path(document: &Path, source: &str) -> Result<PathBuf, String> {
+    relative_attachment_path(document, source)
+}
+
+fn relative_attachment_path(document: &Path, source: &str) -> Result<PathBuf, String> {
     let source = source.replace('\\', "/");
     if source.is_empty()
+        || source.trim() != source
+        || source.chars().any(char::is_control)
         || source.starts_with('/')
         || source.starts_with('#')
         || url::Url::parse(&source).is_ok()
     {
-        return Err("仅支持相对路径图片".into());
+        return Err("仅支持文档相对路径".into());
     }
     let base = url::Url::from_file_path(document).map_err(|_| "文档路径无效")?;
-    let resolved = base.join(&source).map_err(|_| "图片路径无效")?;
-    resolved.to_file_path().map_err(|_| "图片路径无效".into())
+    let resolved = base.join(&source).map_err(|_| "文件路径无效")?;
+    resolved.to_file_path().map_err(|_| "文件路径无效".into())
+}
+
+fn authorized_document(path: &Path, state: &FileAccessState) -> Result<PathBuf, String> {
+    let document = canonical_existing(path)?;
+    if !state.is_authorized(&document) || !document.is_file() || !is_markdown(&document) {
+        return Err("该路径尚未通过系统选择器授权".into());
+    }
+    Ok(document)
+}
+
+fn resolve_local_attachment(
+    document: &Path,
+    source: &str,
+    state: &FileAccessState,
+) -> Result<PathBuf, String> {
+    let document = authorized_document(document, state)?;
+    let target = dunce::canonicalize(relative_attachment_path(&document, source)?)
+        .map_err(|_| "本地文件不存在或无法访问")?;
+    if !target.is_file() {
+        return Err("链接目标必须是文件".into());
+    }
+    let extension = target
+        .extension()
+        .and_then(OsStr::to_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    // A document link may open a document with its registered app, not execute
+    // a program, script, shortcut, or desktop launcher supplied by Markdown.
+    const DOCUMENT_TYPES: &[&str] = &[
+        "xls", "xlsx", "xlsm", "xlsb", "csv", "tsv", "ods", "numbers", "doc", "docx", "odt", "rtf",
+        "pages", "ppt", "pptx", "odp", "key", "pdf", "txt", "md", "markdown", "mdown", "mkdn",
+        "log", "json", "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif", "tif", "tiff",
+        "mp3", "wav", "m4a", "ogg", "flac", "mp4", "mov", "webm", "mkv", "zip",
+    ];
+    if !DOCUMENT_TYPES.contains(&extension.as_str()) {
+        return Err("不支持打开此文件类型；请链接表格、文档、图片或媒体文件".into());
+    }
+    Ok(target)
+}
+
+#[tauri::command]
+pub async fn open_relative_file(
+    document_path: String,
+    source: String,
+    state: State<'_, FileAccessState>,
+) -> Result<(), String> {
+    let target = resolve_local_attachment(Path::new(&document_path), &source, &state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::links::open_with_default(target.as_os_str())
+    })
+    .await
+    .map_err(|_| "无法打开链接".to_string())?
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedImage {
+    relative_path: String,
+    name: String,
+}
+
+fn pasted_image_extension(bytes: &[u8]) -> Result<&'static str, String> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Ok("png")
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        Ok("jpg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Ok("gif")
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        Ok("webp")
+    } else if bytes.starts_with(b"BM") {
+        Ok("bmp")
+    } else if bytes.get(4..8) == Some(b"ftyp")
+        && matches!(bytes.get(8..12), Some(b"avif" | b"avis"))
+    {
+        Ok("avif")
+    } else {
+        Err("请粘贴 PNG、JPEG、GIF、WebP、BMP 或 AVIF 图片".into())
+    }
+}
+
+fn store_pasted_image(
+    document: &Path,
+    name: &str,
+    data: &str,
+    state: &FileAccessState,
+) -> Result<SavedImage, String> {
+    let document = authorized_document(document, state)?;
+    const LIMIT: usize = 20 * 1024 * 1024;
+    if data.len() > LIMIT.div_ceil(3) * 4 {
+        return Err("图片必须是小于 20 MB 的文件".into());
+    }
+    let bytes = STANDARD.decode(data).map_err(|_| "图片数据无效")?;
+    if bytes.is_empty() || bytes.len() > LIMIT {
+        return Err("图片必须是小于 20 MB 的文件".into());
+    }
+    let extension = pasted_image_extension(&bytes)?;
+    let directory = document.parent().ok_or("文档路径无效")?.join("images");
+    match fs::create_dir(&directory) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(_) => return Err("无法创建 images 文件夹，请检查写入权限".into()),
+    }
+    let metadata = fs::symlink_metadata(&directory).map_err(|_| "无法访问 images 文件夹")?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err("images 必须是文档目录内的普通文件夹".into());
+    }
+    let stem = Path::new(name)
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .unwrap_or("image");
+    let stem: String = stem
+        .chars()
+        .filter(|c| c.is_alphanumeric() || matches!(c, '-' | '_'))
+        .take(60)
+        .collect();
+    let stem = if stem.is_empty() { "image" } else { &stem };
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    for _ in 0..64 {
+        let nonce = SAVE_NONCE.fetch_add(1, Ordering::Relaxed);
+        let name = format!("{stem}-{timestamp}-{nonce}.{extension}");
+        let path = directory.join(&name);
+        let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return Err("无法写入 images 文件夹，请检查写入权限".into()),
+        };
+        if file
+            .write_all(&bytes)
+            .and_then(|_| file.sync_all())
+            .is_err()
+        {
+            drop(file);
+            let _ = fs::remove_file(&path);
+            return Err("图片保存失败，请重试".into());
+        }
+        return Ok(SavedImage {
+            relative_path: format!("images/{name}"),
+            name,
+        });
+    }
+    Err("无法生成唯一的图片文件名，请重试".into())
+}
+
+#[tauri::command]
+pub async fn save_pasted_image(
+    app: tauri::AppHandle,
+    document_path: String,
+    name: String,
+    data: String,
+) -> Result<SavedImage, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<FileAccessState>();
+        store_pasted_image(Path::new(&document_path), &name, &data, &state)
+    })
+    .await
+    .map_err(|_| "图片保存失败，请重试".to_string())?
 }
 
 fn load_local_image(
@@ -622,6 +789,115 @@ pub fn read_launch_target(state: State<'_, FileAccessState>) -> Option<LaunchTar
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn attachment_fixture() -> (PathBuf, PathBuf, FileAccessState) {
+        let root = std::env::temp_dir().join(format!(
+            "prosemap-attachments-{}-{}",
+            std::process::id(),
+            SAVE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(root.join("notes")).unwrap();
+        let document = root.join("notes/draft.md");
+        fs::write(&document, "# attachments").unwrap();
+        let state = FileAccessState::default();
+        state.authorize_file(fs::canonicalize(&document).unwrap());
+        (root, document, state)
+    }
+
+    #[test]
+    fn relative_files_resolve_only_from_authorized_documents() {
+        let (root, document, state) = attachment_fixture();
+        fs::write(root.join("年 报.xlsx"), b"spreadsheet").unwrap();
+        let path = resolve_local_attachment(&document, "../年%20报.xlsx", &state).unwrap();
+        assert_eq!(path, dunce::canonicalize(root.join("年 报.xlsx")).unwrap());
+        #[cfg(windows)]
+        assert!(!path.to_string_lossy().starts_with(r"\\?\"));
+        assert!(resolve_local_attachment(
+            &document,
+            "../年%20报.xlsx",
+            &FileAccessState::default()
+        )
+        .is_err());
+        assert!(resolve_local_attachment(&document, "missing.xlsx", &state).is_err());
+        assert!(resolve_local_attachment(&document, "../", &state).is_err());
+        fs::write(root.join("run.desktop"), "Exec=sh").unwrap();
+        assert!(resolve_local_attachment(&document, "../run.desktop", &state).is_err());
+        for source in [
+            "file:///tmp/test.xlsx",
+            "//server/a.xlsx",
+            "C:\\a.xlsx",
+            "\nfile.xlsx",
+        ] {
+            assert!(relative_attachment_path(&document, source).is_err());
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pasted_images_create_or_reuse_images_without_overwriting() {
+        let (root, document, state) = attachment_fixture();
+        let bytes = b"\x89PNG\r\n\x1a\nfixture";
+        let data = STANDARD.encode(bytes);
+        assert!(
+            store_pasted_image(&document, "image.png", &data, &FileAccessState::default()).is_err()
+        );
+        assert!(!root.join("notes/images").exists());
+        assert!(store_pasted_image(
+            &document,
+            "image.png",
+            &STANDARD.encode(b"not an image"),
+            &state
+        )
+        .is_err());
+        assert!(!root.join("notes/images").exists());
+        let a = store_pasted_image(&document, "../../截图.png", &data, &state).unwrap();
+        let b = store_pasted_image(&document, "../../截图.png", &data, &state).unwrap();
+        assert_ne!(a.relative_path, b.relative_path);
+        assert!(a.relative_path.starts_with("images/截图-"));
+        assert_eq!(
+            load_local_image(&document, &a.relative_path, &state)
+                .unwrap()
+                .bytes,
+            bytes
+        );
+        assert_eq!(
+            fs::read(root.join("notes").join(&b.relative_path)).unwrap(),
+            bytes
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pasted_images_preserve_a_file_named_images() {
+        let (root, document, state) = attachment_fixture();
+        fs::write(root.join("notes/images"), b"keep me").unwrap();
+        assert!(store_pasted_image(
+            &document,
+            "image.png",
+            &STANDARD.encode(b"\x89PNG\r\n\x1a\n"),
+            &state
+        )
+        .is_err());
+        assert_eq!(fs::read(root.join("notes/images")).unwrap(), b"keep me");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pasted_images_do_not_follow_an_images_symlink() {
+        let (root, document, state) = attachment_fixture();
+        fs::create_dir(root.join("elsewhere")).unwrap();
+        std::os::unix::fs::symlink(root.join("elsewhere"), root.join("notes/images")).unwrap();
+        assert!(store_pasted_image(
+            &document,
+            "image.png",
+            &STANDARD.encode(b"\x89PNG\r\n\x1a\n"),
+            &state
+        )
+        .is_err());
+        assert_eq!(fs::read_dir(root.join("elsewhere")).unwrap().count(), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn image_paths_resolve_against_document_with_url_decoding() {

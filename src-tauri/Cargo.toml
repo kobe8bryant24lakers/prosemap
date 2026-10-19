@@ -1,6 +1,6 @@
 [package]
 name = "prosemap"
-version = "0.9.1"
+version = "0.10.0"
 description = "ProseMap desktop Markdown editor"
 license = "MIT"
 repository = "https://github.com/kobe8bryant24lakers/prosemap"
@@ -16,6 +16,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
+base64 = "0.22"
+dunce = "1"
 tauri = { version = "2.11.5", features = [] }
 futures-util = "0.3"
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native"] }

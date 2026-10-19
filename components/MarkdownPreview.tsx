@@ -6,7 +6,8 @@ import { useLocale } from '@/lib/use-locale';
 import { createContext, memo, useContext, useMemo, useState, type ImgHTMLAttributes } from 'react';
 import PreviewImage from './PreviewImage';
 import { isDesktopRuntime } from '@/lib/ai-client';
-import { previewHeadingIds, isExternalPreviewLink } from '@/lib/preview-links';
+import { previewHeadingIds, isExternalPreviewLink, isRelativeFileLink } from '@/lib/preview-links';
+import { openRelativeFile } from '@/lib/local-desktop';
 import CodeBlock from './CodeBlock';
 import { FileText } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
@@ -92,6 +93,14 @@ function MarkdownPreview({ markdown, documentPath, onEditMermaid }: MarkdownPrev
             if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
             else setLinkError(t("未找到对应的文档标题"));
           } catch { setLinkError(t("标题链接无效")); }
+          return;
+        }
+        if (href && isRelativeFileLink(href)) {
+          event.preventDefault();
+          if (!documentPath) { setLinkError(t("请先保存 Markdown 文档，再打开相对路径文件。")); return; }
+          try {
+            await openRelativeFile(documentPath, href);
+          } catch (error) { setLinkError(uiMessage(error instanceof Error ? error.message : String(error))); }
           return;
         }
         if (!href || !isExternalPreviewLink(href)) {

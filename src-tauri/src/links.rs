@@ -9,10 +9,18 @@ fn validate_external_url(value: &str) -> Result<url::Url, String> {
 #[tauri::command]
 pub async fn open_external_url(url: String) -> Result<(), String> {
     let url = validate_external_url(&url)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        open_with_default(std::ffi::OsStr::new(url.as_str()))
+    })
+    .await
+    .map_err(|_| "无法打开链接".to_string())?
+}
+
+pub(crate) fn open_with_default(target: &std::ffi::OsStr) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let status = std::process::Command::new("/usr/bin/open")
-            .arg(url.as_str())
+            .arg(target)
             .status()
             .map_err(|error| format!("无法打开链接: {error}"))?;
         if !status.success() {
@@ -34,7 +42,8 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
                 show: i32,
             ) -> isize;
         }
-        let target: Vec<u16> = url.as_str().encode_utf16().chain(Some(0)).collect();
+        use std::os::windows::ffi::OsStrExt;
+        let target: Vec<u16> = target.encode_wide().chain(Some(0)).collect();
         let result = unsafe {
             ShellExecuteW(
                 std::ptr::null_mut(),
@@ -54,7 +63,7 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
     {
         // The validated URL is a single argument; never interpolate it into a shell.
         let status = std::process::Command::new("xdg-open")
-            .arg(url.as_str())
+            .arg(target)
             .status()
             .map_err(|error| format!("无法打开链接: {error}"))?;
         if !status.success() {
@@ -64,7 +73,7 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
-        let _ = url;
+        let _ = target;
         Err("当前平台暂不支持打开外部链接".into())
     }
 }

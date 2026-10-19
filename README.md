@@ -34,6 +34,8 @@ Screenshots show the actual production frontend with sample documents. Native fi
 - Open individual Markdown files or browse every Markdown document in a local folder.
 - Edit Markdown in editor-only, preview-only, or side-by-side views using the persistent view controls.
 - Preview relative local images resolved against the saved Markdown document, including parent directories, Unicode names, and URL-encoded paths.
+- Open relative links to local spreadsheets, documents, images, and media in the system's default application directly from the preview.
+- Paste screenshots or copied local images into the editor; the desktop app saves them in a sibling `images` folder and inserts relative Markdown references.
 - Highlight common fenced-code languages in both the editor and preview; copy code directly from each preview block.
 - Edit code with two-space indentation, Tab / Shift+Tab, bracket matching and completion, and folding.
 - Format the current code block with Prettier and undo the change in one step.
@@ -70,7 +72,15 @@ Add a language after the opening fence, such as `json`, `jsonc`, `javascript`, `
 
 Formatting supports JSON, JSONC, JSON5, JavaScript/JSX, TypeScript/TSX, CSS/SCSS/Less, HTML/Vue, YAML, and GraphQL. Place the caret in a language-labelled, top-level fenced block. Formatting is explicit and affects only that block; invalid syntax, unsupported languages, and edits made while formatting is loading leave the document unchanged. List- and quote-nested blocks retain highlighting but are not automatically formatted. JSON formatting preserves large numeric literals and duplicate keys.
 
-Preview heading links use lowercase, punctuation-free IDs with spaces replaced by hyphens (for example, `#hello-world`); Chinese headings are supported. Duplicate headings receive numeric suffixes. Relative file links are not yet resolved against the active document.
+Preview heading links use lowercase, punctuation-free IDs with spaces replaced by hyphens (for example, `#hello-world`); Chinese headings are supported. Duplicate headings receive numeric suffixes.
+
+## Local attachments and pasted images
+
+In the desktop app, link to files relative to the saved Markdown document and click the link in the preview to open it in the system's default application. For example, `[表格](./附件/report.xlsx)` opens `附件/report.xlsx` beside the Markdown file. Parent directories (`../`), Unicode names, and URL-encoded spaces are supported. Common spreadsheet, document, image, archive, and media formats are supported; executable and script file types are rejected. Missing files and unavailable default applications produce an error message.
+
+Copy a screenshot or local image, place the caret in the editor, and press `Cmd+V` on macOS or `Ctrl+V` on Windows/Linux. Images are saved in the Markdown document's directory under `images/`; the folder is created if needed, and unique filenames prevent overwriting existing images. The editor inserts a relative reference such as `![Screenshot](images/Screenshot-….png)` so the document and image folder can be moved together.
+
+If the document has not been saved, pasting an image first opens the Markdown save dialog. Cancelling leaves the document unchanged and does not save the image. Each paste accepts up to 10 images, each no larger than 20 MB, in PNG, JPEG, GIF, WebP, BMP, or AVIF format. Undo removes the inserted references in one step; image files remain in `images/` so redo can restore them.
 
 ## Canvas controls
 
@@ -153,6 +163,8 @@ The **Build Linux desktop packages** GitHub Actions workflow can be run manually
 
 Use [the complex Markdown fixture](docs/fixtures/complex-markdown.md) for manual regression testing. It includes seven diagram types, code, tables, nested lists, image/link boundaries and 80 long-document sections. See [the usability validation report](docs/usability-validation.md) for actual coverage and remaining limits.
 
+See [local attachment and image paste validation](docs/local-attachments-validation.md) for the native desktop checks and platform limits of those features.
+
 ```bash
 npm run lint
 npm run typecheck
@@ -172,6 +184,7 @@ The Rust layer exposes a deliberately small native surface:
 
 - User-authorized Markdown file and folder access
 - Original-path saving and Save As
+- Relative attachment opening and pasted-image storage beside authorized Markdown documents
 - Operating-system file association launch targets
 - HTTPS model requests, local/private HTTP model requests, and streaming cancellation
 - Encrypted, cross-session model configuration in the operating system credential store
@@ -202,7 +215,7 @@ AI features require network access to the provider selected by the user. Local e
 - Credentials in URLs, query strings, fragments, redirects, and unusable network destinations are rejected.
 - Validated hostname results are pinned to the outgoing model request to prevent DNS rebinding between validation and connection.
 - Upstream errors are size-limited and API keys are redacted.
-- Document access is limited to paths explicitly selected by the user or delivered through an operating-system file association. Relative preview images are loaded from references in authorized Markdown documents, restricted to supported image extensions and 20 MB per image.
+- Document access is limited to paths explicitly selected by the user or delivered through an operating-system file association. Relative preview images and attachment links are resolved from references in authorized Markdown documents. Images are restricted to supported formats and 20 MB per image; attachment opening is restricted to supported document and media file types. Pasted images are written to a regular `images` directory beside the authorized document.
 - AI context files are selected explicitly, read locally, shown in the request UI, and bounded to 80,000 characters before they are sent to the configured model provider.
 - Workspace traversal skips symlinks and applies file count, depth, extension, and size limits.
 - Saves use a synchronized temporary sibling followed by atomic replacement, protecting the original document from partial writes.

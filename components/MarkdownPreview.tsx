@@ -16,6 +16,7 @@ import rehypeRaw from 'rehype-raw';
 import { previewHtmlSanitize } from '@/lib/preview-html';
 import { createMermaidTarget, type MermaidTarget } from '@/lib/editor';
 import { compactJsonPreviewIndentation, previewLineBreaks } from '@/lib/markdown-preview';
+import { relativeFileLinks } from '@/lib/relative-file-links';
 import MermaidDiagram from './MermaidDiagram';
 
 type MarkdownPreviewProps = {
@@ -127,7 +128,7 @@ function MarkdownPreview({ markdown, documentPath, onEditMermaid }: MarkdownPrev
 
   return (
     <PreviewContext.Provider value={context}><article className="markdown-body">
-      <>{linkError && <div className="preview-link-error" role="alert">{uiMessage(linkError)}</div>}<ReactMarkdown remarkPlugins={[remarkGfm, previewLineBreaks]} rehypePlugins={[rehypeRaw, previewHtmlSanitize, previewHeadingIds]} components={components}>{markdown}</ReactMarkdown></>
+      <>{linkError && <div className="preview-link-error" role="alert">{uiMessage(linkError)}</div>}<ReactMarkdown remarkPlugins={[remarkGfm, relativeFileLinks, previewLineBreaks]} rehypePlugins={[rehypeRaw, previewHtmlSanitize, previewHeadingIds]} components={components}>{markdown}</ReactMarkdown></>
     </article></PreviewContext.Provider>
   );
 }

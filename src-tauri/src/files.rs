@@ -425,11 +425,20 @@ fn relative_image_path(document: &Path, source: &str) -> Result<PathBuf, String>
 }
 
 fn relative_attachment_path(document: &Path, source: &str) -> Result<PathBuf, String> {
-    let source = source.replace('\\', "/");
+    // Markdown URI normalization percent-encodes Windows separators. Normalize
+    // only those separators before URL resolution; decoding the whole source
+    // here would decode literal percent escapes a second time in to_file_path.
+    let source = source
+        .replace('\\', "/")
+        .replace("%5C", "/")
+        .replace("%5c", "/");
     if source.is_empty()
         || source.trim() != source
         || source.chars().any(char::is_control)
         || source.starts_with('/')
+        || source
+            .get(..3)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("%2f"))
         || source.starts_with('#')
         || url::Url::parse(&source).is_ok()
     {
@@ -810,6 +819,10 @@ mod tests {
         fs::write(root.join("年 报.xlsx"), b"spreadsheet").unwrap();
         let path = resolve_local_attachment(&document, "../年%20报.xlsx", &state).unwrap();
         assert_eq!(path, dunce::canonicalize(root.join("年 报.xlsx")).unwrap());
+        assert_eq!(
+            resolve_local_attachment(&document, "..%5C%E5%B9%B4%20%E6%8A%A5.xlsx", &state).unwrap(),
+            path
+        );
         #[cfg(windows)]
         assert!(!path.to_string_lossy().starts_with(r"\\?\"));
         assert!(resolve_local_attachment(
@@ -920,6 +933,43 @@ mod tests {
             "#icon",
         ] {
             assert!(relative_image_path(&document, source).is_err());
+        }
+    }
+
+    #[test]
+    fn attachment_paths_normalize_markdown_encoded_separators_without_double_decoding() {
+        let root = std::env::temp_dir();
+        let document = root.join("notes/draft.md");
+        for source in [
+            r".\附件\年 报 report.xlsx",
+            ".%5C%E9%99%84%E4%BB%B6%5C%E5%B9%B4%20%E6%8A%A5%20report.xlsx",
+            ".%5c%E9%99%84%E4%BB%B6%5c%E5%B9%B4%20%E6%8A%A5%20report.xlsx",
+        ] {
+            assert_eq!(
+                relative_attachment_path(&document, source).unwrap(),
+                root.join("notes/附件/年 报 report.xlsx"),
+                "{source}"
+            );
+        }
+        assert_eq!(
+            relative_attachment_path(&document, "..%5Cassets%5cQ1%20plan.xlsx").unwrap(),
+            root.join("assets/Q1 plan.xlsx")
+        );
+        assert_eq!(
+            relative_attachment_path(&document, "literal%255Cname%2520.xlsx").unwrap(),
+            root.join("notes/literal%5Cname%20.xlsx")
+        );
+        for source in [
+            "%5Ctmp%5Creport.xlsx",
+            "%5c%5cserver%5cshare%5creport.xlsx",
+            "%2Ftmp/report.xlsx",
+            "%2ftmp/report.xlsx",
+            "C:%5Ctmp%5Creport.xlsx",
+        ] {
+            assert!(
+                relative_attachment_path(&document, source).is_err(),
+                "{source}"
+            );
         }
     }
 

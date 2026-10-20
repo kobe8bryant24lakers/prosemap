@@ -94,13 +94,18 @@ For flowcharts, class diagrams and ER diagrams, drag a selection rectangle on em
 | Pan | Wheel, hand tool drag, Space+drag, or middle-button drag |
 | Horizontal pan | Shift+wheel |
 | Zoom | Cmd/Ctrl+wheel or zoom buttons |
+| Fit all / selected objects | `F` / `Shift+F`, or Fit / Selection buttons |
+| Create and connect to the right | `Tab` with a node selected |
+| Temporarily bypass snapping | Hold `Alt` while dragging or resizing |
 | Select all nodes | Cmd/Ctrl+A while canvas has focus |
 | Nudge selection | Arrow keys; Shift moves 10 pixels |
 | Duplicate selection | Cmd/Ctrl+D |
 | Rename | Double-click or Enter; Enter commits, Escape cancels |
 | Undo / redo | Cmd/Ctrl+Z / Cmd/Ctrl+Shift+Z |
 
-Dragging, alignment and a continuous rename each undo as one action. Manual positions belong to the current canvas session; Mermaid source and rendered previews still use automatic layout. Toolbars wrap to keep actions visible in smaller windows.
+Dragging, alignment and a continuous rename each undo as one action. Escape cancels an active drag, resize or rename without replacing the existing redo history. New objects and copies find nearby free space; dragging toward the right or bottom expands the canvas, and dragging near the viewport edge scrolls it. Unsupported connections explain the diagram's relationship rule.
+
+Canvas selection and inspector changes preserve the current zoom and pointer location. Switching tabs or temporarily entering invalid source retains the canvas session; returning with changed, valid source preserves existing node positions and starts a new canvas undo history. Manual positions belong to the current canvas session; reopening Mermaid source and rendered previews still use automatic layout. Toolbars wrap to keep actions visible in smaller windows.
 
 ## Desktop support
 
@@ -108,8 +113,8 @@ Dragging, alignment and a continuous rename each undo as one action. Manual posi
 | --- | --- |
 | macOS 11+ on Apple silicon | Built and locally verified |
 | Windows 10/11 x64 | NSIS and MSI packages share one compatible build; WebView2 bootstrapper configuration is included |
-| Linux x64 | Debian and AppImage build/release workflows configured on Ubuntu 22.04; native Linux runtime acceptance pending |
-| macOS on Intel | Source-compatible; a dedicated x86_64 or universal build is still required |
+| Linux x64 | Debian and AppImage preview packages built on Ubuntu 22.04; native Linux runtime acceptance pending |
+| macOS on Intel | Included in universal macOS preview packages; native Intel runtime acceptance pending |
 | iOS and Android | Tauri library entry point reserved for future work; not implemented or verified |
 
 ## Local development
@@ -166,6 +171,8 @@ The **Build Linux desktop packages** GitHub Actions workflow can be run manually
 Use [the complex Markdown fixture](docs/fixtures/complex-markdown.md) for manual regression testing. It includes seven diagram types, code, tables, nested lists, image/link boundaries and 80 long-document sections. See [the usability validation report](docs/usability-validation.md) for actual coverage and remaining limits.
 
 See [local attachment and image paste validation](docs/local-attachments-validation.md) for the native desktop checks and platform limits of those features.
+
+See [canvas interaction validation](docs/canvas-interaction-validation.md) for the 11-template operation matrix, 200-node browser checks, geometry benchmark, and remaining native-device validation limits.
 
 ```bash
 npm run lint

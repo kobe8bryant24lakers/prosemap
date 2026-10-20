@@ -1,13 +1,24 @@
 import type { MermaidFlowGraph } from './mermaid-workbench.ts';
 import { mermaidCanvasNodeSize, type MermaidCanvasNodePositions, type MermaidCanvasPoint } from './mermaid-canvas-layout.ts';
 
-export function nodesInCanvasRect(graph: MermaidFlowGraph, positions: MermaidCanvasNodePositions, start: MermaidCanvasPoint, end: MermaidCanvasPoint): string[] {
+export function nodesInCanvasRect(graph: MermaidFlowGraph, positions: MermaidCanvasNodePositions, start: MermaidCanvasPoint, end: MermaidCanvasPoint, intersect = false): string[] {
   const left = Math.min(start.x, end.x), right = Math.max(start.x, end.x);
   const top = Math.min(start.y, end.y), bottom = Math.max(start.y, end.y);
   return graph.nodes.filter((node) => {
     const p = positions[node.id], size = mermaidCanvasNodeSize(node, graph.kind);
-    return p && p.x >= left && p.y >= top && p.x + size.width <= right && p.y + size.height <= bottom;
+    return p && (intersect
+      ? p.x <= right && p.y <= bottom && p.x + size.width >= left && p.y + size.height >= top
+      : p.x >= left && p.y >= top && p.x + size.width <= right && p.y + size.height <= bottom);
   }).map((node) => node.id);
+}
+
+export function toggleCanvasSelection(initial: string[], hits: string[]): string[] {
+  const result = new Set(initial);
+  for (const id of new Set(hits)) {
+    if (result.has(id)) result.delete(id);
+    else result.add(id);
+  }
+  return [...result];
 }
 
 /** Clamp one shared delta so a selection keeps its spacing at stage edges. */

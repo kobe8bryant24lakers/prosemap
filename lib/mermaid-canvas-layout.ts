@@ -208,12 +208,12 @@ export function snapMermaidCanvasNode(
   node: MermaidFlowNode,
   point: MermaidCanvasPoint,
   gridEnabled: boolean,
+  threshold = 9,
 ): { point: MermaidCanvasPoint; guides: MermaidCanvasAlignmentGuides } {
   const size = mermaidCanvasNodeSize(node, graph.kind);
   const snapped = gridEnabled
     ? { x: Math.round(point.x / 10) * 10, y: Math.round(point.y / 10) * 10 }
     : { ...point };
-  const threshold = 9;
   let bestX: { delta: number; position: number; guide: number } | null = null;
   let bestY: { delta: number; position: number; guide: number } | null = null;
   const candidateXs = [
@@ -250,6 +250,35 @@ export function snapMermaidCanvasNode(
     point: { x: bestX?.position ?? snapped.x, y: bestY?.position ?? snapped.y },
     guides: { x: bestX?.guide, y: bestY?.guide },
   };
+}
+
+/** Find nearby free space without displacing objects already on the canvas. */
+export function placeMermaidCanvasNode(
+  graph: MermaidFlowGraph,
+  positions: MermaidCanvasNodePositions,
+  node: MermaidFlowNode,
+  preferred: MermaidCanvasPoint,
+): MermaidCanvasPoint {
+  const size = mermaidCanvasNodeSize(node, graph.kind);
+  const origin = { x: Math.max(18, preferred.x), y: graph.kind === 'sequence' ? 58 : Math.max(18, preferred.y) };
+  const occupied = graph.nodes.filter((other) => other.id !== node.id && positions[other.id]).map((other) => ({
+    ...positions[other.id], ...mermaidCanvasNodeSize(other, graph.kind),
+  }));
+  const free = (p: MermaidCanvasPoint) => occupied.every((other) =>
+    p.x + size.width + 24 <= other.x || other.x + other.width + 24 <= p.x
+    || (graph.kind !== 'sequence' && (p.y + size.height + 24 <= other.y || other.y + other.height + 24 <= p.y)));
+  if (free(origin)) return origin;
+  // Search close to the intended insertion point before extending the stage.
+  for (let ring = 1; ring <= 12; ring++) {
+    for (let x = -ring; x <= ring; x++) {
+      for (let y = -ring; y <= ring; y++) {
+        if (Math.max(Math.abs(x), Math.abs(y)) !== ring || (graph.kind === 'sequence' && y !== 0)) continue;
+        const point = { x: origin.x + x * (size.width + 32), y: origin.y + y * (size.height + 32) };
+        if (point.x >= 18 && point.y >= 18 && free(point)) return point;
+      }
+    }
+  }
+  return { x: Math.max(origin.x, ...occupied.map((other) => other.x + other.width + 32)), y: origin.y };
 }
 
 function edgeLayoutText(edge: MermaidFlowEdge, kind: MermaidFlowGraph['kind']) {
@@ -309,7 +338,7 @@ export function mermaidCanvasLayoutBounds(
   layout: MermaidCanvasLayout,
   padding = 86,
 ): MermaidCanvasBounds {
-  if (!graph.nodes.length || graph.kind === 'sequence') {
+  if (!graph.nodes.length) {
     return { minX: 0, minY: 0, maxX: layout.width, maxY: layout.height };
   }
 
@@ -320,7 +349,8 @@ export function mermaidCanvasLayoutBounds(
     if (!position) continue;
     const size = mermaidCanvasNodeSize(node, graph.kind);
     xs.push(position.x, position.x + size.width);
-    ys.push(position.y, position.y + size.height);
+    const height = graph.kind === 'sequence' ? mermaidSequenceLifelineHeight(node, layout.height, position.y) : size.height;
+    ys.push(position.y, position.y + height);
   }
   for (const edge of graph.edges) {
     const route = layout.routes[edge.id];
@@ -724,4 +754,43 @@ export function mermaidGroupBounds(graph: MermaidFlowGraph, positions: MermaidCa
   }
   for (const group of graph.data?.groups ?? []) measure(group.id);
   return bounds;
+}
+
+export function expandedMermaidCanvasStage(
+  graph: MermaidFlowGraph,
+  positions: MermaidCanvasNodePositions,
+  current: Pick<MermaidCanvasLayout, 'width' | 'height'>,
+) {
+  let maxX = 0;
+  let maxY = 0;
+  for (const node of graph.nodes) {
+    const position = positions[node.id];
+    if (!position) continue;
+    const size = mermaidCanvasNodeSize(node, graph.kind);
+    maxX = Math.max(maxX, position.x + size.width);
+    const totalHeight = graph.kind === 'sequence' && node.data?.canvasLifelineHeight !== undefined
+      ? mermaidSequenceLifelineHeight(node, current.height, position.y)
+      : size.height;
+    maxY = Math.max(maxY, position.y + totalHeight);
+  }
+  return {
+    width: Math.max(current.width, MIN_MERMAID_STAGE_WIDTH, Math.ceil(maxX + MERMAID_STAGE_PADDING)),
+    height: Math.max(current.height, graph.kind === 'sequence' ? MIN_MERMAID_SEQUENCE_STAGE_HEIGHT : MIN_MERMAID_STAGE_HEIGHT, Math.ceil(maxY + MERMAID_STAGE_PADDING)),
+  };
+}
+
+/** Preserve manual positions when inserting, deleting or reordering declarations. */
+export function reconcileMermaidCanvasNodes(graph: MermaidFlowGraph, current: MermaidCanvasLayout): MermaidCanvasLayout {
+  const positions = createSafeRecord<MermaidCanvasPoint>();
+  const missing = graph.nodes.filter((node) => !current.positions[node.id]);
+  const fallback = missing.length ? layoutMermaidGraph(graph) : current;
+  for (const node of graph.nodes) {
+    if (current.positions[node.id]) positions[node.id] = current.positions[node.id];
+  }
+  for (const node of missing) {
+    positions[node.id] = placeMermaidCanvasNode(graph, positions, node, fallback.positions[node.id]);
+  }
+  // Source edits may reuse an edge ID for different endpoints. Rebuild routes
+  // on topology changes; pointer-only movement retains unrelated routes.
+  return { positions, routes: createSafeRecord<MermaidCanvasEdgeRoute>(), ...expandedMermaidCanvasStage(graph, positions, current) };
 }

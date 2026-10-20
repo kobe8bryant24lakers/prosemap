@@ -34,6 +34,12 @@ import { createAiContextBlock, MAX_AI_CONTEXT_CHARACTERS, type AiContextDocument
 import type { ModelConfig } from '@/lib/editor';
 import { parseMermaid } from '@/lib/mermaid-runtime';
 import {
+  activateMermaidCanvasDraft,
+  commitMermaidCanvasGraph,
+  createMermaidCanvasSession,
+  updateMermaidCanvasDraft,
+} from '@/lib/mermaid-canvas-session';
+import {
   MERMAID_TEMPLATES,
   createMermaidAiPrompts,
   extractMermaidSource,
@@ -143,8 +149,10 @@ export default function MermaidWorkbench({
   const [startingSource] = useState(() => initialSource.trim() ? initialSource : templateSource(MERMAID_TEMPLATES[0]));
   const startingGraph = useMemo(() => safelyParseVisualSource(startingSource), [startingSource]);
   const [source, setSource] = useState(startingSource);
-  const [graph, setGraph] = useState<MermaidVisualGraph | null>(startingGraph);
+  const [canvasSession, setCanvasSession] = useState(() => createMermaidCanvasSession(startingGraph));
+  const { graph, canvasGraph, externalRevision } = canvasSession;
   const [expanded, setExpanded] = useState(false);
+  const [canvasRevision, setCanvasRevision] = useState(0);
   const [tab, setTab] = useState<WorkbenchTab>('visual');
   const [selectedTemplateId, setSelectedTemplateId] = useState(initialSource.trim() ? '' : MERMAID_TEMPLATES[0].id);
   const [aiInstruction, setAiInstruction] = useState('');
@@ -279,7 +287,10 @@ export default function MermaidWorkbench({
     invalidateActiveAiForDraftChange();
     invalidatePendingApplyForDraftChange();
     setSource(nextSource);
-    setGraph(safelyParseVisualSource(nextSource));
+    const nextGraph = safelyParseVisualSource(nextSource);
+    setCanvasSession((current) => templateId
+      ? createMermaidCanvasSession(nextGraph)
+      : updateMermaidCanvasDraft(current, nextGraph));
     setAiDraftValidation(nextSource.trim()
       ? { kind: 'checking', message: t("正在校验 Mermaid v11 语法…") }
       : { kind: 'error', message: t("图表源码不能为空") });
@@ -289,7 +300,7 @@ export default function MermaidWorkbench({
   }
 
   function switchTab(nextTab: WorkbenchTab) {
-    if (nextTab === 'visual') setGraph(safelyParseVisualSource(source));
+    if (nextTab === 'visual') setCanvasSession(activateMermaidCanvasDraft);
     if (nextTab === 'ai' && !aiRunning) {
       setAiDraftValidation(source.trim()
         ? { kind: 'checking', message: t("正在校验 Mermaid v11 语法…") }
@@ -302,6 +313,7 @@ export default function MermaidWorkbench({
   function selectTemplate(templateId: string) {
     const template = MERMAID_TEMPLATES.find((candidate) => candidate.id === templateId);
     if (!template) return;
+    setCanvasRevision((revision) => revision + 1);
     updateDraft(templateSource(template), template.id);
     setAiStatus({ kind: 'idle', message: '' });
     setAiReasoning('');
@@ -313,7 +325,7 @@ export default function MermaidWorkbench({
       const nextSource = serializeMermaidVisualGraph(next);
       invalidateActiveAiForDraftChange();
       invalidatePendingApplyForDraftChange();
-      setGraph(next);
+      setCanvasSession((current) => commitMermaidCanvasGraph(current, next));
       setSource(nextSource);
       setSelectedTemplateId('');
       setAiUseCurrentSource(true);
@@ -572,14 +584,19 @@ export default function MermaidWorkbench({
               ) : null}
 
               <div className="workbench-visual-panel" hidden={tab !== 'visual'}>
-                {graph && tab === 'visual' ? (
-                  <MermaidCanvasEditor
-                    active={tab === 'visual' && !inactive}
-                    suspended={interactionSuspended}
-                    graph={graph}
-                    onChange={commitGraph}
-                  />
-                ) : tab === 'visual' ? (
+                {canvasGraph ? (
+                  <div hidden={!graph} style={{ height: '100%' }}>
+                    <MermaidCanvasEditor
+                      key={canvasRevision}
+                      active={tab === 'visual' && Boolean(graph) && !inactive}
+                      suspended={interactionSuspended}
+                      graph={canvasGraph}
+                      externalRevision={externalRevision}
+                      onChange={commitGraph}
+                    />
+                  </div>
+                ) : null}
+                {!graph && tab === 'visual' ? (
                   <section className="workbench-preview" style={{ height: '100%' }} aria-label={t("只读图表预览")}>
                     <header>
                       <div><CircleAlert size={14} /><strong>{t("当前图表仅支持只读预览")}</strong><small>{diagramKind(source)}</small></div>

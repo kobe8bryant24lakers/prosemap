@@ -1,5 +1,14 @@
 // UI copy only. Never pass document content through this dictionary.
 export const english: Record<string, string> = {
+  "连接对象已不存在，请重新选择": "A connection object no longer exists. Select it again.",
+  "主题不能连接到自身，请选择其他主题": "A topic cannot connect to itself. Choose another topic.",
+  "任务不能依赖自身，请选择其他任务": "A task cannot depend on itself. Choose another task.",
+  "结束状态不能作为连线起点": "An end state cannot be a connection source.",
+  "开始状态不能作为连线终点": "A start state cannot be a connection target.",
+  "该开始状态已有连线，请先删除原连线": "This start state is already connected. Delete its existing connection first.",
+  "该结束状态已有连线，请先删除原连线": "This end state is already connected. Delete its existing connection first.",
+  "适配选中对象（Shift F）": "Fit selection (Shift F)",
+  "选区": "Selection",
   "请先保存 Markdown 文档，再打开相对路径文件。": "Save the Markdown document before opening a relative file link.",
   "请在桌面应用中打开本地文件链接。": "Open local file links in the desktop app.",
   "仅支持文档相对路径": "Only document-relative paths are supported.",

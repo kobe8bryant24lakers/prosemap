@@ -1,6 +1,6 @@
 # Linux desktop packaging
 
-Linux support is prepared for x86-64 desktop systems with WebKitGTK 4.1. CI builds on Ubuntu 22.04 and produces a Debian package and an AppImage. These changes have not yet been run on a Linux release runner or accepted on a Linux desktop; no Linux download has been published by this change.
+Linux packages target x86-64 desktop systems with WebKitGTK 4.1. CI builds on Ubuntu 22.04 and produces a Debian package and an AppImage; both are available in the [v0.10.1 desktop preview](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.10.1). Native desktop acceptance remains pending and is separate from successful CI packaging.
 
 ## Build locally
 
@@ -36,7 +36,7 @@ Ubuntu 22.04 is the selected build baseline to limit glibc compatibility require
 
 Linux release assets are `ProseMap-Linux-x64-v<VERSION>.deb`, `ProseMap-Linux-x64-v<VERSION>.AppImage`, and `SHA256SUMS-Linux.txt`. CI checks version consistency, Rust formatting/tests/targets, frontend checks, Debian architecture/version, executable architecture, nonempty assets and checksums. Packages are unsigned; checksums detect download corruption and are not publisher signatures.
 
-## Desktop acceptance before first release
+## Native desktop acceptance checklist
 
 - Install the `.deb` and launch the AppImage as a normal desktop user.
 - Open/save/reopen [the complex Markdown fixture](fixtures/complex-markdown.md), including its relative image and Unicode path names; exercise native file/folder dialogs.

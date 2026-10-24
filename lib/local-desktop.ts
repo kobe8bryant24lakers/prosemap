@@ -48,8 +48,8 @@ export async function readLocalMarkdown(path: string): Promise<LocalDocument> {
   return desktopInvoke<LocalDocument>('read_local_markdown', { path });
 }
 
-export async function saveLocalMarkdown(path: string | null, suggestedName: string, content: string): Promise<LocalDocument | null> {
-  return desktopInvoke<LocalDocument | null>('save_local_markdown', { path, suggestedName, content });
+export async function saveLocalMarkdown(path: string | null, suggestedName: string, content: string, expectedContent: string | null): Promise<LocalDocument | null> {
+  return desktopInvoke<LocalDocument | null>('save_local_markdown', { path, suggestedName, content, expectedContent });
 }
 
 export async function openRelativeFile(documentPath: string, source: string): Promise<void> {

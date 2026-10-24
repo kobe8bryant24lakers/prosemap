@@ -33,6 +33,7 @@ import { streamAi } from '@/lib/ai-client';
 import { createAiContextBlock, MAX_AI_CONTEXT_CHARACTERS, type AiContextDocument } from '@/lib/ai-context';
 import type { ModelConfig } from '@/lib/editor';
 import { parseMermaid } from '@/lib/mermaid-runtime';
+import { MermaidSourceHistory } from '@/lib/mermaid-source-preservation';
 import {
   activateMermaidCanvasDraft,
   commitMermaidCanvasGraph,
@@ -45,7 +46,6 @@ import {
   extractMermaidSource,
   mermaidSafetyError,
   parseMermaidVisualSource,
-  serializeMermaidVisualGraph,
   type MermaidVisualGraph,
 } from '@/lib/mermaid-workbench';
 import MermaidCanvasEditor from './MermaidCanvasEditor';
@@ -149,11 +149,14 @@ export default function MermaidWorkbench({
   const [startingSource] = useState(() => initialSource.trim() ? initialSource : templateSource(MERMAID_TEMPLATES[0]));
   const startingGraph = useMemo(() => safelyParseVisualSource(startingSource), [startingSource]);
   const [source, setSource] = useState(startingSource);
+  const [sourceHistory] = useState(() => new MermaidSourceHistory());
+  const canvasSourceRef = useRef(startingSource);
   const [canvasSession, setCanvasSession] = useState(() => createMermaidCanvasSession(startingGraph));
   const { graph, canvasGraph, externalRevision } = canvasSession;
   const [expanded, setExpanded] = useState(false);
   const [canvasRevision, setCanvasRevision] = useState(0);
   const [tab, setTab] = useState<WorkbenchTab>('visual');
+  const tabRef = useRef<WorkbenchTab>('visual');
   const [selectedTemplateId, setSelectedTemplateId] = useState(initialSource.trim() ? '' : MERMAID_TEMPLATES[0].id);
   const [aiInstruction, setAiInstruction] = useState('');
   const [aiUseCurrentSource, setAiUseCurrentSource] = useState(mode === 'edit');
@@ -173,7 +176,7 @@ export default function MermaidWorkbench({
   const closeRequestPendingRef = useRef(false);
   const configured = Boolean(config.apiKey && config.model);
   const aiRunning = aiStatus.kind === 'running';
-  const draftChanged = source.trim() !== startingSource.trim();
+  const draftChanged = source !== startingSource;
   const hasPendingChanges = aiRunning || draftChanged || applying;
   const contextCharacters = contextDocuments.reduce((total, document) => total + document.content.length, 0);
 
@@ -288,9 +291,21 @@ export default function MermaidWorkbench({
     invalidatePendingApplyForDraftChange();
     setSource(nextSource);
     const nextGraph = safelyParseVisualSource(nextSource);
-    setCanvasSession((current) => templateId
-      ? createMermaidCanvasSession(nextGraph)
-      : updateMermaidCanvasDraft(current, nextGraph));
+    const publish = Boolean(templateId) || tabRef.current === 'visual';
+    const changedSource = Boolean(nextGraph) && nextSource !== canvasSourceRef.current;
+    if (publish && changedSource) {
+      sourceHistory.reset(nextGraph, nextSource);
+      canvasSourceRef.current = nextSource;
+    }
+    setCanvasSession((current) => {
+      if (templateId) return createMermaidCanvasSession(nextGraph);
+      const draft = updateMermaidCanvasDraft(current, nextGraph);
+      if (!publish) return draft;
+      const next = activateMermaidCanvasDraft(draft);
+      return changedSource && next.externalRevision === current.externalRevision
+        ? { ...next, externalRevision: next.externalRevision + 1 }
+        : next;
+    });
     setAiDraftValidation(nextSource.trim()
       ? { kind: 'checking', message: t("正在校验 Mermaid v11 语法…") }
       : { kind: 'error', message: t("图表源码不能为空") });
@@ -300,7 +315,23 @@ export default function MermaidWorkbench({
   }
 
   function switchTab(nextTab: WorkbenchTab) {
-    if (nextTab === 'visual') setCanvasSession(activateMermaidCanvasDraft);
+    tabRef.current = nextTab;
+    if (nextTab === 'visual') {
+      // Publish one history boundary when returning from an external edit,
+      // including spelling/whitespace changes that parse to the same graph.
+      // Temporarily invalid drafts and edits restored to the original bytes
+      // leave the mounted canvas and its history intact.
+      const changedSource = Boolean(canvasSession.graph) && source !== canvasSourceRef.current;
+      if (changedSource) sourceHistory.reset(canvasSession.graph, source);
+      else sourceHistory.remember(canvasSession.graph, source);
+      if (canvasSession.graph) canvasSourceRef.current = source;
+      setCanvasSession((current) => {
+        const next = activateMermaidCanvasDraft(current);
+        return changedSource && next.externalRevision === current.externalRevision
+          ? { ...next, externalRevision: next.externalRevision + 1 }
+          : next;
+      });
+    }
     if (nextTab === 'ai' && !aiRunning) {
       setAiDraftValidation(source.trim()
         ? { kind: 'checking', message: t("正在校验 Mermaid v11 语法…") }
@@ -317,12 +348,14 @@ export default function MermaidWorkbench({
     updateDraft(templateSource(template), template.id);
     setAiStatus({ kind: 'idle', message: '' });
     setAiReasoning('');
+    tabRef.current = 'visual';
     setTab('visual');
   }
 
   function commitGraph(next: MermaidVisualGraph) {
     try {
-      const nextSource = serializeMermaidVisualGraph(next);
+      const nextSource = sourceHistory.commit(source, canvasGraph, next);
+      canvasSourceRef.current = nextSource;
       invalidateActiveAiForDraftChange();
       invalidatePendingApplyForDraftChange();
       setCanvasSession((current) => commitMermaidCanvasGraph(current, next));
@@ -427,7 +460,7 @@ export default function MermaidWorkbench({
         || applyOperationRef.current !== operation
         || draftRevisionRef.current !== draftRevision
       ) return;
-      onApply(normalized);
+      onApply(source);
     } catch (reason) {
       if (
         !mountedRef.current
@@ -554,7 +587,7 @@ export default function MermaidWorkbench({
                   ) : null}
                   {modelSwitcher}
                   {!configured ? (
-                    <button type="button" className="workbench-configure" onClick={onOpenSettings}>{t("先连接模型")}</button>
+                    <button type="button" className="workbench-configure" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); onOpenSettings(); }}>{t("先连接模型")}</button>
                   ) : null}
                   {aiStatus.kind === 'running' ? (
                     <button type="button" className="workbench-ai-run secondary" onClick={stopAi}><X size={15} />  {t("停止生成")}</button>

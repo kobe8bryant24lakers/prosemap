@@ -2,9 +2,10 @@
 
 import { t, setLocale } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
+import { useModalFocus } from '@/lib/use-modal-focus';
 
 import { Check, Eye, EyeOff, KeyRound, LockKeyhole, ShieldCheck, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { emptyModelConfig, normalizeModelProfiles, removeModelProfile, type ModelProfile, type ModelProfiles } from '@/lib/model-profiles';
 import { ANTHROPIC_BASE_URL, OPENAI_BASE_URL, type ProviderKind } from '@/lib/editor';
 
@@ -57,14 +58,7 @@ export default function SettingsModal({ settings, onSave, onClose }: SettingsMod
   }
   const [showKey, setShowKey] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    function handleKeydown(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !saving) onClose();
-    }
-    window.addEventListener('keydown', handleKeydown);
-    return () => window.removeEventListener('keydown', handleKeydown);
-  }, [onClose, saving]);
+  const dialogRef = useModalFocus(() => { if (!saving) onClose(); }, () => document.querySelector<HTMLElement>('.header-settings'));
 
   function chooseProvider(provider: ProviderKind) {
     if (draft?.provider === provider) return;
@@ -90,7 +84,7 @@ export default function SettingsModal({ settings, onSave, onClose }: SettingsMod
 
   return (
     <div className="modal-backdrop" role="presentation">
-      <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <section ref={dialogRef} className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1}>
         <header className="settings-header">
           <div className="settings-icon"><KeyRound size={20} /></div>
           <div><h2 id="settings-title">{t("模型连接")}</h2><p>{t("选择服务并填写你自己的访问凭据。")}</p></div>

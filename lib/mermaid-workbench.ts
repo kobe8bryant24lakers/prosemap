@@ -329,7 +329,16 @@ function parseNodeToken(token: string): MermaidFlowNode | null {
   ];
   for (const candidate of shapes) {
     const label = notation.match(candidate.pattern);
-    if (label) return { id, label: normalizeLabel(label[1]), shape: candidate.shape };
+    if (label) {
+      const body = label[1].trim();
+      const quote = body[0] === '"' || body[0] === "'" ? body[0] : '';
+      // A complete shape owns exactly one label. Never swallow a following
+      // declaration/edge into a greedy label match. Quoted labels may contain
+      // Mermaid punctuation; unquoted nested shapes stay in source mode.
+      if (quote ? body.length < 2 || !body.endsWith(quote) || body.slice(1, -1).includes(quote)
+        : /[()[\]{}"]/.test(body)) return null;
+      return { id, label: normalizeLabel(body), shape: candidate.shape };
+    }
   }
   return null;
 }
@@ -341,20 +350,52 @@ function edgeStyleFromToken(token: string): MermaidEdgeStyle {
   return 'arrow';
 }
 
-function parseEdgeLine(line: string): { from: MermaidFlowNode; to: MermaidFlowNode; label: string; style: MermaidEdgeStyle } | null {
-  const labelledArrow = line.match(/^([\s\S]*?)\s+--\s+([\s\S]+?)\s+-->\s+([\s\S]*?)$/);
-  if (labelledArrow) {
-    const from = parseNodeToken(labelledArrow[1]);
-    const to = parseNodeToken(labelledArrow[3]);
-    if (from && to) return { from, to, label: normalizeLabel(labelledArrow[2]), style: 'arrow' };
+/** Find edge separators outside node shapes/quoted labels. Keeping character
+ * offsets lets source-preserving edits reuse exactly the same grammar. */
+export function parseFlowchartEdgeTokens(line: string) {
+  let depth = 0;
+  let quote = '';
+  let masked = '';
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (quote) {
+      masked += '\0';
+      if (char === quote) quote = '';
+    } else if (depth && (char === '"' || char === "'") && /[([{]\s*$/.test(line.slice(0, i))) {
+      quote = char;
+      masked += '\0';
+    } else if ('([{'.includes(char)) {
+      depth++;
+      masked += '\0';
+    } else if (depth && ')]}'.includes(char)) {
+      depth--;
+      masked += '\0';
+    } else masked += depth ? '\0' : char;
   }
+  const labelled = masked.match(/^([\s\S]*?)(\s+--\s+)([\s\S]+?)(\s+-->\s+)([\s\S]*?)$/);
+  const normal = masked.match(/^([\s\S]*?)(\s*(-->|---|-\.->|==>)\s*(?:\|([^|]*)\|\s*)?)([\s\S]*?)$/);
+  for (const match of [labelled, normal]) {
+    if (!match) continue;
+    const from = line.slice(0, match[1].length);
+    const toAt = line.length - match[5].length;
+    const to = line.slice(toAt);
+    if (!parseNodeToken(from) || !parseNodeToken(to)) continue;
+    const labelledForm = match === labelled;
+    const labelAt = labelledForm ? match[1].length + match[2].length : match[1].length + match[2].indexOf('|') + 1;
+    const labelLength = labelledForm ? match[3].length : match[4]?.length ?? 0;
+    return { from, to, fromAt: 0, toAt,
+      label: normalizeLabel(line.slice(labelAt, labelAt + labelLength)),
+      style: labelledForm ? 'arrow' as const : edgeStyleFromToken(match[3]) };
+  }
+  return null;
+}
 
-  const normal = line.match(/^([\s\S]*?)\s*(-->|---|-\.->|==>)\s*(?:\|([^|]*)\|\s*)?([\s\S]*?)$/);
-  if (!normal) return null;
-  const from = parseNodeToken(normal[1]);
-  const to = parseNodeToken(normal[4]);
-  if (!from || !to) return null;
-  return { from, to, label: normalizeLabel(normal[3] ?? ''), style: edgeStyleFromToken(normal[2]) };
+function parseEdgeLine(line: string): { from: MermaidFlowNode; to: MermaidFlowNode; label: string; style: MermaidEdgeStyle } | null {
+  const tokens = parseFlowchartEdgeTokens(line);
+  if (!tokens) return null;
+  const from = parseNodeToken(tokens.from);
+  const to = parseNodeToken(tokens.to);
+  return from && to ? { from, to, label: tokens.label, style: tokens.style } : null;
 }
 
 export function parseFlowchartSource(source: string): MermaidFlowGraph | null {

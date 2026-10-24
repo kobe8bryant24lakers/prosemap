@@ -79,6 +79,7 @@ test('cursor offsets select the correct Mermaid fence when identical diagrams re
     fenced: repeatedFence,
     linePrefix: '',
     lineEnding: '\n',
+    contentPrefixes: ['', ''],
   });
   assert.deepEqual(secondTarget, {
     from: secondFrom,
@@ -87,6 +88,7 @@ test('cursor offsets select the correct Mermaid fence when identical diagrams re
     fenced: repeatedFence,
     linePrefix: '',
     lineEnding: '\n',
+    contentPrefixes: ['', ''],
   });
   assert.notEqual(firstTarget.from, secondTarget.from, 'identical source must still resolve to distinct document ranges');
 

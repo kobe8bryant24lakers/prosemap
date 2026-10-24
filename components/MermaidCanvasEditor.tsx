@@ -6,6 +6,8 @@ import { canvasEdgeGeometries } from '@/lib/canvas-edge-geometry';
 import { placeCanvasCopies } from '@/lib/canvas-placement';
 import { CANVAS_CONNECTION_MESSAGES, canvasConnectionIssue, connectionWouldCycle, validCanvasConnectionTarget, type CanvasConnectionIssue } from '@/lib/canvas-connection';
 import { sequenceCanvasResizeUpdate } from '@/lib/canvas-resize';
+import { canvasPointerDragMoved } from '@/lib/canvas-pointer';
+import { reconcileCanvasHistorySelection, type CanvasHistorySelection as Selection } from '@/lib/canvas-history-selection';
 import { beginCanvasLabelEdit, cancelCanvasLabelEdit, canvasLabelKeyAction, type CanvasLabelEdit } from '@/lib/canvas-label-edit';
 import { t } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
@@ -96,7 +98,6 @@ type NodePositions = MermaidCanvasNodePositions;
 function safeCanvasRecord<T>(source?: Record<string, T>): Record<string, T> {
   return Object.assign(Object.create(null) as Record<string, T>, source);
 }
-type Selection = { kind: 'node' | 'edge'; id: string; ids?: string[] } | null;
 type CanvasSnapshot = { graph: MermaidFlowGraph; layout: MermaidCanvasLayout };
 type Marquee = { pointerId: number; start: Point; end: Point; initial: string[] };
 type DragState = {
@@ -560,6 +561,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   const stageRef = useRef<HTMLDivElement>(null);
   const revealNodeRef = useRef<string | null>(null);
   const selectionAnchorRef = useRef<{ left: number; top: number } | null>(null);
+  const quickAddPressRef = useRef<HTMLButtonElement | null>(null);
   const labelEditRef = useRef<CanvasLabelEdit<CanvasSnapshot> | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const [canvasLayout, setCanvasLayout] = useState<MermaidCanvasLayout>(() => layoutMermaidGraph(graph));
@@ -668,7 +670,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     layoutRef.current = previous.layout;
     setCanvasLayout(previous.layout);
     labelEditRef.current = null;
-    setSelection(null);
+    setSelection(current => reconcileCanvasHistorySelection(current, previous.graph));
     setEditingNodeId(null);
     setEditingEdgeId(null);
     updateHistoryStatus();
@@ -687,7 +689,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     layoutRef.current = next.layout;
     setCanvasLayout(next.layout);
     labelEditRef.current = null;
-    setSelection(null);
+    setSelection(current => reconcileCanvasHistorySelection(current, next.graph));
     setEditingNodeId(null);
     setEditingEdgeId(null);
     updateHistoryStatus();
@@ -728,6 +730,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   }, [releaseInteractionCapture]);
 
   const cancelPointerInteractions = useCallback((pointerId?: number) => {
+    quickAddPressRef.current = null;
     const gesture = gestureHistoryRef.current;
     if (gesture && (pointerId === undefined || gesture.pointerId === pointerId)) {
       gestureHistoryRef.current = null;
@@ -1048,8 +1051,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       const point = canvasPoint(event.clientX, event.clientY);
       const activeDrag = draggingRef.current;
       if (activeDrag && event.pointerId === activeDrag.pointerId) {
-        const moved = activeDrag.moved
-          || Math.hypot(event.clientX - activeDrag.startClientX, event.clientY - activeDrag.startClientY) > 3;
+        const moved = canvasPointerDragMoved(activeDrag, event, 3);
         if (!moved) return;
         if (!activeDrag.moved) {
           recordGestureHistory(event.pointerId);
@@ -1098,8 +1100,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       }
       const activeResize = resizingRef.current;
       if (activeResize && event.pointerId === activeResize.pointerId) {
-        const moved = activeResize.moved
-          || Math.hypot(event.clientX - activeResize.startClientX, event.clientY - activeResize.startClientY) > 2;
+        const moved = canvasPointerDragMoved(activeResize, event, 2);
         if (!moved) return;
         if (!activeResize.moved) recordGestureHistory(event.pointerId);
         const rawDelta = {
@@ -1136,8 +1137,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       }
       const activeConnection = connectionDragRef.current;
       if (activeConnection && event.pointerId === activeConnection.pointerId) {
-        const moved = activeConnection.moved
-          || Math.hypot(event.clientX - activeConnection.startClientX, event.clientY - activeConnection.startClientY) > 4;
+        const moved = canvasPointerDragMoved(activeConnection, event, 4);
         const nextConnection = {
           ...activeConnection,
           pointer: point,
@@ -1179,8 +1179,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       if (activeConnection?.pointerId === event.pointerId) {
         connectionDragRef.current = null;
         setConnectionDrag(null);
-        const moved = activeConnection.moved
-          || Math.hypot(event.clientX - activeConnection.startClientX, event.clientY - activeConnection.startClientY) > 4;
+        const moved = activeConnection.moved;
         if (!moved) {
           if (activeConnection.source === 'lifeline') {
             setSelection({ kind: 'node', id: activeConnection.from });
@@ -1219,9 +1218,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       const interaction = draggingRef.current ?? connectionDragRef.current;
       const viewport = viewportRef.current;
       let scrolled = false;
-      const crossedThreshold = pointer && interaction && (interaction.moved
-        || Math.hypot(pointer.clientX - interaction.startClientX, pointer.clientY - interaction.startClientY)
-          > (draggingRef.current ? 3 : 4));
+      const crossedThreshold = pointer && interaction
+        && canvasPointerDragMoved(interaction, pointer, draggingRef.current ? 3 : 4);
       if (pointer && interaction?.pointerId === pointer.pointerId && crossedThreshold && viewport) {
         const rect = viewport.getBoundingClientRect();
         const delta = canvasEdgeScroll({ x: pointer.clientX - rect.left, y: pointer.clientY - rect.top },
@@ -1246,12 +1244,17 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     };
     const up = (event: PointerEvent) => {
       cancelAnimationFrame(frame);
+      frame = 0;
       lastPointer = null;
       previousTime = 0;
-      // Flush the release position even when pointer-up arrives before paint.
+      // A quick drag may release before its pressed move reaches a frame. Start
+      // it from that move, then finish at the release position. A release alone
+      // must not start a drag and snap an otherwise stationary click.
+      const lastMove = pending;
+      pending = null;
+      if (lastMove?.pointerId === event.pointerId) pointerHandlersRef.current?.move(lastMove);
       const interaction = draggingRef.current ?? resizingRef.current ?? connectionDragRef.current;
-      if (interaction?.pointerId === event.pointerId) pending = event;
-      flush(0);
+      if (interaction?.pointerId === event.pointerId) pointerHandlersRef.current?.move(event);
       pointerHandlersRef.current?.up(event);
     };
     const cancel = (event: PointerEvent) => {
@@ -1927,7 +1930,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   function handleNodeClick(event: ReactMouseEvent<HTMLDivElement>, node: MermaidFlowNode) {
     event.stopPropagation();
     if (connectMode && event.detail > 1) return;
-    if (connectMode) activateNode(node);
+    // Accessibility activation has no pointerdown. Select it here as well,
+    // without replaying selection for ordinary pointer clicks or drags.
+    if (connectMode || event.detail === 0) activateNode(node);
   }
 
   function beginConnectionFrom(nodeId: string) {
@@ -2665,6 +2670,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       <div
         className={`canvas-editor-viewport${connectMode ? ' connect-mode' : ''}${(spacePressed || handTool) && !panning ? ' pan-ready' : ''}${supportsMultiSelect && !handTool ? ' selection-mode' : ''}${panning ? ' is-panning' : ''}`}
         onPointerDownCapture={(event) => {
+          quickAddPressRef.current = null;
           if (!(event.target as Element).closest('[data-mermaid-node-id], [data-mermaid-edge-id]')) return;
           const rect = stageRef.current?.getBoundingClientRect();
           if (rect) selectionAnchorRef.current = { left: rect.left, top: rect.top };
@@ -3032,10 +3038,20 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                           type="button"
                           key={value}
                           className={`quick-add-${value}`}
-                          onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            if (event.button === 0) quickAddPressRef.current = event.currentTarget;
+                          }}
+                          onPointerCancel={() => { quickAddPressRef.current = null; }}
                           onClick={(event) => {
                             event.stopPropagation();
-                            if (event.timeStamp - lastNodePointerAt.current < 400) return;
+                            // A real press on this button is intentional even
+                            // immediately after selection. Reject a click that
+                            // was retargeted here when the inspector moved it.
+                            const pressedHere = quickAddPressRef.current === event.currentTarget;
+                            quickAddPressRef.current = null;
+                            if (event.detail !== 0 && !pressedHere) return;
                             addConnectedNode(node.id, value, defaultQuickPreset(graph.kind));
                           }}
                           aria-label={`${label}${copy.node}`}

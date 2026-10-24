@@ -1,6 +1,8 @@
 'use client';
 
 import { initialDocument } from '@/lib/localized-content';
+import { documentLineEndings, normalizeDocumentText, serializeDocument } from '@/lib/document-line-endings';
+import { minimalDocumentChanges } from '@/lib/document-changes';
 import { t, uiMessage, setLocale } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
 
@@ -36,6 +38,7 @@ import {
   PanelLeft,
   PenLine,
   Quote,
+  RefreshCw,
   Save,
   Settings2,
   Sparkles,
@@ -56,6 +59,7 @@ import { createAiContextBlock, mergeAiContextDocuments, type AiContextDocument }
 import { loadModelProfiles, saveModelProfiles, selectModelProfile } from '@/lib/model-config';
 import { activeModelProfile, emptyModelConfig, emptyModelProfiles, type ModelProfiles } from '@/lib/model-profiles';
 import ModelSwitcher from '@/components/ModelSwitcher';
+import ModelLoadDialog from '@/components/ModelLoadDialog';
 import { parseMermaid } from '@/lib/mermaid-runtime';
 import { UML_AI_GUIDANCE } from '@/lib/mermaid-workbench';
 import { synchronizedScrollTop } from '@/lib/scroll-sync';
@@ -87,6 +91,13 @@ import {
 } from '@/lib/local-desktop';
 
 type ViewMode = 'split' | 'editor' | 'preview';
+
+function restoredViewMode(): ViewMode {
+  try {
+    const saved = window.localStorage.getItem('prosemap.viewMode');
+    return saved === 'editor' || saved === 'preview' ? saved : 'split';
+  } catch { return 'split'; }
+}
 
 type MermaidWorkbenchSession = {
   id: number;
@@ -185,16 +196,19 @@ function createAiPrompts(
 export default function Home() {
   const locale = useLocale();
   const [content, setContent] = useState(initialDocument);
+  const [rawDocument, setRawDocument] = useState(initialDocument);
   const previewContent = useDeferredValue(content);
   const [documentName, setDocumentName] = useState(t("ProseMap 入门"));
   const [selection, setSelection] = useState<SelectionRange>({ from: 0, to: 0, text: '' });
-  const [viewMode, setViewMode] = useState<ViewMode>('split');
+  const [viewMode, setViewMode] = useState<ViewMode>(restoredViewMode);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantAction, setAssistantAction] = useState<AssistAction>('polish');
   const [mermaidWorkbench, setMermaidWorkbench] = useState<MermaidWorkbenchSession | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelProfiles, setModelProfiles] = useState<ModelProfiles>(emptyModelProfiles);
   const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsLoadError, setModelsLoadError] = useState<string | null>(null);
+  const [modelsLoadAttempt, setModelsLoadAttempt] = useState(0);
   const [modelsSaving, setModelsSaving] = useState(false);
   const modelsSavingRef = useRef(false);
   const config = activeModelProfile(modelProfiles) ?? emptyModelConfig;
@@ -229,6 +243,8 @@ export default function Home() {
   const activeWorkbenchSessionRef = useRef<number | null>(null);
   const workbenchPendingRef = useRef(false);
   const documentPathRef = useRef<string | null>(null);
+  const savedContentRef = useRef<string | null>(null);
+  const savePendingRef = useRef(false);
   const imagePasteHandlerRef = useRef<((files: File[], view: EditorView) => void) | null>(null);
   const imagePasteQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingPastesRef = useRef(new Set<{ from: number; to: number; selected: string }>());
@@ -236,6 +252,10 @@ export default function Home() {
   const readableCharacters = useMemo(() => countReadableCharacters(content), [content]);
   const mermaidTarget = useMemo(() => findMermaidTarget(content, selection.from), [content, selection.from]);
   const configured = Boolean(config.apiKey && config.model);
+
+  useEffect(() => {
+    try { window.localStorage.setItem('prosemap.viewMode', viewMode); } catch { /* Editing remains available if storage is disabled. */ }
+  }, [viewMode]);
 
   const showToast = useCallback((kind: 'success' | 'error' | 'info', message: string) => {
     setToast({ kind, message });
@@ -261,7 +281,7 @@ export default function Home() {
       showToast('error', error instanceof Error ? t("格式化失败：{0}", error.message) : t("格式化失败，请检查代码语法"));
     }
   }, [showToast]);
-  const editorExtensions = useMemo(() => [...baseEditorExtensions, EditorView.domEventHandlers({
+  const editorExtensions = useMemo(() => [...baseEditorExtensions, documentLineEndings(rawDocument), EditorView.domEventHandlers({
     paste(event, view) {
       if (!event.clipboardData) return false;
       const files = clipboardImageFiles(event.clipboardData);
@@ -277,7 +297,7 @@ export default function Home() {
     'current match': '当前匹配', 'on line': '所在行', 'No matches': '没有匹配项',
   } : {}), keymap.of([
     { key: 'Mod-Shift-f', run: () => { void formatCurrentCodeBlock(); return true; } },
-  ])], [formatCurrentCodeBlock, locale]);
+  ])], [formatCurrentCodeBlock, locale, rawDocument]);
 
   const addAiContextFiles = useCallback(async () => {
     try {
@@ -358,13 +378,20 @@ export default function Home() {
     configLoadRef.current ??= loadModelProfiles();
     void configLoadRef.current
       .then((saved) => {
-        if (active && saved && !configChangedRef.current) setModelProfiles(saved);
+        if (active && !configChangedRef.current) {
+          setModelsLoadError(null);
+          if (saved) setModelProfiles(saved);
+        }
       })
       .catch((reason: unknown) => {
-        if (active) showToast('error', reason instanceof Error ? reason.message : t("无法读取已保存的模型配置"));
+        if (active) {
+          const message = typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("无法读取已保存的模型配置");
+          setModelsLoadError(message);
+          showToast('error', uiMessage(message));
+        }
       }).finally(() => { if (active) setModelsLoading(false); });
     return () => { active = false; };
-  }, [showToast]);
+  }, [modelsLoadAttempt, showToast]);
 
   async function switchModel(id: string) {
     if (modelsLoading || modelsSavingRef.current || id === modelProfiles.activeId || !modelProfiles.profiles.some((profile) => profile.id === id)) return;
@@ -393,9 +420,12 @@ export default function Home() {
     documentSessionRef.current += 1;
     documentRevisionRef.current += 1;
     setProposal(null);
-    setContent(document.content);
+    setRawDocument(document.content);
+    setContent(normalizeDocumentText(document.content));
     setDocumentName(safeDocumentName(document.name));
     setLocalPath(document.path);
+    documentPathRef.current = document.path;
+    savedContentRef.current = document.path ? document.content : null;
     setAiContextDocuments([]);
     setSelection({ from: 0, to: 0, text: '' });
     updateDirtyState(false);
@@ -417,15 +447,29 @@ export default function Home() {
     return true;
   }, [applyLocalDocument, confirmDocumentReplacement]);
 
+  const openFile = useCallback(async () => {
+    const requestId = ++documentOpenRequestRef.current;
+    try {
+      const document = await pickLocalMarkdown();
+      if (document) await commitDocumentReplacement(requestId, document);
+    } catch (reason) {
+      showToast('error', reason instanceof Error ? reason.message : t("文件打开失败，请重试"));
+    }
+  }, [commitDocumentReplacement, showToast]);
+
   const saveDocument = useCallback(async (saveAs = false) => {
+    if (savePendingRef.current) return;
+    savePendingRef.current = true;
     const requestId = ++saveRequestIdRef.current;
     const documentSession = documentSessionRef.current;
     const documentRevision = documentRevisionRef.current;
     const path = saveAs ? null : localPath;
     const suggestedName = `${safeDocumentName(documentName)}.md`;
-    const snapshot = editorRef.current?.view?.state.doc.toString() ?? content;
     try {
-      const saved = await saveLocalMarkdown(path, suggestedName, snapshot);
+      const state = editorRef.current?.view?.state;
+      const snapshot = state ? serializeDocument(state)
+        : content === normalizeDocumentText(rawDocument) ? rawDocument : content;
+      const saved = await saveLocalMarkdown(path, suggestedName, snapshot, path ? savedContentRef.current : null);
       if (!saved) return;
       if (
         requestId !== saveRequestIdRef.current
@@ -433,6 +477,7 @@ export default function Home() {
       ) return;
       setLocalPath(saved.path);
       documentPathRef.current = saved.path;
+      savedContentRef.current = saved.content;
       setDocumentName(safeDocumentName(saved.name));
       const savedLatestRevision = documentRevision === documentRevisionRef.current;
       if (savedLatestRevision) updateDirtyState(false);
@@ -448,9 +493,39 @@ export default function Home() {
         requestId !== saveRequestIdRef.current
         || documentSession !== documentSessionRef.current
       ) return;
-      showToast('error', reason instanceof Error ? reason.message : t("文件保存失败，请重试"));
+      showToast('error', uiMessage(typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("文件保存失败，请重试")));
+    } finally {
+      savePendingRef.current = false;
     }
-  }, [content, documentName, localPath, showToast, updateDirtyState]);
+  }, [content, documentName, localPath, rawDocument, showToast, updateDirtyState]);
+
+  const reloadDocument = useCallback(async () => {
+    const path = documentPathRef.current;
+    if (!path || savePendingRef.current) return;
+    const session = documentSessionRef.current;
+    const requestId = ++documentOpenRequestRef.current;
+    if ((dirtyRef.current || workbenchPendingRef.current) && !(await askConfirmation({
+      title: t("重新载入磁盘内容？"),
+      message: t("当前未保存的文档修改和图表草稿将被丢弃。你也可以取消后先另存为，保留两份内容。"),
+      confirmLabel: t("放弃修改并重新载入"),
+      cancelLabel: t("继续编辑"),
+      destructive: true,
+    }))) return;
+    const revision = documentRevisionRef.current;
+    const workbenchSession = activeWorkbenchSessionRef.current;
+    if (requestId !== documentOpenRequestRef.current || session !== documentSessionRef.current) return;
+    try {
+      const document = await readLocalMarkdown(path);
+      if (requestId !== documentOpenRequestRef.current || session !== documentSessionRef.current) return;
+      if (revision !== documentRevisionRef.current || workbenchSession !== activeWorkbenchSessionRef.current || savePendingRef.current) {
+        showToast('info', t("载入期间文档已变化，请重新载入"));
+        return;
+      }
+      applyLocalDocument(document, t("已重新载入 {0}", document.name));
+    } catch (reason) {
+      if (session === documentSessionRef.current) showToast('error', uiMessage(typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("文件读取失败，请重试")));
+    }
+  }, [applyLocalDocument, askConfirmation, showToast]);
 
   useEffect(() => { documentPathRef.current = localPath; }, [localPath]);
   useEffect(() => {
@@ -505,12 +580,24 @@ export default function Home() {
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.altKey) return;
       const command = event.metaKey || event.ctrlKey;
-      if (command && event.key.toLowerCase() === 's') {
+      if (!command) return;
+      const key = event.key.toLowerCase();
+      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]'));
+      const workbenchOnly = dialogs.length === 1
+        && dialogs[0].classList.contains('mermaid-workbench')
+        && !dialogs[0].closest('[inert]');
+      if (key === 's' || (key === 'o' && !event.shiftKey)) {
         event.preventDefault();
-        void saveDocument();
+        // The workbench keeps its draft separate: ordinary Save still saves
+        // the main document, while Open/Save As must not switch its file.
+        if (dialogs.length && !(workbenchOnly && key === 's' && !event.shiftKey)) return;
+        if (key === 's') void saveDocument(event.shiftKey);
+        else void openFile();
+        return;
       }
-      if (command && event.shiftKey && event.key.toLowerCase() === 'm') {
+      if (!dialogs.length && event.shiftKey && key === 'm') {
         event.preventDefault();
         setAssistantAction('mermaid');
         setAssistantOpen(true);
@@ -518,7 +605,7 @@ export default function Home() {
     }
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [saveDocument]);
+  }, [openFile, saveDocument]);
 
   useEffect(() => {
     let active = true;
@@ -718,28 +805,6 @@ export default function Home() {
     };
   }
 
-  function focusRange(from: number, to: number, expectedDocument?: string) {
-    let attempts = 0;
-    function restore() {
-      const view = editorRef.current?.view;
-      if (!view) return;
-      if (expectedDocument !== undefined && view.state.doc.toString() !== expectedDocument && attempts < 20) {
-        attempts += 1;
-        window.requestAnimationFrame(restore);
-        return;
-      }
-      const length = view.state.doc.length;
-      const anchor = Math.max(0, Math.min(length, from));
-      const head = Math.max(0, Math.min(length, to));
-      view.dispatch({
-        selection: { anchor, head },
-        effects: EditorView.scrollIntoView(head, { y: 'center' }),
-      });
-      view.focus();
-    }
-    window.setTimeout(restore, 0);
-  }
-
   function replaceRange(
     from: number,
     to: number,
@@ -747,7 +812,7 @@ export default function Home() {
     selectInside = false,
     restoredSelection?: EditorSelection,
   ) {
-    const nextDocument = `${content.slice(0, from)}${replacement}${content.slice(to)}`;
+    replacement = normalizeDocumentText(replacement);
     const defaultAnchor = selectInside ? from : from + replacement.length;
     const defaultHead = selectInside ? from + replacement.length : defaultAnchor;
     const anchor = restoredSelection?.anchor ?? defaultAnchor;
@@ -755,26 +820,23 @@ export default function Home() {
     const view = editorRef.current?.view;
 
     if (view && view.state.doc.toString() === content) {
+      const changes = minimalDocumentChanges(content.slice(from, to), replacement, from);
+      if (!changes) {
+        showToast('error', t('改动过大，无法安全定位修改范围。请缩小修改范围后重试。'));
+        return false;
+      }
       view.dispatch({
-        changes: { from, to, insert: replacement },
+        changes,
         selection: { anchor, head },
         effects: EditorView.scrollIntoView(head, { y: 'center' }),
+        annotations: isolateHistory.of('full'),
       });
       view.focus();
-      return;
+      return true;
     }
 
-    documentRevisionRef.current += 1;
-    setContent(nextDocument);
-    updateDirtyState(true);
-    const normalizedFrom = Math.min(anchor, head);
-    const normalizedTo = Math.max(anchor, head);
-    setSelection({
-      from: normalizedFrom,
-      to: normalizedTo,
-      text: nextDocument.slice(normalizedFrom, normalizedTo),
-    });
-    focusRange(anchor, head, nextDocument);
+    showToast('info', t('编辑器正在更新，请稍后重试。'));
+    return false;
   }
 
   function formatSelection(before: string, after = before, placeholder = t("文字")) {
@@ -822,16 +884,6 @@ export default function Home() {
     }
   }
 
-  async function openFile() {
-    const requestId = ++documentOpenRequestRef.current;
-    try {
-      const document = await pickLocalMarkdown();
-      if (document) await commitDocumentReplacement(requestId, document);
-    } catch (reason) {
-      showToast('error', reason instanceof Error ? reason.message : t("文件打开失败，请重试"));
-    }
-  }
-
   async function openFolder() {
     try {
       const workspace = await pickMarkdownFolder();
@@ -858,6 +910,11 @@ export default function Home() {
   function openAssistant(action: AssistAction) {
     setAssistantAction(action);
     setAssistantOpen(true);
+  }
+
+  function returnToDocument() {
+    setViewMode((current) => current === 'preview' ? 'editor' : current);
+    window.requestAnimationFrame(() => editorRef.current?.view?.focus());
   }
 
   function captureWorkbenchInsertion() {
@@ -923,13 +980,13 @@ export default function Home() {
       mermaidWorkbench.target,
       mermaidWorkbench.insertAt,
     );
-    replaceRange(
+    if (!replaceRange(
       edit.from,
       edit.to,
       edit.replacement,
       false,
       { anchor: edit.diagramFrom, head: edit.diagramFrom },
-    );
+    )) return;
     closeMermaidWorkbench(sessionId);
     showToast('success', mermaidWorkbench.target ? t("图表已更新") : t("图表已插入文档"));
   }
@@ -1009,7 +1066,7 @@ export default function Home() {
       );
 
       const mermaidSource = isMermaid ? stripCodeFence(streamed) : '';
-      const finalText = isMermaid ? `\`\`\`mermaid\n${mermaidSource}\n\`\`\`` : streamed.trim();
+      const finalText = isMermaid ? `\`\`\`mermaid\n${mermaidSource}\n\`\`\`` : streamed;
       if (!finalText.trim() || (isMermaid && !mermaidSource)) throw new Error(t("模型返回了空内容"));
       if (isMermaid) await validateMermaidSource(mermaidSource);
       if (controller.signal.aborted || proposalIdRef.current !== id) return;
@@ -1044,7 +1101,7 @@ export default function Home() {
       showToast('error', t("文档已发生变化，请重新生成建议"));
       return;
     }
-    replaceRange(proposal.from, proposal.to, proposal.modified);
+    if (!replaceRange(proposal.from, proposal.to, proposal.modified)) return;
     setProposal(null);
     showToast('success', t("已接受修改"));
   }
@@ -1056,7 +1113,6 @@ export default function Home() {
   return (
     <main
       className={`app-shell view-${viewMode}`}
-      inert={Boolean(confirmation)}
       onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
       onDragOver={(event) => event.preventDefault()}
       onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
@@ -1086,7 +1142,7 @@ export default function Home() {
           <button type="button" className="header-button folder-button" onClick={() => void openFolder()}><Folder size={15} />  {t("打开文件夹")}</button>
           <button type="button" className="header-button export-button" onClick={() => void saveDocument(true)}><FileDown size={15} />  {t("另存为")}</button>
           <button type="button" className="header-primary" onClick={() => void saveDocument()}><Save size={15} />  {t("保存")}</button>
-          <button type="button" className="icon-button header-settings" onClick={() => setSettingsOpen(true)} aria-label={t("设置")}><Settings2 size={17} /></button>
+          <button type="button" className="icon-button header-settings" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setSettingsOpen(true); }} aria-label={t("设置")}><Settings2 size={17} /></button>
         </div>
       </header>
 
@@ -1094,17 +1150,18 @@ export default function Home() {
         <button type="button" aria-pressed={viewMode === 'editor'} className={viewMode === 'editor' ? 'active' : ''} onClick={() => setViewMode('editor')}><PenLine size={14} />  {t("纯编辑")}</button>
         <button type="button" aria-pressed={viewMode === 'preview'} className={viewMode === 'preview' ? 'active' : ''} onClick={() => setViewMode('preview')}><Eye size={14} />  {t("纯预览")}</button>
         <button type="button" aria-pressed={viewMode === 'split'} className={viewMode === 'split' ? 'active' : ''} onClick={() => setViewMode('split')}><PanelLeft size={14} /> {t("左编辑右预览")}</button>
+        {localPath && <button type="button" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); void reloadDocument(); }} title={t("重新读取磁盘文件；未保存的修改会先确认")}><RefreshCw size={14} /> {t("重新载入")}</button>}
       </div>
 
       <section className={`workspace ${assistantOpen ? 'with-assistant' : ''} ${fileExplorerOpen ? 'with-files' : ''}`}>
         <nav className="rail" aria-label={t("主要工具")}>
-          <button type="button" className="rail-button active" aria-label={t("文档编辑")} title={t("文档编辑")}><PanelLeft size={18} /></button>
+          <button type="button" className={`rail-button ${viewMode !== 'preview' ? 'active' : ''}`} aria-pressed={viewMode !== 'preview'} onClick={returnToDocument} aria-label={t("文档编辑")} title={t("文档编辑")}><PanelLeft size={18} /></button>
           <button type="button" className={`rail-button ${fileExplorerOpen ? 'active' : ''}`} onClick={() => setFileExplorerOpen((open) => !open)} aria-label={t("本地文件")} title={t("本地文件")}><FolderOpen size={18} /></button>
           <button type="button" className="rail-button" onClick={() => openAssistant('polish')} aria-label={t("AI 文字助手")} title={t("AI 文字助手")}><Bot size={18} /></button>
           <button type="button" className="rail-button mermaid-rail" onClick={() => openAssistant('mermaid')} aria-label={t("Mermaid 智能绘图")} title={t("Mermaid 智能绘图")}><Workflow size={19} /></button>
           <button type="button" className="rail-button diagram-workbench-rail" onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onMouseDown={(event) => event.preventDefault()} onClick={() => openMermaidWorkbench()} aria-label={t("Mermaid 可视化画布")} title={mermaidTarget ? t("编辑光标所在图表") : t("新建 Mermaid 图表")}><Braces size={18} /></button>
           <span className="rail-spacer" />
-          <button type="button" className="rail-button" onClick={() => setSettingsOpen(true)} aria-label={t("模型设置")} title={t("模型设置")}><Settings2 size={18} /></button>
+          <button type="button" className="rail-button" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setSettingsOpen(true); }} aria-label={t("模型设置")} title={t("模型设置")}><Settings2 size={18} /></button>
         </nav>
 
         {fileExplorerOpen ? (
@@ -1168,6 +1225,7 @@ export default function Home() {
 
           <div className="editor-surface">
             <CodeMirror
+              key={documentSessionRef.current}
               ref={editorRef}
               onCreateEditor={setEditorView}
               value={content}
@@ -1238,7 +1296,17 @@ export default function Home() {
           interactionSuspended={Boolean(confirmation)}
         />
       ) : null}
-      {settingsOpen && !modelsLoading && !modelsSaving ? (
+      {settingsOpen && (modelsLoading || modelsLoadError) ? <ModelLoadDialog
+        error={modelsLoadError}
+        onClose={() => setSettingsOpen(false)}
+        onRetry={() => {
+          configLoadRef.current = null;
+          setModelsLoadError(null);
+          setModelsLoading(true);
+          setModelsLoadAttempt(attempt => attempt + 1);
+        }}
+      /> : null}
+      {settingsOpen && !modelsLoading && !modelsLoadError && !modelsSaving ? (
         <SettingsModal
           settings={modelProfiles}
           onClose={() => setSettingsOpen(false)}

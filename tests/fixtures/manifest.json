@@ -1,0 +1,402 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Deterministic native Markdown and Mermaid acceptance fixtures",
+  "generator": "scripts/fixture-generate.mjs",
+  "validation": {
+    "canvasParserAndRoundTrip": "passed",
+    "mermaidBrowserParseAndRendering": "pending",
+    "nativeInteraction": "pending",
+    "networkRequired": false
+  },
+  "limits": {
+    "mermaidDefaultMaxEdges": 500,
+    "frontmatter": "no dedicated plugin; observe ordinary Markdown output",
+    "math": "no dedicated math renderer; literal text expected"
+  },
+  "files": [
+    {
+      "path": "diagrams/01-basic-flowchart.md",
+      "bytes": 921,
+      "sha256": "e07b4be91ca79576fae68fb96a9a8f580a4b85646e822f728fe19ee2e827e793",
+      "assertions": [
+        "可编辑图模型解析成功；序列化后二次解析的节点、边数量不变，序列化稳定。",
+        "真实 Mermaid 语法、渲染、文本遮挡和原生操作仍由浏览器/桌面验收确认。",
+        "修改一个对象后应用仅替换此图；撤销恢复；邻近正文与对象保持。"
+      ],
+      "category": "editable-diagram",
+      "template": "basic-flowchart",
+      "kind": "flowchart",
+      "nodes": 13,
+      "edges": 17,
+      "groups": 0,
+      "mermaidBrowserValidation": "pending",
+      "lines": 38
+    },
+    {
+      "path": "diagrams/02-four-plus-one.md",
+      "bytes": 1026,
+      "sha256": "1be8af0bfe49c228322a582596a88a8f8129228e1e2e33bd0ae79b0515588ab7",
+      "assertions": [
+        "可编辑图模型解析成功；序列化后二次解析的节点、边数量不变，序列化稳定。",
+        "真实 Mermaid 语法、渲染、文本遮挡和原生操作仍由浏览器/桌面验收确认。",
+        "修改一个对象后应用仅替换此图；撤销恢复；邻近正文与对象保持。"
+      ],
+      "category": "editable-diagram",
+      "template": "four-plus-one",
+      "kind": "flowchart",
+      "nodes": 14,
+      "edges": 17,
+      "groups": 0,
+      "mermaidBrowserValidation": "pending",
+      "lines": 39
+    },
+    {
+      "path": "diagrams/03-architecture.md",
+      "bytes": 898,
+      "sha256": "d326e2239276ed043d484b113a779583fe17124a6353b946c1464e7690fccecb",
+      "assertions": [
+        "可编辑图模型解析成功；序列化后二次解析的节点、边数量不变，序列化稳定。",
+        "真实 Mermaid 语法、渲染、文本遮挡和原生操作仍由浏览器/桌面验收确认。",
+        "修改一个对象后应用仅替换此图；撤销恢复；邻近正文与对象保持。"
+      ],
+      "category": "editable-diagram",
+      "template": "architecture",
+      "kind": "flowchart",
+      "nodes": 13,
+      "edges": 15,
+      "groups": 3,
+      "mermaidBrowserValidation": "pending",
+      "lines": 42
+    },
+    {
+      "path": "diagrams/04-sequence.md",
+      "bytes": 963,
+      "sha256": "fd759d612f8df322de3e126141822a08d397d339697d69f04a0d72f3c871623a",
+      "assertions": [
+        "可编辑图模型解析成功；序列化后二次解析的节点、边数量不变，序列化稳定。",
+        "真实 Mermaid 语法、渲染、文本遮挡和原生操作仍由浏览器/桌面验收确认。",
+        "修改一个对象后应用仅替换此图；撤销恢复；邻近正文与对象保持。"
+      ],
+      "category": "editable-diagram",
+      "template": "sequence",
+      "kind": "sequence",
+      "nodes": 6,
+      "edges": 16,
+      "groups": 0,
+      "mermaidBrowserValidation": "pending",
+      "lines": 42
+    },
+    {
+      "path": "diagrams/05-state.md",
+      "bytes": 719,
+      "sha256": "affc2166886a8fe3de763c27d57c5bee6993cf95b44f0aa47fe132cfa6d2a6e1",
+      "assertions": [
+        "可编辑图模型解析成功；序列化后二次解析的节点、边数量不变，序列化稳定。",
+        "真实 Mermaid 语法、渲染、文本遮挡和原生操作仍由浏览器/桌面验收确认。",
+        "修改一个对象后应用仅替换此图；撤销恢复；邻近正文与对象保持。"
+      ],
+      "category": "editable-diagram",
+      "template": "state",
+      "kind": "state",
+      "nodes": 9,
+      "edges": 12,
+      "groups": 0,
+      "mermaidBrowserValidation": "pending",
+      "lines": 28
+    },
+    {
+      "path": "diagrams/06-class.md",
+      "bytes": 1024,
+      "sha256": "03c9aed3f790fe9e785b040c44acf7d4b1ed59777d4cfa6992458d695ee451b3",
+      "assertions": [
+        "可编辑图模型解析成功；序列化后二次解析的节点、边数量不变，序列化稳定。",
+        "真实 Mermaid 语法、渲染、文本遮挡和原生操作仍由浏览器/桌面验收确认。",
+        "修改一个对象后应用仅替换此图；撤销恢复；邻近正文与对象保持。"
+      ],
+      "category": "editable-diagram",
+      "template": "class",
+      "kind": "class",
+      "nodes": 8,
+      "edges": 9,
+      "groups": 0,
+      "mermaidBrowserValidation": "pending",
+      "lines": 53
+    },
+    {
+      "path": "diagrams/07-er.md",
+      "bytes": 941,
+      "sha256": "28eec1c3e32a1005b63c40eccaf4360cf3e846786f5bcfb4d1ab8ef4c476fb19",
+      "assertions": [
+        "可编辑图模型解析成功；序列化后二次解析的节点、边数量不变，序列化稳定。",
+        "真实 Mermaid 语法、渲染、文本遮挡和原生操作仍由浏览器/桌面验收确认。",
+        "修改一个对象后应用仅替换此图；撤销恢复；邻近正文与对象保持。"
+      ],
+      "category": "editable-diagram",
+      "template": "er",
+      "kind": "er",
+      "nodes": 6,
+      "edges": 6,
+      "groups": 0,
+      "mermaidBrowserValidation": "pending",
+      "lines": 53
+    },
+    {
+      "path": "diagrams/08-mindmap.md",
+      "bytes": 881,
+      "sha256": "6f34de70df5ad3b020dcd8992f360fa804c5a017b57153452de355b51ad26c2d",
+      "assertions": [
+        "可编辑图模型解析成功；序列化后二次解析的节点、边数量不变，序列化稳定。",
+        "真实 Mermaid 语法、渲染、文本遮挡和原生操作仍由浏览器/桌面验收确认。",
+        "修改一个对象后应用仅替换此图；撤销恢复；邻近正文与对象保持。"
+      ],
+      "category": "editable-diagram",
+      "template": "mindmap",
+      "kind": "mindmap",
+      "nodes": 26,
+      "edges": 25,
+      "groups": 0,
+      "mermaidBrowserValidation": "pending",
+      "lines": 34
+    },
+    {
+      "path": "diagrams/09-gantt.md",
+      "bytes": 749,
+      "sha256": "3aba65ff0e2fc2be1e48c36ca0f987a8372104358c73b652751b955a588aba4a",
+      "assertions": [
+        "可编辑图模型解析成功；序列化后二次解析的节点、边数量不变，序列化稳定。",
+        "真实 Mermaid 语法、渲染、文本遮挡和原生操作仍由浏览器/桌面验收确认。",
+        "修改一个对象后应用仅替换此图；撤销恢复；邻近正文与对象保持。"
+      ],
+      "category": "editable-diagram",
+      "template": "gantt",
+      "kind": "gantt",
+      "nodes": 11,
+      "edges": 13,
+      "groups": 0,
+      "mermaidBrowserValidation": "pending",
+      "lines": 27
+    },
+    {
+      "path": "diagrams/10-usecase.md",
+      "bytes": 920,
+      "sha256": "c2a1d8940ae0310dc7bed603249d3e865e96f70bd04423e8899970cc02f14a3a",
+      "assertions": [
+        "可编辑图模型解析成功；序列化后二次解析的节点、边数量不变，序列化稳定。",
+        "真实 Mermaid 语法、渲染、文本遮挡和原生操作仍由浏览器/桌面验收确认。",
+        "修改一个对象后应用仅替换此图；撤销恢复；邻近正文与对象保持。"
+      ],
+      "category": "editable-diagram",
+      "template": "usecase",
+      "kind": "flowchart",
+      "nodes": 14,
+      "edges": 14,
+      "groups": 1,
+      "mermaidBrowserValidation": "pending",
+      "lines": 39
+    },
+    {
+      "path": "diagrams/11-package.md",
+      "bytes": 1030,
+      "sha256": "80fc55af72a4b4b76d301dc142ade9bb84e753fad8e0d65a0917b3e698dacf08",
+      "assertions": [
+        "可编辑图模型解析成功；序列化后二次解析的节点、边数量不变，序列化稳定。",
+        "真实 Mermaid 语法、渲染、文本遮挡和原生操作仍由浏览器/桌面验收确认。",
+        "修改一个对象后应用仅替换此图；撤销恢复；邻近正文与对象保持。"
+      ],
+      "category": "editable-diagram",
+      "template": "package",
+      "kind": "flowchart",
+      "nodes": 11,
+      "edges": 11,
+      "groups": 6,
+      "mermaidBrowserValidation": "pending",
+      "lines": 43
+    },
+    {
+      "path": "full-coverage.md",
+      "bytes": 15304,
+      "sha256": "7edc905deecf8ec1528854016281afd366f221a20dda09963bba54fa3f666817",
+      "assertions": [
+        "包含 11 个复杂 Mermaid 围栏，分别对应全部模板；完整文档仅包含设计为有效的图表。",
+        "覆盖六级标题、中文/emoji/重复标题、锚点、列表/任务/引用、表格、脚注、HTML、链接、图片及 13 种代码标记/无标记代码。",
+        "frontmatter 没有 remark-frontmatter 插件，按普通 Markdown 观察；数学公式没有 remark-math/KaTeX，不要求公式排版。",
+        "相对资源使用本目录，需以原生应用打开此文件或完整复制目录；远程图片只作联网观察。",
+        "脚本/事件属性/position 样式应被净化；安全颜色和允许标签可显示。",
+        "保存前后比较正文、围栏边界、中文/emoji、最后标记；只格式化指定代码块，不改其余块。"
+      ],
+      "category": "markdown-coverage",
+      "mermaidDiagrams": 11,
+      "lines": 622
+    },
+    {
+      "path": "invalid-mermaid.md",
+      "bytes": 477,
+      "sha256": "6aed0e1c26e843f58d7b977f23a87bbd8176bcf574029c856d34896f0ca60564",
+      "assertions": [
+        "4 个故意无效的 Mermaid 块；官方语法校验预期失败，不要求图模型解析器也全部拒绝。",
+        "应用无效草稿必须保持原文档；改为有效源码后错误应恢复。",
+        "底部 END-OF-INVALID-FIXTURE 仍可见。"
+      ],
+      "category": "invalid",
+      "mermaidDiagrams": 4,
+      "lines": 37
+    },
+    {
+      "path": "empty-mermaid.md",
+      "bytes": 303,
+      "sha256": "737c5ce8496cc583916b20b0275f4950851760f446b5cefb2cd104fedd0628fa",
+      "assertions": [
+        "空/空白围栏与只有图头分别观察，不把无节点等同语法错误；当前图模型允许零节点 flowchart/sequence。",
+        "空图打开、关闭、增加第一个对象可恢复；后续正常图和尾标记仍可见。"
+      ],
+      "category": "empty",
+      "mermaidDiagrams": 5,
+      "lines": 36
+    },
+    {
+      "path": "empty-document.md",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "assertions": [
+        "零字节文档显示空预览，允许输入/保存；无错误或旧文档残影。"
+      ],
+      "category": "empty",
+      "lines": 1
+    },
+    {
+      "path": "readonly-mermaid.md",
+      "bytes": 624,
+      "sha256": "fbc1cc69d4e7aac539c3474ea06860ef9b8bbb6bbd0c98fc852554196cef2bd8",
+      "assertions": [
+        "样式定义、局部方向和复合状态均由图模型拒绝为 null，必须降级只读而非简化后丢失原文。",
+        "真实 Mermaid 语法/渲染由原生验收确认；保存不应删除 classDef/direction/state 容器。"
+      ],
+      "category": "readonly",
+      "mermaidDiagrams": 3,
+      "mermaidBrowserValidation": "pending",
+      "lines": 37
+    },
+    {
+      "path": "large-diagram-300.md",
+      "bytes": 14978,
+      "sha256": "ed4582b6cc5e808a716c78a680615e61fce057bb7baea0a42ae459b28af50ad7",
+      "assertions": [
+        "300 节点、358 连线，小于 Mermaid 默认 500-edge 限制；所有节点 ID 唯一，端点存在。",
+        "新增第 301 节点不改变已有位置；修改/撤销数量正确；长标签不丢失。"
+      ],
+      "category": "large",
+      "kind": "flowchart",
+      "nodes": 300,
+      "edges": 358,
+      "groups": 0,
+      "mermaidBrowserValidation": "pending",
+      "lines": 666
+    },
+    {
+      "path": "oversized-diagram-1000.md",
+      "bytes": 44923,
+      "sha256": "243eba064ca954c2175faa0d7cb9d40ad8230647f2c19b9d11800772cf727864",
+      "assertions": [
+        "图模型可解析 1000 节点/999 边，源码语法按链生成。",
+        "默认 Mermaid maxEdges=500，真实解析/渲染预期报告边数限制且应用保持响应；不得当成性能通过结果。"
+      ],
+      "category": "capacity-limit",
+      "kind": "flowchart",
+      "nodes": 1000,
+      "edges": 999,
+      "groups": 0,
+      "expectedMermaidLimit": "maxEdges=500",
+      "lines": 2009
+    },
+    {
+      "path": "targeting-lf.md",
+      "bytes": 493,
+      "sha256": "755d6f0120f8d27db57b86f12d79918b5c43990f3ef200c43232d812c9ed6141",
+      "assertions": [
+        "4 张源码相同的图 + 1 个同内容 text 代码块；编辑第二张只改变第二个 Mermaid 围栏。",
+        "引用和列表图应用后保留 > / 三空格前缀；CRLF 版本修改后不应混入孤立 LF。",
+        "首尾标记和普通 text 围栏逐字保留。"
+      ],
+      "category": "targeting",
+      "mermaidDiagrams": 4,
+      "lineEnding": "LF",
+      "lines": 37
+    },
+    {
+      "path": "targeting-crlf.md",
+      "bytes": 529,
+      "sha256": "5c7234d2d7a5e168dec2a81f146119e2691ff98e733063160b2566b249b7dde8",
+      "assertions": [
+        "4 张源码相同的图 + 1 个同内容 text 代码块；编辑第二张只改变第二个 Mermaid 围栏。",
+        "引用和列表图应用后保留 > / 三空格前缀；CRLF 版本修改后不应混入孤立 LF。",
+        "首尾标记和普通 text 围栏逐字保留。"
+      ],
+      "category": "targeting",
+      "mermaidDiagrams": 4,
+      "lineEnding": "CRLF",
+      "lines": 37
+    },
+    {
+      "path": "long-document-600-sections.md",
+      "bytes": 225777,
+      "sha256": "9b80c636ec0971fed5301fa588cb78fcde232066b67eb757d502eda6d74e6f6c",
+      "assertions": [
+        "600 个连续且唯一的 SECTION-0001…SECTION-0600；超过 6000 行。",
+        "查找 SECTION-0300 后定位中部；替换一个标记再撤销，首尾内容不变。",
+        "切换编辑/预览/分栏、文末编辑、保存重开不截断；记录响应时间，不能只用静态截图断言流畅。"
+      ],
+      "category": "long-document",
+      "sections": 600,
+      "lines": 8406
+    },
+    {
+      "path": "attachments/related-note.md",
+      "bytes": 130,
+      "sha256": "e9f01b517187416f4a2be046a02fec8844d3afd6d1fa59406884d357871264b1",
+      "assertions": [
+        "相对 Markdown 链接指向存在文件；由系统默认应用打开，不发送数据。"
+      ],
+      "category": "attachment",
+      "lines": 6
+    },
+    {
+      "path": "attachments/Q1 report (最终).csv",
+      "bytes": 60,
+      "sha256": "d6027b2e27796a9df38075b19aa0a110237272f34daff8955aec8ac3693f29f9",
+      "assertions": [
+        "UTF-8 CSV，路径含空格/括号/中文；普通、角括号和编码链接均指向同一文件。"
+      ],
+      "category": "attachment"
+    },
+    {
+      "path": "assets/fixture-diagram.svg",
+      "bytes": 539,
+      "sha256": "e74473d78d7f2bc3385da7de1085b15fa02b5729457116ee9db325f8c0e6d64b",
+      "assertions": [
+        "原样复制仓库已有 SVG，不依赖网络。"
+      ],
+      "category": "asset",
+      "copiedFrom": "docs/fixtures/fixture-diagram.svg"
+    },
+    {
+      "path": "assets/中文 图标.png",
+      "bytes": 735,
+      "sha256": "e08a3513dd98f4b284e702146fd70f3f16be5b040d4a15b3a46a0075d006ffd5",
+      "assertions": [
+        "原样复制仓库已有 32×32 PNG；Unicode/空格路径与编码路径加载一致。"
+      ],
+      "category": "asset",
+      "copiedFrom": "src-tauri/icons/32x32.png"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3117,
+      "sha256": "f73b6d4ccd124dacea2fa759772cdb769ca60c6ca3efd507258a12ddb2b170cb",
+      "assertions": [
+        "验收说明，不是需要在应用中逐项执行的用户文档。"
+      ],
+      "category": "documentation",
+      "lines": 46
+    }
+  ]
+}

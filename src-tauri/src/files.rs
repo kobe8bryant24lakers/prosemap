@@ -4,7 +4,7 @@ use std::{
     collections::HashSet,
     ffi::OsStr,
     fs::{self, File, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -122,6 +122,7 @@ pub struct FileAccessState {
     files: Mutex<HashSet<PathBuf>>,
     roots: Mutex<HashSet<PathBuf>>,
     pending_launch: Mutex<Option<LaunchTarget>>,
+    save_lock: Mutex<()>,
 }
 
 impl FileAccessState {
@@ -720,7 +721,30 @@ fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<(
     }
 }
 
-fn write_document_atomically(destination: &Path, content: &[u8]) -> Result<(), String> {
+const EXTERNAL_CHANGE: &str =
+    "文件已被外部修改，未覆盖磁盘内容。请重新载入，或另存为以保留当前修改。";
+
+fn verify_document_unchanged(destination: &Path, expected: Option<&[u8]>) -> io::Result<()> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    // A bounded read also handles an external writer replacing a small file
+    // with a large one. Compare bytes, not timestamps (which can be preserved).
+    let mut current = Vec::new();
+    File::open(destination)?
+        .take(MAX_DOCUMENT_BYTES + 1)
+        .read_to_end(&mut current)?;
+    if current != expected {
+        return Err(io::Error::new(io::ErrorKind::WouldBlock, EXTERNAL_CHANGE));
+    }
+    Ok(())
+}
+
+fn write_document_atomically(
+    destination: &Path,
+    content: &[u8],
+    expected: Option<&[u8]>,
+) -> Result<(), String> {
     let (temporary, mut file) = create_temporary_sibling(destination)
         .map_err(|_| "无法在目标文件夹创建安全的临时文件".to_string())?;
     let result = (|| -> io::Result<()> {
@@ -730,6 +754,9 @@ fn write_document_atomically(destination: &Path, content: &[u8]) -> Result<(), S
             fs::set_permissions(&temporary, metadata.permissions())?;
         }
         drop(file);
+        // Check after writing/flushing the temporary file, immediately before
+        // replacement. Other applications do not share our in-process lock.
+        verify_document_unchanged(destination, expected)?;
         replace_file_atomically(&temporary, destination)?;
         #[cfg(unix)]
         if let Some(directory) = destination.parent() {
@@ -741,7 +768,13 @@ fn write_document_atomically(destination: &Path, content: &[u8]) -> Result<(), S
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
     }
-    result.map_err(|_| "无法安全保存该 Markdown 文件；原文件保持不变".to_string())
+    result.map_err(|error| {
+        if error.kind() == io::ErrorKind::WouldBlock {
+            EXTERNAL_CHANGE.to_string()
+        } else {
+            "无法安全保存该 Markdown 文件；原文件保持不变".to_string()
+        }
+    })
 }
 
 #[tauri::command]
@@ -749,12 +782,17 @@ pub async fn save_local_markdown(
     path: Option<String>,
     suggested_name: String,
     content: String,
+    expected_content: Option<String>,
     state: State<'_, FileAccessState>,
 ) -> Result<Option<LocalDocument>, String> {
     if content.len() as u64 > MAX_DOCUMENT_BYTES {
         return Err("Markdown 文件不能超过 16 MB".to_string());
     }
 
+    let existing_document = path.is_some();
+    if existing_document && expected_content.is_none() {
+        return Err("无法确认文件原始内容，请重新打开后保存".to_string());
+    }
     let destination = if let Some(path) = path {
         let canonical = canonical_existing(Path::new(&path))?;
         if !state.is_authorized(&canonical) {
@@ -780,7 +818,19 @@ pub async fn save_local_markdown(
         selected
     };
 
-    write_document_atomically(&destination, content.as_bytes())?;
+    let _save_guard = state
+        .save_lock
+        .lock()
+        .map_err(|_| "文件保存失败，请重试".to_string())?;
+    write_document_atomically(
+        &destination,
+        content.as_bytes(),
+        if existing_document {
+            expected_content.as_deref().map(str::as_bytes)
+        } else {
+            None
+        },
+    )?;
     let canonical = canonical_existing(&destination)?;
     state.authorize_file(canonical.clone());
     document_from_canonical(&canonical).map(Some)
@@ -1029,13 +1079,48 @@ mod tests {
         let destination = directory.join("draft.md");
         fs::write(&destination, "old").expect("write original");
 
-        write_document_atomically(&destination, "完整的新内容".as_bytes()).expect("atomic save");
+        write_document_atomically(&destination, "完整的新内容".as_bytes(), None)
+            .expect("atomic save");
         assert_eq!(
             fs::read_to_string(&destination).expect("read replacement"),
             "完整的新内容"
         );
 
         fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn external_changes_block_save_without_losing_either_version_or_leaking_temp_files() {
+        let directory = std::env::temp_dir().join(format!(
+            "prosemap-conflict-{}-{}",
+            std::process::id(),
+            SAVE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        let destination = directory.join("中文.md");
+        let original = "# 原文\r\n🧭\r\n".as_bytes();
+        fs::write(&destination, original).unwrap();
+        write_document_atomically(&destination, b"local edit", Some(original)).unwrap();
+        fs::write(&destination, b"external edit").unwrap();
+        assert_eq!(
+            write_document_atomically(&destination, b"second local edit", Some(b"local edit")),
+            Err(EXTERNAL_CHANGE.into())
+        );
+        assert_eq!(fs::read(&destination).unwrap(), b"external edit");
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+        // Reloading establishes a new baseline; saving can safely continue.
+        write_document_atomically(&destination, b"merged edit", Some(b"external edit")).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), b"merged edit");
+        fs::remove_file(&destination).unwrap();
+        assert!(write_document_atomically(
+            &destination,
+            b"must not resurrect",
+            Some(b"merged edit")
+        )
+        .is_err());
+        assert!(!destination.exists());
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

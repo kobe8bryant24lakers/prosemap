@@ -27,6 +27,8 @@
     "components/**/*.tsx",
     "lib/**/*.ts",
     "vite.config.ts",
+    "playwright.config.ts",
+    "tests/e2e/**/*.ts",
     "eslint.config.mjs"
   ],
   "exclude": ["node_modules", "dist", "src-tauri/target"]

@@ -56,11 +56,18 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   const panRef = useRef(pan);
   const dragRef = useRef<{ id: number; x: number; y: number } | null>(null);
   const [panning, setPanning] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const copyRequestRef = useRef(0);
+  const copyResetTimerRef = useRef<number | null>(null);
   const fullscreenZoomRef = useRef(fullscreenZoom);
   const currentRender = renderState.code === code ? renderState : null;
   const currentFullscreenRender = fullscreenRenderState.code === code ? fullscreenRenderState : null;
   const fullscreenSvg = currentFullscreenRender?.svg;
+
+  useEffect(() => () => {
+    copyRequestRef.current += 1;
+    if (copyResetTimerRef.current !== null) window.clearTimeout(copyResetTimerRef.current);
+  }, []);
 
   useEffect(() => {
     fullscreenZoomRef.current = fullscreenZoom;
@@ -208,9 +215,19 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   }, [fullscreenOpen, fullscreenSvg]);
 
   async function copySource() {
-    await navigator.clipboard.writeText(code);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
+    const request = ++copyRequestRef.current;
+    if (copyResetTimerRef.current !== null) window.clearTimeout(copyResetTimerRef.current);
+    setCopyState('idle');
+    try {
+      await navigator.clipboard.writeText(code);
+      if (request === copyRequestRef.current) setCopyState('copied');
+    } catch {
+      if (request === copyRequestRef.current) setCopyState('failed');
+    } finally {
+      if (request === copyRequestRef.current) {
+        copyResetTimerRef.current = window.setTimeout(() => setCopyState('idle'), 2000);
+      }
+    }
   }
 
   function openFullscreen() {
@@ -267,12 +284,13 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
             <button type="button" onClick={() => setZoom((value) => Math.min(MERMAID_PREVIEW_MAX_ZOOM, value + 0.15))} aria-label={t("放大图表")} title={t("放大")}>
               <ZoomIn size={14} />
             </button>
-            <button type="button" onClick={openFullscreen} disabled={!diagramSvg} aria-label={t("全屏查看图表")} title={t("全屏查看")}>
+            <button type="button" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); openFullscreen(); }} disabled={!diagramSvg} aria-label={t("全屏查看图表")} title={t("全屏查看")}>
               <Maximize2 size={14} />
             </button>
-            <button type="button" onClick={copySource} aria-label={t("复制 Mermaid 源码")} title={t("复制源码")}>
-              {copied ? <Check size={14} /> : <Copy size={14} />}
+            <button type="button" onClick={copySource} aria-label={t("复制 Mermaid 源码")} title={copyState === 'failed' ? t("复制失败") : t("复制源码")}>
+              {copyState === 'copied' ? <Check size={14} /> : <Copy size={14} />}
             </button>
+            <span role="status" style={copyState === 'failed' ? { color: 'var(--red)' } : undefined}>{copyState === 'failed' ? t("复制失败") : copyState === 'copied' ? t("已复制") : ''}</span>
           </span>
         </span>
         {currentRender?.error ? (

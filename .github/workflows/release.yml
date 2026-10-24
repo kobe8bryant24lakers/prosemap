@@ -9,6 +9,9 @@ permissions:
   contents: write
 
 jobs:
+  acceptance:
+    uses: ./.github/workflows/acceptance.yml
+
   linux:
     name: Linux x64
     needs: windows
@@ -21,6 +24,7 @@ jobs:
 
   windows:
     name: Windows 10/11 x64
+    needs: acceptance
     runs-on: windows-latest
     timeout-minutes: 45
 

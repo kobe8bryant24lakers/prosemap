@@ -122,7 +122,7 @@ export default function AssistantPanel({
             </footer>
           </section>
           {!configured ? (
-            <button type="button" className="configure-callout" onClick={onOpenSettings}>
+            <button type="button" className="configure-callout" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); onOpenSettings(); }}>
               <KeyRound size={16} /><span><strong>{t("先连接一个模型")}</strong><small>{t("支持 OpenAI-compatible 与 Anthropic Claude")}</small></span><ChevronRight size={15} />
             </button>
           ) : (

@@ -91,7 +91,11 @@ function MarkdownPreview({ markdown, documentPath, onEditMermaid }: MarkdownPrev
           try {
             const id = decodeURIComponent(href.slice(1));
             const target = Array.from(event.currentTarget.closest('article')?.querySelectorAll('[id]') ?? []).find((element) => element.id === id);
-            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (target) requestAnimationFrame(() => {
+              // Clearing a previous link error changes the article height.
+              // Scroll after that DOM update so the heading remains visible.
+              if (target.isConnected) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
             else setLinkError(t("未找到对应的文档标题"));
           } catch { setLinkError(t("标题链接无效")); }
           return;

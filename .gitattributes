@@ -1,0 +1,6 @@
+# Acceptance fixtures are byte-exact, including deliberately mixed line endings.
+/tests/fixtures/** -text
+# These Markdown cases deliberately exercise blank lines and hard line breaks.
+/tests/fixtures/empty-mermaid.md whitespace=-blank-at-eol
+/tests/fixtures/full-coverage.md whitespace=-blank-at-eol
+/tests/fixtures/targeting-crlf.md whitespace=cr-at-eol

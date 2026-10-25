@@ -363,8 +363,10 @@ export default function MermaidWorkbench({
       setSelectedTemplateId('');
       setAiUseCurrentSource(true);
       setFormError('');
+      return true;
     } catch (reason) {
       setFormError(reason instanceof Error ? reason.message : t("画布内容无法转换为 Mermaid 源码"));
+      return false;
     }
   }
 
@@ -446,7 +448,7 @@ export default function MermaidWorkbench({
   }
 
   async function applySource() {
-    if (applyingRef.current) return;
+    if (applyingRef.current || (tab === 'visual' && formError)) return;
     const normalized = source.trim();
     const draftRevision = draftRevisionRef.current;
     const operation = ++applyOperationRef.current;
@@ -707,7 +709,7 @@ export default function MermaidWorkbench({
         <footer className="workbench-footer">
           <div className={formError ? 'error' : ''}>{formError ? <><CircleAlert size={14} /> {uiMessage(formError)}</> : <><Check size={14} />  {t("应用前会校验语法，文档不会被静默覆盖")}</>}</div>
           <button type="button" className="secondary-button" onClick={() => void requestClose()}>{t("取消")}</button>
-          <button type="button" className="confirm-button" onClick={() => void applySource()} disabled={applying || aiStatus.kind === 'running'}>{applying ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />}  {t("应用到文档")}</button>
+          <button type="button" className="confirm-button" onClick={() => void applySource()} disabled={applying || aiStatus.kind === 'running' || (tab === 'visual' && !!formError)}>{applying ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />}  {t("应用到文档")}</button>
         </footer>
       </section>
     </div>

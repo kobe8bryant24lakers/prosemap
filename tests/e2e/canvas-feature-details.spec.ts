@@ -444,3 +444,172 @@ test('flowchart: all node shapes, line styles and graph directions update source
   }
   await applyAndRender(page);
 });
+
+test('Gantt: rejected date and duration edits preserve source/history and can be corrected by typing', async ({ page }) => {
+  const source = 'gantt\n  dateFormat YYYY-MM-DD\n  A :a, 2026-10-01, 3d';
+  await openSource(page, source);
+  for (const [name, invalid, message] of [
+    ['开始', '', '需要开始日期'], ['开始', '2026-02-30', '开始时间格式无效'],
+    ['工期 / 结束', '', '工期或结束日期格式无效'],
+    ['工期 / 结束', '2026-02-30', '工期或结束日期格式无效'],
+    ['工期 / 结束', '3d, 4d', '工期或结束日期格式无效'],
+  ]) {
+    await node(page, 'a').click();
+    await field(page, name).fill(invalid);
+    await expect(field(page, name)).toHaveValue(invalid);
+    await expect(field(page, name)).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.locator('.workbench-footer .error')).toContainText(message);
+    await expect(undo(page)).toBeDisabled();
+    await expect(page.getByRole('button', { name: '应用到文档', exact: true })).toBeDisabled();
+    expect(await draftSource(page)).toBe(source);
+    await showCanvas(page);
+  }
+  await node(page, 'a').click();
+  await field(page, '开始').fill('');
+  await field(page, '开始').pressSequentially('2024-02-29');
+  await expect(field(page, '开始')).toHaveValue('2024-02-29');
+  await expect(field(page, '开始')).toHaveAttribute('aria-invalid', 'false');
+  await undo(page).click();
+  await expect(field(page, '开始')).toHaveValue('2026-10-01');
+  await expect(undo(page)).toBeDisabled();
+  await page.locator('.history-tools button').nth(1).click();
+  await expect(field(page, '开始')).toHaveValue('2024-02-29');
+  await field(page, '工期 / 结束').fill('');
+  await field(page, '工期 / 结束').pressSequentially('5d');
+  await expect(field(page, '工期 / 结束')).toHaveValue('5d');
+  await applyAndRender(page);
+});
+
+test('Gantt: custom date format rejects impossible dates and accepts an exact end date', async ({ page }) => {
+  await openSource(page, 'gantt\n  dateFormat DD/MM/YYYY\n  A :a, 28/02/2024, 2d');
+  await node(page, 'a').click();
+  await field(page, '开始').fill('29/02/2026');
+  await expect(page.locator('.workbench-footer .error')).toContainText('开始时间格式无效');
+  await expect(undo(page)).toBeDisabled();
+  await field(page, '开始').fill('29/02/2024');
+  await field(page, '工期 / 结束').fill('03/03/2024');
+  expect((await graph(page)).nodes[0].data).toMatchObject({ ganttStart: '29/02/2024', ganttTiming: ['03/03/2024'] });
+  await applyAndRender(page);
+});
+
+test('Gantt: reversing an indirect dependency cycle reports its reason without changing history', async ({ page }) => {
+  await openSource(page, 'gantt\n  A :a, 2026-10-01, 1d\n  B :b, after a, 1d\n  C :c, after a b, 1d');
+  await selectEdge(page, 'edge-2');
+  await context(page).getByRole('button', { name: /^反向/ }).click();
+  await expect(page.locator('.canvas-navigation-hint [role="status"]')).toContainText('不能形成循环');
+  await expect(undo(page)).toBeDisabled();
+  expect((await graph(page)).edges.map(edge => [edge.from, edge.to])).toEqual([['a', 'b'], ['a', 'c'], ['b', 'c']]);
+  await selectEdge(page, 'edge-1');
+  await context(page).getByRole('button', { name: /^反向/ }).click();
+  const current = await graph(page);
+  expect(current.edges[0]).toMatchObject({ from: 'b', to: 'a' });
+  expect(current.nodes.find(candidate => candidate.id === 'b')!.data!.ganttStart).toBe('2026-10-01');
+  await applyAndRender(page);
+});
+
+test('Gantt: duplicating dependent tasks creates independent schedules and isolated statuses', async ({ page }) => {
+  await openSource(page, 'gantt\n  A :a, 2026-10-01, 1d\n  B :active, b, after a, 3d');
+  await node(page, 'b').click();
+  await context(page).getByRole('button', { name: '复制', exact: true }).click();
+  let current = await graph(page);
+  const duplicate = current.nodes.find(candidate => candidate.label === 'B 副本')!;
+  expect(duplicate.data).toMatchObject({ ganttStart: '2026-10-01', ganttTiming: ['3d'], ganttStatuses: ['active'] });
+  expect(current.edges.some(edge => edge.to === duplicate.id)).toBe(false);
+  await page.getByRole('group', { name: '任务状态', exact: true }).getByRole('button', { name: '关键', exact: true }).click();
+  current = await graph(page);
+  expect(current.nodes.find(candidate => candidate.id === 'b')!.data!.ganttStatuses).toEqual(['active']);
+  await applyAndRender(page);
+});
+
+test('Gantt: clearing a section and assigning an existing section preserve every other task', async ({ page }) => {
+  await openSource(page, 'gantt\n  section Design\n  A :a, 2026-10-01, 1d\n  section Delivery\n  B :b, after a, 2d\n  C :c, after b, 1d');
+  const before = await graph(page);
+  await node(page, 'b').click();
+  await field(page, '分组').fill('');
+  let current = await graph(page);
+  expect(current.nodes.find(candidate => candidate.id === 'b')!.data!.ganttSection).toBe('');
+  for (const id of ['a', 'c']) expect(current.nodes.find(candidate => candidate.id === id)).toEqual(before.nodes.find(candidate => candidate.id === id));
+  await node(page, 'b').click();
+  await field(page, '分组').fill('Design');
+  current = await graph(page);
+  expect(current.nodes.find(candidate => candidate.id === 'b')!.data!.ganttSection).toBe('Design');
+  await applyAndRender(page);
+});
+
+test('Gantt: rendered task states remain distinct and active tasks do not disappear into white', async ({ page }) => {
+  await launchDocument(page, '# Task state rendering\n\n```mermaid\ngantt\n  dateFormat YYYY-MM-DD\n  todayMarker off\n  section Delivery\n  Normal :normal, 2026-10-01, 3d\n  Active :active, current, 2026-10-01, 3d\n  Done :done, finished, 2026-10-01, 3d\n  Critical :crit, urgent, 2026-10-01, 3d\n  Active critical :active, crit, currentUrgent, 2026-10-01, 3d\n  Done critical :done, crit, finishedUrgent, 2026-10-01, 3d\n  Milestone :milestone, marker, 2026-10-04, 0d\n```\n');
+  const svg = page.locator('.preview-pane .mermaid-svg svg');
+  await expect(svg).toHaveCount(1);
+  const styles = await svg.locator('rect.task').evaluateAll(elements => Object.fromEntries(elements.map(element => [element.id.slice(element.id.lastIndexOf('-') + 1), {
+    fill: getComputedStyle(element).fill, stroke: getComputedStyle(element).stroke,
+    width: element.getBoundingClientRect().width, className: element.getAttribute('class'),
+  }])));
+  expect(styles.current.fill).toBe('rgb(183, 223, 204)');
+  expect(new Set(['normal', 'current', 'finished', 'urgent'].map(id => styles[id].fill)).size).toBe(4);
+  expect(styles.current.stroke).not.toBe(styles.current.fill);
+  expect(styles.currentUrgent.stroke).toBe(styles.urgent.stroke);
+  expect(styles.finishedUrgent.stroke).toBe(styles.urgent.stroke);
+  expect(styles.marker.className).toContain('milestone');
+  expect(styles.marker.width).toBeGreaterThan(0);
+  await test.info().attach('gantt-state-styles', { body: JSON.stringify(styles, null, 2), contentType: 'application/json' });
+});
+
+test('Gantt: renaming an until target updates only its references and remains reversible', async ({ page }) => {
+  await openSource(page, 'gantt\n  dateFormat YYYY-MM-DD\n  A :a, 2026-10-01, until b\n  B :b, 2026-10-05, 2d\n  C :c, after b, 1d');
+  await node(page, 'b').click();
+  await field(page, '任务 ID').fill('delivery');
+  const source = await draftSource(page);
+  expect(source).toContain('A :a, 2026-10-01, until delivery');
+  expect(source).toContain('B :delivery, 2026-10-05, 2d');
+  expect(source).toContain('C :c, after delivery, 1d');
+  await showCanvas(page);
+  await undo(page).click();
+  expect(await draftSource(page)).toContain('until b');
+  await showCanvas(page);
+  await page.locator('.history-tools button').nth(1).click();
+  expect(await draftSource(page)).toBe(source);
+  await applyAndRender(page);
+});
+
+test('Gantt: milestones from library and quick tools have zero duration and no hidden dependency', async ({ page }) => {
+  await openSource(page, 'gantt\n  A :a, 2026-10-01, 3d');
+  await page.getByRole('button', { name: '里程碑', exact: true }).click();
+  await finishNewLabel(page, 'Library marker');
+  await node(page, 'a').click();
+  await context(page).getByRole('button', { name: '里程碑', exact: true }).click();
+  await finishNewLabel(page, 'Quick marker');
+  const current = await graph(page);
+  for (const label of ['Library marker', 'Quick marker']) {
+    const task = current.nodes.find(candidate => candidate.label === label)!;
+    expect(task.data).toMatchObject({ ganttTiming: ['0d'], ganttStart: '2026-10-01', ganttStatuses: ['milestone'] });
+    expect(current.edges.some(edge => edge.to === task.id)).toBe(false);
+  }
+  await applyAndRender(page);
+});
+
+test('Gantt: imported invalid schedules remain editable and correction has exact undo/redo', async ({ page }) => {
+  const source = 'gantt\n  dateFormat YYYY-MM-DD\n  A :a, 2026-02-30, 3d';
+  await openSource(page, source);
+  expect(await draftSource(page)).toBe(source);
+  await showCanvas(page);
+  await node(page, 'a').click();
+  await field(page, '开始').fill('2026-02-28');
+  expect(await draftSource(page)).toBe(source.replace('2026-02-30', '2026-02-28'));
+  await showCanvas(page);
+  await undo(page).click();
+  expect(await draftSource(page)).toBe(source);
+  await showCanvas(page);
+  await page.locator('.history-tools button').nth(1).click();
+  await applyAndRender(page);
+});
+
+test('Gantt: numeric timestamp starts accept durations but reject numeric end values', async ({ page }) => {
+  await openSource(page, 'gantt\n  dateFormat x\n  A :a, 1790812800000, 1d');
+  await node(page, 'a').click();
+  await expect(field(page, '开始')).toHaveAttribute('placeholder', 'x');
+  await field(page, '工期 / 结束').fill('1791072000000');
+  await expect(page.locator('.workbench-footer .error')).toContainText('工期或结束日期格式无效');
+  await expect(undo(page)).toBeDisabled();
+  await field(page, '工期 / 结束').fill('3d');
+  await applyAndRender(page);
+});

@@ -49,6 +49,7 @@ import {
 } from 'react';
 import {
   nextMermaidNodeId,
+  ganttDateFormat,
   suggestGanttStart,
   type MermaidEdgeStyle,
   type MermaidFlowDirection,
@@ -89,8 +90,27 @@ type MermaidCanvasEditorProps = {
   suspended?: boolean;
   externalRevision?: number;
   graph: MermaidFlowGraph;
-  onChange: (graph: MermaidFlowGraph) => void;
+  onChange: (graph: MermaidFlowGraph) => boolean;
 };
+
+/** Keep incomplete input editable without adding rejected graphs to source/history. */
+function GanttInput({ value, revision, onChange, disabled, placeholder }: {
+  value: string;
+  revision: MermaidFlowGraph;
+  onChange: (value: string) => boolean;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState({ value, revision, invalid: false });
+  if (draft.revision !== revision) setDraft({ value, revision, invalid: false });
+  return <input value={draft.revision === revision ? draft.value : value}
+    disabled={disabled} placeholder={placeholder} aria-invalid={draft.invalid}
+    onChange={(event) => {
+      const nextValue = event.target.value;
+      const accepted = onChange(nextValue);
+      setDraft({ value: nextValue, revision, invalid: !accepted });
+    }} />;
+}
 
 type Point = MermaidCanvasPoint;
 type NodePositions = MermaidCanvasNodePositions;
@@ -398,7 +418,7 @@ function defaultNode(kind: MermaidFlowGraph['kind'], id: string, graph: MermaidF
         ref: id,
         ganttSection: fallbackSection,
         ganttStatuses: [],
-        ganttStart: graph.nodes.length ? '' : suggestGanttStart(graph),
+        ganttStart: suggestGanttStart(graph),
         ganttTiming: ['1d'],
       },
     };
@@ -433,7 +453,7 @@ function applyNodePreset(node: MermaidFlowNode, presetId?: CanvasNodePresetId): 
   if (presetId === 'gantt-milestone') {
     const statuses = new Set(node.data?.ganttStatuses ?? []);
     statuses.add('milestone');
-    return { ...node, label: t("新里程碑"), shape: 'rounded', data: { ...node.data, ganttStatuses: [...statuses] } };
+    return { ...node, label: t("新里程碑"), shape: 'rounded', data: { ...node.data, ganttStatuses: [...statuses], ganttTiming: ['0d'] } };
   }
   if (presetId === 'gantt-task') return { ...node, label: t("新任务"), shape: 'rounded' };
   return node;
@@ -542,7 +562,9 @@ function nextSemanticRef(nodes: MermaidFlowNode[], prefix: string) {
 
 function ensureGanttStarts(graph: MermaidFlowGraph, nodes: MermaidFlowNode[], edges: MermaidFlowEdge[]) {
   const candidateGraph = { ...graph, nodes, edges };
-  const fallbackStart = suggestGanttStart(candidateGraph) || suggestGanttStart(graph);
+  // Keep the previous schedule anchor even when this edit removes or converts
+  // the final independent task; candidateGraph would otherwise suggest today.
+  const fallbackStart = suggestGanttStart(graph) || suggestGanttStart(candidateGraph);
   if (!fallbackStart) return nodes;
   const dependentIds = new Set(edges.map((edge) => edge.to));
   return nodes.map((node) => dependentIds.has(node.id) || node.data?.ganttStart
@@ -649,13 +671,15 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
 
   function commitGraph(nextGraph: MermaidFlowGraph, recordHistory = true) {
     const current = currentGraphRef.current;
-    if (JSON.stringify(current) === JSON.stringify(nextGraph)) return;
+    // The parent serializes first; a rejected edit must never enter undo/redo.
+    if (!onChange(nextGraph)) return false;
+    if (JSON.stringify(current) === JSON.stringify(nextGraph)) return true;
     if (recordHistory) {
       recordCanvasHistory();
     }
     currentGraphRef.current = nextGraph;
     updateHistoryStatus();
-    onChange(nextGraph);
+    return true;
   }
 
   function undoGraphChange() {
@@ -1290,7 +1314,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   const selectedGanttHasDependency = Boolean(selectedNode && graph.kind === 'gantt'
     && graph.edges.some((edge) => edge.to === selectedNode.id));
   const selectedGanttStart = selectedNode && graph.kind === 'gantt' && !selectedGanttHasDependency
-    ? selectedNode.data?.ganttStart || suggestGanttStart(graph)
+    ? selectedNode.data?.ganttStart ?? suggestGanttStart(graph)
     : selectedNode?.data?.ganttStart ?? '';
   const selectedNodeIncoming = selectedNode ? graph.edges.filter((edge) => edge.to === selectedNode.id).length : 0;
   const selectedNodeOutgoing = selectedNode ? graph.edges.filter((edge) => edge.from === selectedNode.id).length : 0;
@@ -1362,6 +1386,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       ? selectedNode?.id ?? graph.nodes.find((candidate) => candidate.data?.mindRoot)?.id ?? graph.nodes[0].id
       : undefined;
     const parentId = options?.parentId ?? automaticMindParent;
+    if (graph.kind === 'gantt' && parentId) node.data = { ...node.data, ganttStart: '' };
     const parentPosition = parentId ? positions[parentId] : undefined;
     const fallbackIndex = graph.nodes.length;
     const size = nodeSize(node, graph.kind);
@@ -1485,6 +1510,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       details: selectedNode.data.details ? [...selectedNode.data.details] : undefined,
       ganttStatuses: selectedNode.data.ganttStatuses ? [...selectedNode.data.ganttStatuses] : undefined,
       ganttTiming: selectedNode.data.ganttTiming ? [...selectedNode.data.ganttTiming] : undefined,
+      ...(graph.kind === 'gantt' ? { ganttStart: selectedNode.data.ganttStart || suggestGanttStart(graph) } : {}),
       mindRoot: false,
     } : undefined;
     const duplicate: MermaidFlowNode = {
@@ -1760,9 +1786,18 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   }
 
   function updateNodeData(id: string, update: Partial<NodeData>) {
-    commitGraph({
+    const previousRef = graph.nodes.find((node) => node.id === id)?.data?.ref ?? id;
+    let nodes = graph.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, ...update } } : node);
+    if (graph.kind === 'gantt' && update.ref !== undefined && update.ref !== previousRef) {
+      // End-at-task expressions are references too, independent of after edges.
+      nodes = nodes.map((node) => node.data?.ganttTiming ? { ...node, data: { ...node.data,
+        ganttTiming: node.data.ganttTiming.map((timing) => timing.replace(/^(\s*until\s+)(.*)$/, (_match, prefix: string, refs: string) =>
+          prefix + refs.replace(/\S+/g, (ref) => ref === previousRef ? update.ref! : ref))),
+      } } : node);
+    }
+    return commitGraph({
       ...graph,
-      nodes: graph.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, ...update } } : node),
+      nodes,
     });
   }
 
@@ -1817,10 +1852,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     if (!selectedEdge) return;
     if (graph.kind === 'mindmap' || selectedEdgeTouchesStatePseudo) return;
     const otherEdges = graph.edges.filter((edge) => edge.id !== selectedEdge.id);
-    if (graph.kind === 'gantt' && (
-      otherEdges.some((edge) => edge.from === selectedEdge.to && edge.to === selectedEdge.from)
-      || connectionWouldCycle(otherEdges, selectedEdge.to, selectedEdge.from)
-    )) return;
+    if (graph.kind === 'gantt') {
+      const issue = canvasConnectionIssue({ ...graph, edges: otherEdges }, selectedEdge.to, selectedEdge.from);
+      setConnectionIssue(issue);
+      if (issue) return;
+    }
     const token = graph.kind === 'er'
       ? reverseErToken(selectedEdge.data?.token)
       : graph.kind === 'class' ? reverseClassToken(selectedEdge.data?.token) : selectedEdge.data?.token;
@@ -1851,8 +1887,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     const node = graph.nodes.find((candidate) => candidate.id === id);
     const timing = [...(node?.data?.ganttTiming ?? [])];
     timing[index] = value;
-    while (timing.length && !timing[timing.length - 1]) timing.pop();
-    updateNodeData(id, { ganttTiming: timing });
+    return updateNodeData(id, { ganttTiming: timing });
   }
 
   function changeStateRole(id: string, role: 'start' | 'end' | 'state') {
@@ -2595,13 +2630,13 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       {selectedNode && graph.kind === 'gantt' ? (
         <div className="canvas-semantic-inspector canvas-gantt-inspector">
           <label><span>{t("分组")}</span><input value={selectedNode.data?.ganttSection ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { ganttSection: event.target.value })} placeholder={t("例如：设计")} /></label>
-          <label><span>{t("任务 ID")}</span><input value={selectedNode.data?.ref ?? selectedNode.id} onChange={(event) => updateNodeData(selectedNode.id, { ref: event.target.value })} placeholder={t("唯一 ID")} /></label>
-          <label><span>{t("开始")}</span><input disabled={selectedGanttHasDependency} value={selectedGanttStart} onChange={(event) => updateNodeData(selectedNode.id, { ganttStart: event.target.value })} placeholder={selectedGanttHasDependency ? t("由依赖关系决定") : 'YYYY-MM-DD'} /></label>
-          <label><span>{t("工期 / 结束")}</span><input value={selectedNode.data?.ganttTiming?.[0] || '1d'} onChange={(event) => updateGanttTiming(selectedNode.id, 0, event.target.value)} placeholder={t("例如：5d 或 2026-01-10")} /></label>
+          <label><span>{t("任务 ID")}</span><GanttInput key={`${selectedNode.id}-ref`} revision={graph} value={selectedNode.data?.ref ?? selectedNode.id} onChange={(value) => updateNodeData(selectedNode.id, { ref: value })} placeholder={t("唯一 ID")} /></label>
+          <label><span>{t("开始")}</span><GanttInput key={`${selectedNode.id}-start`} revision={graph} disabled={selectedGanttHasDependency} value={selectedGanttStart} onChange={(value) => updateNodeData(selectedNode.id, { ganttStart: value })} placeholder={selectedGanttHasDependency ? t("由依赖关系决定") : ganttDateFormat(graph)} /></label>
+          <label><span>{t("工期 / 结束")}</span><GanttInput key={`${selectedNode.id}-timing`} revision={graph} value={selectedNode.data?.ganttTiming?.[0] ?? '1d'} onChange={(value) => updateGanttTiming(selectedNode.id, 0, value)} placeholder={t("例如：5d 或 2026-01-10")} /></label>
           <div className="canvas-gantt-statuses" role="group" aria-label={t("任务状态")}>
             <span>{t("状态")}</span>
             {GANTT_STATUS_OPTIONS.map((option) => (
-              <button type="button" key={option.value} className={selectedNode.data?.ganttStatuses?.includes(option.value) ? 'active' : ''} onClick={() => toggleGanttStatus(selectedNode.id, option.value)}>{option.label}</button>
+              <button type="button" key={option.value} aria-pressed={selectedNode.data?.ganttStatuses?.includes(option.value) ?? false} className={selectedNode.data?.ganttStatuses?.includes(option.value) ? 'active' : ''} onClick={() => toggleGanttStatus(selectedNode.id, option.value)}>{option.label}</button>
             ))}
           </div>
         </div>

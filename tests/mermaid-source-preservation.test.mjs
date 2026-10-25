@@ -273,3 +273,32 @@ for (const reuseSnapshot of [false, true]) {
     assert.equal(history.commit(externalSource, externalGraph, target), expected, 'redo retains the edited spelling');
   });
 }
+
+for (const scenario of [
+  { name: 'impossible start date', start: '2026-02-30', timing: '3d', repair: { ganttStart: '2026-02-28' } },
+  { name: 'invalid duration', start: '2026-02-28', timing: 'nonsense', repair: { ganttTiming: ['3d'] } },
+]) {
+  test(`imported Gantt ${scenario.name} can be repaired, undone byte-for-byte and redone`, () => {
+    const source = `gantt\r\n\r\n\tdateFormat YYYY-MM-DD\r\n\t%% Keep the imported source for undo\r\n\tA :a, ${scenario.start}, ${scenario.timing}\r\n\tB :b, after a, 2d\r\n`;
+    const before = parseMermaidVisualSource(source);
+    assert.ok(before, 'the existing parser accepts the imported graph');
+    assert.throws(() => serializeMermaidVisualGraph(before), /格式无效/);
+    const after = { ...before, nodes: before.nodes.map(node => node.id === 'a' ? { ...node, data: { ...node.data, ...scenario.repair } } : node) };
+    const history = new MermaidSourceHistory();
+    assert.doesNotThrow(() => history.reset(before, source), 'returning from source to canvas can retain an invalid imported snapshot');
+    assert.doesNotThrow(() => history.remember(before, source));
+    // Invalid originals have no canonical line mapping. Repair deliberately
+    // falls back to a valid canonical source, while history retains raw bytes.
+    const repaired = serializeMermaidVisualGraph(after);
+    assert.equal(preserveMermaidSource(source, before, after), repaired);
+    assert.equal(history.commit(source, before, after), repaired);
+    assert.equal(history.commit(repaired, after, before), source, 'undo restores CRLF, indentation, comments and the old invalid value');
+    assert.equal(history.commit(source, before, after), repaired, 'redo restores the validated repair');
+    assert.deepEqual(parseMermaidVisualSource(repaired).nodes.find(node => node.id === 'b'), before.nodes.find(node => node.id === 'b'));
+
+    const newlyInvalid = structuredClone(before);
+    assert.throws(() => history.commit(repaired, after, newlyInvalid), /格式无效/, 'new invalid edits do not inherit the trusted snapshot exception');
+    assert.throws(() => history.commit(repaired, after, newlyInvalid), /格式无效/, 'a rejected edit never enters the snapshot cache');
+    assert.equal(history.commit(repaired, after, before), source);
+  });
+}

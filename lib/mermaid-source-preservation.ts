@@ -201,10 +201,20 @@ function preserveMemberEdits(source: string, before: MermaidVisualGraph, after: 
  * scoped for members and groups; ambiguous occurrences are never guessed.
  * Reparse the complete result before accepting a source-preserving edit. */
 export function preserveMermaidSource(source: string, before: MermaidVisualGraph, after: MermaidVisualGraph) {
-  const previous = serializeMermaidVisualGraph(before);
   const next = serializeMermaidVisualGraph(after);
+  let previous: string;
+  try {
+    previous = serializeMermaidVisualGraph(before);
+  } catch {
+    // Imported source can parse into a graph while failing stricter visual
+    // validation. Permit repairing it; there is no safe canonical mapping for
+    // the old graph, so use the validated result and keep exact undo separately.
+    return next;
+  }
   const parsedSource = parseMermaidVisualSource(source);
-  if (!parsedSource || serializeMermaidVisualGraph(parsedSource) !== previous) return next;
+  try {
+    if (!parsedSource || serializeMermaidVisualGraph(parsedSource) !== previous) return next;
+  } catch { return next; }
   if (previous === next) return source;
   if (before.kind !== after.kind) return next;
   if (before.kind === 'flowchart') {
@@ -305,7 +315,14 @@ export class MermaidSourceHistory {
   remember(graph: MermaidVisualGraph | null, source: string) {
     if (!graph) return;
     this.sources.set(graph, source);
-    const key = serializeMermaidVisualGraph(graph);
+    let key: string;
+    try {
+      key = serializeMermaidVisualGraph(graph);
+    } catch {
+      // Retain original bytes for undo even when an imported graph is invalid.
+      // Only valid graphs may enter the equivalent-spelling lookup.
+      return;
+    }
     this.spellings.delete(key);
     this.spellings.set(key, source);
     if (this.spellings.size > 160) this.spellings.delete(this.spellings.keys().next().value!);

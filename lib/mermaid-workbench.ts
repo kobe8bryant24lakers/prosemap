@@ -1,3 +1,8 @@
+import dayjs from 'dayjs';
+import customParseFormat from 'dayjs/plugin/customParseFormat.js';
+
+dayjs.extend(customParseFormat);
+
 export type MermaidFlowDirection = 'TB' | 'TD' | 'BT' | 'LR' | 'RL';
 
 export type MermaidDiagramKind = 'flowchart' | 'sequence' | 'state' | 'class' | 'er' | 'mindmap' | 'gantt';
@@ -1171,14 +1176,16 @@ export function parseGanttSource(source: string): MermaidFlowGraph | null {
   return { kind: 'gantt', direction: 'LR', nodes, edges, data: { header: body.header, directives } };
 }
 
+export function ganttDateFormat(graph: MermaidFlowGraph): string {
+  // Mermaid applies directives in source order, so the final declaration wins.
+  return graph.data?.directives?.filter((directive) => /^dateFormat\s+/i.test(directive)).at(-1)
+    ?.replace(/^dateFormat\s+/i, '').trim() || 'YYYY-MM-DD';
+}
+
 export function suggestGanttStart(graph: MermaidFlowGraph): string {
   const explicitStart = graph.nodes.find((node) => node.data?.ganttStart)?.data?.ganttStart;
   if (explicitStart) return explicitStart;
-  const dateFormat = graph.data?.directives
-    ?.find((directive) => /^dateFormat\s+/i.test(directive))
-    ?.replace(/^dateFormat\s+/i, '')
-    .trim();
-  if (dateFormat && dateFormat !== 'YYYY-MM-DD') return '';
+  if (ganttDateFormat(graph) !== 'YYYY-MM-DD') return '';
   return new Date().toISOString().slice(0, 10);
 }
 
@@ -1187,6 +1194,16 @@ function serializeGantt(graph: MermaidFlowGraph): string {
   const lines = [graph.data?.header || 'gantt', ...(graph.data?.directives ?? []).map((directive) => `  ${directive.trim()}`)];
   const refs = new Map<string, string>();
   const used = new Set<string>();
+  const dateFormat = ganttDateFormat(graph);
+  const validDate = (value: string, isStart = false) => {
+    if (!value || /[,;#\r\n]/.test(value)) return false;
+    // Mermaid special-cases numeric x/X dates only in getStartDate. Numeric
+    // ends otherwise fall back to the start, silently producing zero duration.
+    if (dateFormat === 'x' || dateFormat === 'X') {
+      return isStart && /^\d+$/.test(value) && Number.isFinite(new Date(Number(value)).getTime());
+    }
+    return dayjs(value, dateFormat, true).isValid();
+  };
   for (const node of graph.nodes) {
     const ref = node.data?.ref ?? node.id;
     if (!/^[A-Za-z_][\w-]*$/.test(ref)) throw new Error(`任务“${node.label || node.id}”的 ID 格式无效`);
@@ -1220,7 +1237,11 @@ function serializeGantt(graph: MermaidFlowGraph): string {
   }
   if (visitedCount !== graph.nodes.length) throw new Error('甘特图任务依赖不能形成循环');
   let section = '__unset__';
-  for (const node of graph.nodes) {
+  // Mermaid has no empty-section reset. Emit ungrouped tasks before any named
+  // section so clearing a group cannot silently inherit the preceding group.
+  const tasks = [...graph.nodes.filter((node) => !node.data?.ganttSection?.trim()),
+    ...graph.nodes.filter((node) => node.data?.ganttSection?.trim())];
+  for (const node of tasks) {
     if (/[:\r\n]/.test(node.label)) throw new Error('甘特图任务名称不能包含冒号或换行');
     const taskLabel = safeVisualText(node.label) || refs.get(node.id)!;
     const nextSection = safeVisualText(node.data?.ganttSection ?? '');
@@ -1236,17 +1257,21 @@ function serializeGantt(graph: MermaidFlowGraph): string {
     const spec = [...statuses, refs.get(node.id)!];
     if (dependencies.length) spec.push(`after ${dependencies.join(' ')}`);
     else {
-      const start = (node.data?.ganttStart || suggestGanttStart(graph)).trim();
+      const start = (node.data?.ganttStart ?? suggestGanttStart(graph)).trim();
       if (!start) throw new Error(`任务“${node.label || refs.get(node.id)}”需要开始日期或依赖任务`);
-      if (/[,;#\r\n]/.test(start) || /^after\b/i.test(start)) {
+      if (!validDate(start, true)) {
         throw new Error(`任务“${taskLabel}”的开始时间格式无效`);
       }
       spec.push(start);
     }
-    const timing = node.data?.ganttTiming?.map((value) => value.trim()).filter(Boolean) ?? [];
+    const timing = node.data?.ganttTiming?.map((value) => value.trim()) ?? ['1d'];
     if (timing.length > 1) throw new Error(`任务“${node.label || refs.get(node.id)}”只能填写工期或结束日期之一`);
-    const endSpec = timing[0] || '1d';
-    if (/[,;#\r\n]/.test(endSpec)) throw new Error(`任务“${taskLabel}”的工期或结束日期格式无效`);
+    const endSpec = timing[0] ?? '';
+    const until = /^until\s+([A-Za-z_][\w-]*(?:\s+[A-Za-z_][\w-]*)*)$/.exec(endSpec);
+    const validUntil = until && until[1].split(/\s+/).every((ref) => used.has(ref) && ref !== refs.get(node.id));
+    if (!validDate(endSpec) && !/^(\d+(?:\.\d+)?)([Mdhmswy]|ms)$/.test(endSpec) && !validUntil) {
+      throw new Error(`任务“${taskLabel}”的工期或结束日期格式无效`);
+    }
     spec.push(endSpec);
     lines.push(`  ${taskLabel} :${spec.join(', ')}`);
   }

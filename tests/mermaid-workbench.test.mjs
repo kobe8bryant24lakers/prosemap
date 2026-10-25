@@ -9,6 +9,8 @@ import {
 } from '../lib/editor.ts';
 import {
   MERMAID_TEMPLATES,
+  ganttDateFormat,
+  suggestGanttStart,
   nextMermaidNodeId,
   parseMermaidVisualSource,
   serializeMermaidVisualGraph,
@@ -679,4 +681,71 @@ test('every visual diagram kind preserves structural edits', async (t) => {
       );
     });
   }
+});
+
+test('Gantt rejects explicit empty, impossible and malformed schedules instead of substituting defaults', () => {
+  const base = requireParsed('gantt\n  dateFormat YYYY-MM-DD\n  A :a, 2026-10-01, 3d', 'schedule validation');
+  for (const value of ['', ' ', '2026-02-30', '2026-13-01', '2026-1-01', 'tomorrow', 'after missing']) {
+    const graph = structuredClone(base);
+    graph.nodes[0].data.ganttStart = value;
+    assert.throws(() => serializeMermaidVisualGraph(graph), /开始日期或依赖任务|开始时间格式无效/, value);
+  }
+  for (const value of [[], [''], [' '], ['nonsense'], ['-1d'], ['2026-02-30'], ['3d, 5d'], ['until missing'], ['until a']]) {
+    const graph = structuredClone(base);
+    graph.nodes[0].data.ganttTiming = value;
+    assert.throws(() => serializeMermaidVisualGraph(graph), /工期或结束日期格式无效/, JSON.stringify(value));
+  }
+  for (const value of ['0d', '1.5d', '25ms', '1M', '2w', '2026-10-15']) {
+    const graph = structuredClone(base);
+    graph.nodes[0].data.ganttTiming = [value];
+    assert.match(serializeMermaidVisualGraph(graph), new RegExp(value.replace('.', '\\.')));
+  }
+});
+
+test('Gantt validates declared date formats, leap years, numeric dates and existing until targets', () => {
+  for (const [format, start, timing] of [
+    ['DD/MM/YYYY', '29/02/2024', '03/03/2024'],
+    ['YYYY-MM-DD HH:mm', '2026-10-01 13:45', '30m'],
+    ['x', '1790812800000', '1d'],
+    ['X', '1790812800000', '1d'],
+    ['YYYY-MM-DD', '2024-02-29', 'until b'],
+  ]) {
+    const source = `gantt\n  dateFormat ${format}\n  A :a, ${start}, ${timing}\n  B :b, ${start}, 2d`;
+    assert.equal(serializeMermaidVisualGraph(requireParsed(source, format)), source);
+  }
+  const invalid = requireParsed('gantt\n  dateFormat DD/MM/YYYY\n  A :a, 29/02/2026, 2d', 'invalid custom date');
+  assert.throws(() => serializeMermaidVisualGraph(invalid), /开始时间格式无效/);
+});
+
+test('Gantt clearing a section never inherits the previous named section', () => {
+  const graph = requireParsed('gantt\n  section Design\n  A :a, 2026-10-01, 1d\n  section Delivery\n  B :b, after a, 2d\n  C :c, after b, 1d', 'section clearing');
+  graph.nodes[1].data.ganttSection = '';
+  const roundtrip = requireParsed(serializeMermaidVisualGraph(graph), 'cleared section');
+  for (const node of graph.nodes) assert.deepEqual(roundtrip.nodes.find(candidate => candidate.id === node.id), node);
+  assert.deepEqual(roundtrip.edges.map(edge => [edge.from, edge.to]).sort(), graph.edges.map(edge => [edge.from, edge.to]).sort());
+});
+
+test('Gantt numeric x/X dates are start-only and end timestamps cannot silently become zero duration', () => {
+  for (const format of ['x', 'X']) {
+    const source = `gantt\n  dateFormat ${format}\n  A :a, 1790812800000, 3d`;
+    const graph = requireParsed(source, `numeric ${format} start`);
+    assert.equal(serializeMermaidVisualGraph(graph), source);
+    graph.nodes[0].data.ganttTiming = ['1791072000000'];
+    assert.throws(() => serializeMermaidVisualGraph(graph), /工期或结束日期格式无效/);
+    graph.nodes[0].data.ganttTiming = ['2.5d'];
+    assert.match(serializeMermaidVisualGraph(graph), /1790812800000, 2\.5d$/);
+  }
+});
+
+test('Gantt validation and suggested starts use the final dateFormat directive like Mermaid', () => {
+  const custom = requireParsed('gantt\n  dateFormat YYYY-MM-DD\n  dateFormat DD/MM/YYYY\n  A :a, 29/02/2024, 3d', 'last custom date format');
+  assert.equal(ganttDateFormat(custom), 'DD/MM/YYYY');
+  assert.match(serializeMermaidVisualGraph(custom), /29\/02\/2024, 3d$/);
+  assert.equal(suggestGanttStart({ ...custom, nodes: [] }), '', 'do not invent an ISO date for a final custom format');
+
+  const iso = requireParsed('gantt\n  dateFormat DD/MM/YYYY\n  dateFormat YYYY-MM-DD\n  A :a, 2024-02-29, 3d', 'last ISO date format');
+  assert.equal(ganttDateFormat(iso), 'YYYY-MM-DD');
+  assert.match(serializeMermaidVisualGraph(iso), /2024-02-29, 3d$/);
+  assert.match(suggestGanttStart({ ...iso, nodes: [] }), /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(ganttDateFormat({ ...iso, data: {} }), 'YYYY-MM-DD');
 });

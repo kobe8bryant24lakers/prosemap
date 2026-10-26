@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { fixture, launchDocument, mod, savedSource } from './helpers';
+import { fixture, launchDocument, mod, openDiagram, savedSource } from './helpers';
 
 const sample = '# 原生与浏览器分开记录\n\n段落中文 emoji 🧭\n下一行\n\n尾部保持\n';
 
@@ -119,4 +119,73 @@ test('8406-line document: scroll to end, edit, switch views, save and undo', asy
   await page.getByRole('button', { name: '撤销', exact: true }).click();
   expect(await savedSource(page)).toBe(original);
   await testInfo.attach('elapsed-ms', { body: String(Date.now() - start), contentType: 'text/plain' });
+});
+
+test('pure preview routes document undo and redo after applying a diagram without focusing hidden editor', async ({ page }) => {
+  const original = '# Preview history\n\n```mermaid\nflowchart LR\n  A[Original] --> B[End]\n```\n';
+  await launchDocument(page, original);
+  await page.getByRole('button', { name: '纯预览', exact: true }).click();
+  await openDiagram(page);
+  await page.locator('.mermaid-canvas-node[data-mermaid-node-id="A"]').dblclick();
+  const input = page.locator('.mermaid-canvas-node input');
+  await input.fill('Changed');
+  await input.press('Enter');
+  await page.getByRole('button', { name: '应用到文档', exact: true }).click();
+  await expect(page.locator('.mermaid-workbench')).toHaveCount(0);
+  await page.keyboard.press(`${mod}+z`);
+  expect(await page.locator('.cm-content').evaluate(element => element.contains(document.activeElement))).toBe(false);
+  expect(await savedSource(page)).toBe(original);
+  await page.keyboard.press(`${mod}+Shift+z`);
+  expect(await page.locator('.cm-content').evaluate(element => element.contains(document.activeElement))).toBe(false);
+  expect(await savedSource(page)).toBe(original.replace('Original', 'Changed'));
+  await expect(page.getByRole('button', { name: '纯预览', exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('pure preview supports explicit Control+Y redo independently of the platform Mod key', async ({ page }) => {
+  const original = '# Original\n';
+  const changed = '# Changed\n';
+  await launchDocument(page, original);
+  const editor = page.locator('.cm-content');
+  await editor.click();
+  await page.keyboard.press(`${mod}+a`);
+  await page.keyboard.insertText(changed);
+  await page.getByRole('button', { name: '纯预览', exact: true }).click();
+  await expect(editor).toBeHidden();
+  await page.keyboard.press(`${mod}+z`);
+  expect(await editor.evaluate(element => element.contains(document.activeElement))).toBe(false);
+  expect(await savedSource(page)).toBe(original);
+  // Control is deliberate: on macOS mod is Meta, while this separate alias
+  // exercises the app's ctrlKey branch without pretending to run on Windows.
+  await page.keyboard.press('Control+y');
+  expect(await editor.evaluate(element => element.contains(document.activeElement))).toBe(false);
+  expect(await savedSource(page)).toBe(changed);
+  await expect(page.getByRole('button', { name: '纯预览', exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('document history shortcuts respect ordinary inputs and modal ownership', async ({ page }) => {
+  await launchDocument(page, '# Original\n');
+  const editor = page.locator('.cm-content');
+  await editor.click();
+  await page.keyboard.press(`${mod}+a`);
+  await page.keyboard.insertText('# Changed\n');
+  expect(await savedSource(page)).toBe('# Changed\n');
+  await page.getByRole('button', { name: '纯预览', exact: true }).click();
+  const name = page.getByRole('textbox', { name: '文档名称', exact: true });
+  await name.focus();
+  await expect(name).toBeFocused();
+  await page.keyboard.press(`${mod}+z`);
+  expect(await savedSource(page)).toBe('# Changed\n');
+  const previousName = await name.inputValue();
+  await name.focus();
+  await name.press('End');
+  await name.pressSequentially(' local');
+  await name.press(`${mod}+z`);
+  await expect(name).toHaveValue(previousName);
+  expect(await savedSource(page)).toBe('# Changed\n');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.keyboard.press(`${mod}+z`);
+  await page.keyboard.press('Escape');
+  expect(await savedSource(page)).toBe('# Changed\n');
+  await page.keyboard.press(`${mod}+z`);
+  expect(await savedSource(page)).toBe('# Original\n');
 });

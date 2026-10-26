@@ -579,6 +579,20 @@ export default function Home() {
   }, [saveDocument, showToast]);
 
   useEffect(() => {
+    function guardNativeHistory(event: InputEvent) {
+      if (event.inputType !== 'historyUndo' && event.inputType !== 'historyRedo') return;
+      const view = editorRef.current?.view;
+      const active = document.activeElement;
+      if (!view || !(event.target instanceof Node) || !view.contentDOM.contains(event.target)
+        || view.contentDOM.contains(active)) return;
+      // Browser undo can target the previously edited contenteditable even
+      // while an unrelated input (with no local history) owns focus.
+      if (active?.closest('input, textarea, select, [contenteditable="true"]')
+        || document.querySelector('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]')) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }
     function handleShortcut(event: KeyboardEvent) {
       if (event.defaultPrevented || event.altKey) return;
       const command = event.metaKey || event.ctrlKey;
@@ -588,6 +602,18 @@ export default function Home() {
       const workbenchOnly = dialogs.length === 1
         && dialogs[0].classList.contains('mermaid-workbench')
         && !dialogs[0].closest('[inert]');
+      if (!dialogs.length && (key === 'z' || (key === 'y' && !event.metaKey && !event.shiftKey))) {
+        const target = event.target instanceof Element ? event.target : null;
+        // Text fields own their native history. With focus in the preview or
+        // on a toolbar, route document history to the retained editor view.
+        if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+        const view = editorRef.current?.view;
+        if (view) {
+          event.preventDefault();
+          (event.shiftKey || key === 'y' ? redo : undo)(view);
+        }
+        return;
+      }
       if (key === 's' || (key === 'o' && !event.shiftKey)) {
         event.preventDefault();
         // The workbench keeps its draft separate: ordinary Save still saves
@@ -603,8 +629,12 @@ export default function Home() {
         setAssistantOpen(true);
       }
     }
+    window.addEventListener('beforeinput', guardNativeHistory, true);
     window.addEventListener('keydown', handleShortcut);
-    return () => window.removeEventListener('keydown', handleShortcut);
+    return () => {
+      window.removeEventListener('beforeinput', guardNativeHistory, true);
+      window.removeEventListener('keydown', handleShortcut);
+    };
   }, [openFile, saveDocument]);
 
   useEffect(() => {

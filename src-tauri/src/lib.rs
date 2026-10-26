@@ -115,6 +115,7 @@ pub fn run() {
             files::save_local_markdown,
             files::read_launch_target,
             secure_config::save_model_profiles,
+            secure_config::model_config_storage,
             secure_config::load_model_profiles,
             secure_config::select_model_profile,
         ])

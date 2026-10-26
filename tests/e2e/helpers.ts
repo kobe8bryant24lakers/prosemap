@@ -6,12 +6,12 @@ export const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 
 // Only the native IPC boundary is substituted. UI, CodeMirror, Mermaid, history,
 // selection and source serialization run unchanged. This is NOT an installed-app test.
-export async function launchDocument(page: Page, content: string, name = 'acceptance.md', modelLoad: 'ready' | 'pending' | 'failed' = 'ready') {
+export async function launchDocument(page: Page, content: string, name = 'acceptance.md', modelLoad: 'ready' | 'pending' | 'failed' = 'ready', storageMode: 'system' | 'memory' = 'system') {
   const images = {
     svg: [...readFileSync(new URL('../fixtures/assets/fixture-diagram.svg', import.meta.url))],
     png: [...readFileSync(new URL('../fixtures/assets/中文 图标.png', import.meta.url))],
   };
-  await page.addInitScript(({ content, name, images, modelLoad }) => {
+  await page.addInitScript(({ content, name, images, modelLoad, storageMode }) => {
     localStorage.setItem('prosemap.locale', 'zh-CN');
     const w = window as any;
     let nextId = 1;
@@ -37,6 +37,7 @@ export async function launchDocument(page: Page, content: string, name = 'accept
       convertFileSrc(path: string) { return `/@fs${path}`; },
       async invoke(command: string, args: any = {}) {
         state.calls.push({ command, args });
+        if (command === 'model_config_storage' || command === 'save_model_profiles') return storageMode;
         if (command === 'load_model_profiles') {
           if (state.modelLoad === 'pending') await new Promise<void>(resolve => { state.releaseModelLoad = resolve; });
           if (state.modelLoad === 'failed') throw '测试：读取系统配置失败';
@@ -54,7 +55,7 @@ export async function launchDocument(page: Page, content: string, name = 'accept
           state.disk[saved.path] = saved.content;
           state.saved.push(saved); return saved;
         }
-        if (command === 'open_external_url' || command === 'open_relative_file' || command === 'save_model_profiles' || command === 'select_model_profile') return;
+        if (command === 'open_external_url' || command === 'open_relative_file' || command === 'select_model_profile') return;
         if (command === 'pick_markdown_folder') return { root: '/acceptance', name: 'acceptance', files: [{ path: document.path, name, relativePath: name }] };
         if (command === 'read_local_markdown') {
           const read = { path: args.path, name: args.path.split('/').at(-1), content: state.disk[args.path] };
@@ -70,7 +71,7 @@ export async function launchDocument(page: Page, content: string, name = 'accept
         throw new Error(`Unimplemented acceptance IPC: ${command}`);
       },
     };
-  }, { content, name, images, modelLoad });
+  }, { content, name, images, modelLoad, storageMode });
   await page.goto('/');
   await expect(page.getByRole('textbox', { name: '文档名称', exact: true })).toHaveValue(name.replace(/\.md$/, ''));
   if (modelLoad === 'ready') await expect(page.getByRole('button', { name: '管理模型', exact: true })).toBeEnabled();

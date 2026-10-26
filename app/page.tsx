@@ -56,7 +56,7 @@ import MermaidWorkbench from '@/components/MermaidWorkbench';
 import SettingsModal from '@/components/SettingsModal';
 import { isDesktopRuntime, streamAi } from '@/lib/ai-client';
 import { createAiContextBlock, mergeAiContextDocuments, type AiContextDocument } from '@/lib/ai-context';
-import { loadModelProfiles, saveModelProfiles, selectModelProfile } from '@/lib/model-config';
+import { loadModelProfiles, saveModelProfiles, selectModelProfile, modelConfigStorage, type ModelConfigStorage } from '@/lib/model-config';
 import { activeModelProfile, emptyModelConfig, emptyModelProfiles, type ModelProfiles } from '@/lib/model-profiles';
 import ModelSwitcher from '@/components/ModelSwitcher';
 import ModelLoadDialog from '@/components/ModelLoadDialog';
@@ -207,6 +207,7 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelProfiles, setModelProfiles] = useState<ModelProfiles>(emptyModelProfiles);
   const [modelsLoading, setModelsLoading] = useState(true);
+  const [credentialStorage, setCredentialStorage] = useState<ModelConfigStorage>('memory');
   const [modelsLoadError, setModelsLoadError] = useState<string | null>(null);
   const [modelsLoadAttempt, setModelsLoadAttempt] = useState(0);
   const [modelsSaving, setModelsSaving] = useState(false);
@@ -236,7 +237,7 @@ export default function Home() {
   const workbenchSessionIdRef = useRef(0);
   const dirtyRef = useRef(false);
   const configChangedRef = useRef(false);
-  const configLoadRef = useRef<Promise<ModelProfiles | null> | null>(null);
+  const configLoadRef = useRef<Promise<[ModelProfiles | null, ModelConfigStorage]> | null>(null);
   const confirmationIdRef = useRef(0);
   const confirmationResolverRef = useRef<{ id: number; resolve: (confirmed: boolean) => void } | null>(null);
   const closeConfirmationPendingRef = useRef(false);
@@ -375,11 +376,12 @@ export default function Home() {
 
   useEffect(() => {
     let active = true;
-    configLoadRef.current ??= loadModelProfiles();
+    configLoadRef.current ??= Promise.all([loadModelProfiles(), modelConfigStorage()]);
     void configLoadRef.current
-      .then((saved) => {
+      .then(([saved, storage]) => {
         if (active && !configChangedRef.current) {
           setModelsLoadError(null);
+          setCredentialStorage(storage);
           if (saved) setModelProfiles(saved);
         }
       })
@@ -1339,6 +1341,7 @@ export default function Home() {
       {settingsOpen && !modelsLoading && !modelsLoadError && !modelsSaving ? (
         <SettingsModal
           settings={modelProfiles}
+          storage={credentialStorage}
           onClose={() => setSettingsOpen(false)}
           onSave={async (next) => {
             try {
@@ -1350,7 +1353,7 @@ export default function Home() {
                 storage === 'memory' ? 'info' : 'success',
                 storage === 'system'
                   ? t("模型配置已加密保存到系统安全凭据库")
-                  : t("浏览器预览环境不会持久化密钥，配置仅保留在本次会话"),
+                  : t("配置仅保留在本次会话，退出后需重新填写"),
               );
             } catch (reason) {
               showToast('error', typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("模型配置保存失败"));

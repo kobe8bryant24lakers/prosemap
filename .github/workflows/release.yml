@@ -205,7 +205,13 @@ jobs:
         run: npm run test:mermaid
 
       - name: Build universal macOS application and DMG
-        run: npm run desktop:build -- --target universal-apple-darwin --bundles app,dmg --no-sign
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          test -n "$APPLE_SIGNING_IDENTITY" || { echo "A stable Developer ID Application signing identity is required." >&2; exit 1; }
+          npm run desktop:build -- --target universal-apple-darwin --bundles app,dmg
 
       - name: Normalize and verify macOS assets
         shell: bash

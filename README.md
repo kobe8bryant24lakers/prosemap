@@ -134,17 +134,30 @@ npm ci
 npm run desktop:dev
 ```
 
+`desktop:dev` enables the explicit `dev-credentials` Cargo feature: model settings stay in process memory, never touch your normal credential store, and disappear on exit. The settings dialog identifies this session-only mode.
+
 The Vite development server only binds to `127.0.0.1`. It is an implementation detail of the local Tauri development workflow, not a hosted web product.
 
 ## Build
 
 ### macOS
 
+Normal builds use the macOS Keychain and require an Apple-issued signing identity (Developer ID Application for distribution). Select an installed identity with `APPLE_SIGNING_IDENTITY`, or let the build select the only available identity:
+
 ```bash
+npm run macos:signing:check
 npm run desktop:build -- --bundles app,dmg
 ```
 
-Production distribution requires Apple Developer signing and notarization.
+Ad-hoc and self-signed builds do not preserve Keychain access across rebuilds on modern macOS. The normal build rejects these signatures and checks the actual Apple certificate chain. CI uses `APPLE_SIGNING_IDENTITY`, `APPLE_CERTIFICATE` and `APPLE_CERTIFICATE_PASSWORD` from repository secrets. Production distribution also requires notarization.
+
+Without an Apple signing identity, use the separate development application:
+
+```bash
+npm run desktop:build:dev
+```
+
+Open `src-tauri/target/debug/bundle/macos/ProseMap Development.app`. Its model settings stay in memory for the current process and are cleared on quit; it never accesses Keychain. `npm run desktop:dev` uses the same session-only backend. See [macOS signing and Keychain continuity](docs/macos-keychain.md) for verification and migration details.
 
 ### Windows
 

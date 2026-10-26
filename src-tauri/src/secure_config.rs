@@ -1,8 +1,10 @@
 use crate::endpoint::parse_base_url;
+#[cfg(not(feature = "dev-credentials"))]
 use keyring::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
+#[cfg(not(feature = "dev-credentials"))]
 const KEYRING_SERVICE: &str = "com.prosemap.editor.model-config";
 const KEYRING_ACCOUNT: &str = "default";
 static KEYRING_LOCK: Mutex<()> = Mutex::new(());
@@ -97,12 +99,72 @@ trait CredentialStore {
     fn delete(&self, account: &str);
 }
 
+#[cfg(not(feature = "dev-credentials"))]
 struct SystemStore;
 
+#[derive(Clone, Copy, Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelConfigStorage {
+    System,
+    Memory,
+}
+
+#[tauri::command]
+pub fn model_config_storage() -> ModelConfigStorage {
+    if cfg!(feature = "dev-credentials") {
+        ModelConfigStorage::Memory
+    } else {
+        ModelConfigStorage::System
+    }
+}
+
+// This opt-in compile-time backend never reads, migrates or overwrites the
+// user's OS credentials. Rebuilding/restarting discards the development data.
+#[cfg(feature = "dev-credentials")]
+#[derive(Default)]
+struct SessionStore(Mutex<std::collections::HashMap<String, String>>);
+
+#[cfg(feature = "dev-credentials")]
+impl CredentialStore for SessionStore {
+    fn read(&self, account: &str) -> Result<Option<String>, String> {
+        Ok(self
+            .0
+            .lock()
+            .map_err(|_| "模型配置锁已损坏")?
+            .get(account)
+            .cloned())
+    }
+    fn write(&self, account: &str, value: &str) -> Result<(), String> {
+        self.0
+            .lock()
+            .map_err(|_| "模型配置锁已损坏")?
+            .insert(account.into(), value.into());
+        Ok(())
+    }
+    fn delete(&self, account: &str) {
+        if let Ok(mut values) = self.0.lock() {
+            values.remove(account);
+        }
+    }
+}
+
+#[cfg(feature = "dev-credentials")]
+fn active_store() -> &'static SessionStore {
+    static STORE: std::sync::OnceLock<SessionStore> = std::sync::OnceLock::new();
+    STORE.get_or_init(SessionStore::default)
+}
+
+#[cfg(not(feature = "dev-credentials"))]
+fn active_store() -> &'static SystemStore {
+    &SystemStore
+}
+
+#[cfg(not(feature = "dev-credentials"))]
 fn entry(account: &str) -> Result<Entry, String> {
     Entry::new(KEYRING_SERVICE, account).map_err(|_| "无法访问系统安全凭据库".to_string())
 }
 
+#[cfg(not(feature = "dev-credentials"))]
 impl CredentialStore for SystemStore {
     fn read(&self, account: &str) -> Result<Option<String>, String> {
         match entry(account)?.get_password() {
@@ -211,7 +273,7 @@ fn save_profiles(
 }
 
 #[tauri::command]
-pub async fn save_model_profiles(settings: ModelProfiles) -> Result<(), String> {
+pub async fn save_model_profiles(settings: ModelProfiles) -> Result<ModelConfigStorage, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = KEYRING_LOCK.lock().map_err(|_| "系统安全凭据库锁已损坏")?;
         let revision = std::time::SystemTime::now()
@@ -219,7 +281,8 @@ pub async fn save_model_profiles(settings: ModelProfiles) -> Result<(), String> 
             .map_err(|_| "无法保存模型配置")?
             .as_nanos()
             .to_string();
-        save_profiles(&SystemStore, &settings, &revision)
+        save_profiles(active_store(), &settings, &revision)?;
+        Ok(model_config_storage())
     })
     .await
     .map_err(|_| "保存模型配置的后台任务意外结束".to_string())?
@@ -245,7 +308,7 @@ fn select_profile(store: &impl CredentialStore, id: &str) -> Result<(), String> 
 pub async fn select_model_profile(id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = KEYRING_LOCK.lock().map_err(|_| "系统安全凭据库锁已损坏")?;
-        select_profile(&SystemStore, &id)
+        select_profile(active_store(), &id)
     })
     .await
     .map_err(|_| "保存模型配置的后台任务意外结束".to_string())?
@@ -255,7 +318,7 @@ pub async fn select_model_profile(id: String) -> Result<(), String> {
 pub async fn load_model_profiles() -> Result<Option<ModelProfiles>, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let _guard = KEYRING_LOCK.lock().map_err(|_| "系统安全凭据库锁已损坏")?;
-        load_profiles(&SystemStore)
+        load_profiles(active_store())
     })
     .await
     .map_err(|_| "读取模型配置的后台任务意外结束".to_string())?
@@ -264,6 +327,59 @@ pub async fn load_model_profiles() -> Result<Option<ModelProfiles>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_mode_matches_the_build_without_runtime_fallback() {
+        let expected = if cfg!(feature = "dev-credentials") {
+            "memory"
+        } else {
+            "system"
+        };
+        assert_eq!(
+            serde_json::to_value(model_config_storage()).unwrap(),
+            expected
+        );
+    }
+
+    #[cfg(feature = "dev-credentials")]
+    #[test]
+    fn development_store_is_isolated_and_does_not_survive_a_new_session() {
+        let store = SessionStore::default();
+        assert!(load_profiles(&store).unwrap().is_none());
+        save_profiles(&store, &profiles(), "development").unwrap();
+        select_profile(&store, "one").unwrap();
+        assert_eq!(
+            load_profiles(&store).unwrap().unwrap().active_id.as_deref(),
+            Some("one")
+        );
+        assert!(load_profiles(&SessionStore::default()).unwrap().is_none());
+    }
+
+    #[cfg(feature = "dev-credentials")]
+    #[tokio::test]
+    async fn development_desktop_commands_use_only_the_session_store() {
+        assert!(load_model_profiles().await.unwrap().is_none());
+        assert_eq!(
+            save_model_profiles(profiles()).await.unwrap(),
+            ModelConfigStorage::Memory
+        );
+        select_model_profile("one".into()).await.unwrap();
+        assert_eq!(
+            load_model_profiles()
+                .await
+                .unwrap()
+                .unwrap()
+                .active_id
+                .as_deref(),
+            Some("one")
+        );
+        save_model_profiles(ModelProfiles {
+            profiles: vec![],
+            active_id: None,
+        })
+        .await
+        .unwrap();
+    }
 
     fn valid_config(base_url: &str) -> ModelConfig {
         ModelConfig {

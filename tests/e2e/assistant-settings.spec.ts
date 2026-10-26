@@ -12,7 +12,7 @@ async function boundary(page: Page) {
       if (command === 'save_model_profiles') {
         if (a.saveError) throw a.saveError;
         a.profiles = args.settings;
-        return;
+        return 'system';
       }
       if (command === 'select_model_profile') {
         if (a.switchError) throw a.switchError;

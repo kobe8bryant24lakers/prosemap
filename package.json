@@ -17,10 +17,13 @@
     "test:e2e": "playwright test",
     "test:fixtures": "node --experimental-strip-types scripts/fixture-generate.mjs --check && node --experimental-strip-types scripts/fixture-verify.mjs",
     "typecheck": "tsc --noEmit --pretty false",
-    "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build",
+    "desktop:dev": "tauri dev --features dev-credentials --config src-tauri/tauri.dev.conf.json",
+    "desktop:build": "node scripts/desktop-build.mjs",
     "desktop:build:windows": "tauri build --bundles nsis msi",
-    "desktop:build:linux": "tauri build --bundles deb,appimage"
+    "desktop:build:linux": "tauri build --bundles deb,appimage",
+    "macos:signing:check": "node scripts/macos-signing.mjs check",
+    "macos:signing:verify": "node scripts/macos-signing.mjs verify",
+    "desktop:build:dev": "node scripts/desktop-build-dev.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",

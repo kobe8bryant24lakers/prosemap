@@ -8,9 +8,11 @@ import { Check, Eye, EyeOff, KeyRound, LockKeyhole, ShieldCheck, X } from 'lucid
 import { useState } from 'react';
 import { emptyModelConfig, normalizeModelProfiles, removeModelProfile, type ModelProfile, type ModelProfiles } from '@/lib/model-profiles';
 import { ANTHROPIC_BASE_URL, OPENAI_BASE_URL, type ProviderKind } from '@/lib/editor';
+import type { ModelConfigStorage } from '@/lib/model-config';
 
 type SettingsModalProps = {
   settings: ModelProfiles;
+  storage: ModelConfigStorage;
   onSave: (settings: ModelProfiles) => void | Promise<void>;
   onClose: () => void;
 };
@@ -37,7 +39,7 @@ function isValidEndpoint(value: string): boolean {
   }
 }
 
-export default function SettingsModal({ settings, onSave, onClose }: SettingsModalProps) {
+export default function SettingsModal({ settings, storage, onSave, onClose }: SettingsModalProps) {
   const locale = useLocale();
   const [collection, setCollection] = useState<ModelProfiles>(() => {
     if (settings.profiles.length) return settings;
@@ -170,7 +172,7 @@ export default function SettingsModal({ settings, onSave, onClose }: SettingsMod
           {!valid && <p className="profile-validation" role="status">{t('请补全每个模型的名称、API 地址和密钥，或移除未完成的配置。')}</p>}
           <div className="security-card">
             <ShieldCheck size={18} />
-            <div><strong>{t("配置将安全保存在本机")}</strong><p>{t("桌面端使用系统安全凭据库加密保存，重启后仍可使用；不会写入源码或服务端日志。浏览器预览环境不持久化密钥。")}</p></div>
+            <div><strong>{storage === 'system' ? t("配置将安全保存在本机") : t("配置仅用于本次会话")}</strong><p>{storage === 'system' ? t("桌面端使用系统安全凭据库加密保存，重启后仍可使用；不会写入源码或服务端日志。浏览器预览环境不持久化密钥。") : t("当前使用内存存储，不访问系统凭据库，也不写入磁盘。退出后需重新填写。")}</p></div>
           </div>
         </fieldset>
 

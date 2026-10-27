@@ -7,6 +7,9 @@ const projectRoot = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig({
   root: resolve(projectRoot, 'desktop'),
+  // Native builds and browser acceptance can run independently without
+  // invalidating each other's optimized dependency URLs.
+  cacheDir: resolve(projectRoot, process.env.PROSEMAP_VITE_CACHE_DIR || 'node_modules/.vite'),
   base: './',
   clearScreen: false,
   plugins: [react()],

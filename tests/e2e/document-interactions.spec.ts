@@ -69,6 +69,43 @@ test('document navigation returns from preview to the original edit selection', 
   expect(await savedSource(page)).toBe(sample);
 });
 
+test('view controls activated without a pointer take focus and preserve the editor selection', async ({ page }) => {
+  await launchDocument(page, sample);
+  const editor = page.locator('.cm-content');
+  await editor.click();
+  await page.keyboard.press(`${mod}+Home`);
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Shift+ArrowRight');
+  for (const name of ['纯编辑', '纯预览', '左编辑右预览']) {
+    const button = page.getByRole('button', { name, exact: true });
+    // Accessibility activation doesn't necessarily perform a pointer focus.
+    await button.evaluate((element: HTMLButtonElement) => element.click());
+    await expect(button).toBeFocused();
+  }
+  await page.getByRole('button', { name: '文档编辑', exact: true }).click();
+  await expect(editor).toBeFocused();
+  await page.keyboard.insertText('REPLACED');
+  expect(await savedSource(page)).toBe(sample.slice(0, 1) + 'REPLACED' + sample.slice(2));
+});
+
+test('pure preview rejects a native text paste delivered to the retained hidden editor', async ({ page }) => {
+  await launchDocument(page, sample);
+  const editor = page.locator('.cm-content');
+  await editor.click();
+  await page.keyboard.press(`${mod}+a`);
+  await page.getByRole('button', { name: '纯预览', exact: true }).evaluate((element: HTMLButtonElement) => element.click());
+  await expect(editor).toBeHidden();
+  // WKWebView can route Edit > Paste to the last contenteditable selection
+  // even after that editor disappears. Preserve this observed native case.
+  const allowed = await editor.evaluate(element => {
+    const clipboard = new DataTransfer();
+    clipboard.setData('text/plain', 'HIDDEN_EDITOR_MUST_NOT_CHANGE');
+    return element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: clipboard, bubbles: true, cancelable: true }));
+  });
+  expect(allowed).toBe(false);
+  expect(await savedSource(page)).toBe(sample);
+});
+
 test('save cancellation and rejection keep dirty content and allow recovery', async ({ page }) => {
   await launchDocument(page, sample);
   await page.locator('.cm-content').click();

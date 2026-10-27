@@ -98,3 +98,20 @@ for (const item of boundaries) {
     expect(await savedSource(page)).toBe(item.original);
   });
 }
+
+test('unsupported format language: the complete notice follows locale changes without changing source', async ({ page }) => {
+  const original = '# Synthetic format locale\n\n```fixture-unknown\nkeep : original\n```\n';
+  await launchDocument(page, original);
+  await page.locator('.cm-content').click();
+  await page.keyboard.press(`${mod}+Home`);
+  for (let line = 0; line < 3; line++) await page.keyboard.press('ArrowDown');
+  await page.keyboard.press(`${mod}+Shift+F`);
+  await expect(page.locator('.toast')).toContainText('暂不支持 fixture-unknown 自动格式化');
+  await page.getByRole('combobox', { name: '界面语言', exact: true }).selectOption('en');
+  await expect(page.locator('.toast')).toHaveText('Automatic formatting is not supported for fixture-unknown. Indentation and syntax highlighting are still available.');
+  await page.getByRole('button', { name: 'Format code block', exact: true }).click();
+  await expect(page.locator('.toast')).toHaveText('Automatic formatting is not supported for fixture-unknown. Indentation and syntax highlighting are still available.');
+  await page.getByRole('combobox', { name: 'Interface language', exact: true }).selectOption('zh-CN');
+  await expect(page.locator('.toast')).toHaveText('暂不支持 fixture-unknown 自动格式化；仍可使用缩进和语法高亮。');
+  expect(await savedSource(page)).toBe(original);
+});

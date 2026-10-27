@@ -20,5 +20,11 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 1000 } } },
     { name: 'webkit', use: { ...devices['Desktop Safari'], viewport: { width: 1440, height: 1000 } } },
   ],
-  webServer: { command: 'npm run dev -- --port 1421', url: 'http://127.0.0.1:1421', reuseExistingServer: !process.env.CI, timeout: 60_000 },
+  webServer: {
+    command: 'npm run dev -- --port 1421 --force',
+    env: { PROSEMAP_VITE_CACHE_DIR: 'node_modules/.vite-playwright' },
+    url: 'http://127.0.0.1:1421',
+    reuseExistingServer: false,
+    timeout: 60_000,
+  },
 });

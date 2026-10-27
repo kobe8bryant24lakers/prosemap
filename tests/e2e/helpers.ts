@@ -6,12 +6,12 @@ export const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 
 // Only the native IPC boundary is substituted. UI, CodeMirror, Mermaid, history,
 // selection and source serialization run unchanged. This is NOT an installed-app test.
-export async function launchDocument(page: Page, content: string, name = 'acceptance.md', modelLoad: 'ready' | 'pending' | 'failed' = 'ready', storageMode: 'system' | 'memory' = 'system') {
+export async function launchDocument(page: Page, content: string, name = 'acceptance.md', modelLoad: 'ready' | 'pending' | 'failed' = 'ready', storageMode: 'system' | 'memory' = 'system', options: { unsaved?: boolean } = {}) {
   const images = {
     svg: [...readFileSync(new URL('../fixtures/assets/fixture-diagram.svg', import.meta.url))],
     png: [...readFileSync(new URL('../fixtures/assets/中文 图标.png', import.meta.url))],
   };
-  await page.addInitScript(({ content, name, images, modelLoad, storageMode }) => {
+  await page.addInitScript(({ content, name, images, modelLoad, storageMode, options }) => {
     localStorage.setItem('prosemap.locale', 'zh-CN');
     const w = window as any;
     let nextId = 1;
@@ -43,7 +43,7 @@ export async function launchDocument(page: Page, content: string, name = 'accept
           if (state.modelLoad === 'failed') throw '测试：读取系统配置失败';
           return null;
         }
-        if (command === 'read_launch_target') return { kind: 'file', document };
+        if (command === 'read_launch_target') return options.unsaved ? null : { kind: 'file', document };
         if (command === 'plugin:event|listen') { const id = nextId++; listeners.set(id, args); return id; }
         if (command === 'plugin:event|unlisten') { listeners.delete(args.eventId); return; }
         if (command === 'pick_markdown_file') return state.nextFile;
@@ -71,8 +71,12 @@ export async function launchDocument(page: Page, content: string, name = 'accept
         throw new Error(`Unimplemented acceptance IPC: ${command}`);
       },
     };
-  }, { content, name, images, modelLoad, storageMode });
+  }, { content, name, images, modelLoad, storageMode, options });
   await page.goto('/');
+  if (options.unsaved) {
+    await page.getByRole('textbox', { name: '文档名称', exact: true }).fill(name.replace(/\.md$/, ''));
+    await page.locator('.cm-content').fill(content);
+  }
   await expect(page.getByRole('textbox', { name: '文档名称', exact: true })).toHaveValue(name.replace(/\.md$/, ''));
   if (modelLoad === 'ready') await expect(page.getByRole('button', { name: '管理模型', exact: true })).toBeEnabled();
 }

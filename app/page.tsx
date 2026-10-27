@@ -15,7 +15,7 @@ import { EditorView, keymap, type ViewUpdate } from '@codemirror/view';
 import { undo, redo, indentWithTab, isolateHistory } from '@codemirror/commands';
 import { indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { classHighlighter } from '@lezer/highlight';
-import { findCodeBlock, formatCode, languages } from '@/lib/code-blocks';
+import { findCodeBlock, formatCode, languages, UnsupportedCodeLanguageError } from '@/lib/code-blocks';
 import {
   Bold,
   Undo2,
@@ -63,7 +63,7 @@ import ModelLoadDialog from '@/components/ModelLoadDialog';
 import { parseMermaid } from '@/lib/mermaid-runtime';
 import { UML_AI_GUIDANCE } from '@/lib/mermaid-workbench';
 import { synchronizedScrollTop } from '@/lib/scroll-sync';
-import { clipboardImageFiles, imageMarkdown } from '@/lib/image-paste';
+import { clipboardImageFiles, imageMarkdown, MAX_PASTED_IMAGE_BYTES } from '@/lib/image-paste';
 import {
   ACTION_LABELS,
   countReadableCharacters,
@@ -279,7 +279,9 @@ export default function Home() {
       view.focus();
       showToast('success', t("{0} 代码已格式化，可撤销", block.language.toUpperCase()));
     } catch (error) {
-      showToast('error', error instanceof Error ? t("格式化失败：{0}", error.message) : t("格式化失败，请检查代码语法"));
+      showToast('error', error instanceof UnsupportedCodeLanguageError
+        ? t("暂不支持 {0} 自动格式化；仍可使用缩进和语法高亮。", error.language)
+        : error instanceof Error ? t("格式化失败：{0}", error.message) : t("格式化失败，请检查代码语法"));
     }
   }, [showToast]);
   const editorExtensions = useMemo(() => [...baseEditorExtensions, documentLineEndings(rawDocument), EditorView.domEventHandlers({
@@ -541,7 +543,7 @@ export default function Home() {
         try {
           if (!current()) return;
           if (!('__TAURI_INTERNALS__' in window)) throw new Error(t("请在桌面应用中粘贴图片，以保存到文档的 images 文件夹。"));
-          if (files.length > 10 || files.some((file) => !file.size || file.size > 20 * 1024 * 1024)) {
+          if (files.length > 10 || files.some((file) => !file.size || file.size > MAX_PASTED_IMAGE_BYTES)) {
             throw new Error(t("每次最多粘贴 10 张图片，每张不超过 20 MB。"));
           }
           let path = documentPathRef.current;
@@ -559,11 +561,13 @@ export default function Home() {
           for (const file of files) {
             if (!locationUnchanged()) break;
             try {
-              const saved = await savePastedImage(path, file);
+              const saved = await savePastedImage(path, file, locationUnchanged);
               references.push(imageMarkdown(saved.relativePath, file.name || 'image'));
             } catch (error) { failure = error; break; }
           }
-          if (!locationUnchanged()) throw new Error(t("文档已变化；已保存的图片保留在 images 中，请重新插入引用。"));
+          if (!locationUnchanged()) throw new Error(references.length
+            ? t("文档已变化；已保存的图片保留在 images 中，请重新插入引用。")
+            : t("粘贴位置或文档已变化，请重新粘贴图片。"));
           if (references.length) {
             const insert = references.join('\n');
             pendingPastesRef.current.delete(paste);
@@ -581,12 +585,21 @@ export default function Home() {
   }, [saveDocument, showToast]);
 
   useEffect(() => {
-    function guardNativeHistory(event: InputEvent) {
-      if (event.inputType !== 'historyUndo' && event.inputType !== 'historyRedo') return;
+    function guardNativeEditorInput(event: Event) {
       const view = editorRef.current?.view;
       const active = document.activeElement;
-      if (!view || !(event.target instanceof Node) || !view.contentDOM.contains(event.target)
-        || view.contentDOM.contains(active)) return;
+      if (!view || !(event.target instanceof Node) || !view.contentDOM.contains(event.target)) return;
+      const history = event instanceof InputEvent
+        && (event.inputType === 'historyUndo' || event.inputType === 'historyRedo');
+      // WKWebView may send native editing commands to the last contenteditable
+      // selection even after it is hidden. Keep preview history available,
+      // but never let a paste, cut, or other text input edit the hidden view.
+      if (viewMode === 'preview' && !history) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (!history || view.contentDOM.contains(active)) return;
       // Browser undo can target the previously edited contenteditable even
       // while an unrelated input (with no local history) owns focus.
       if (active?.closest('input, textarea, select, [contenteditable="true"]')
@@ -631,13 +644,17 @@ export default function Home() {
         setAssistantOpen(true);
       }
     }
-    window.addEventListener('beforeinput', guardNativeHistory, true);
+    window.addEventListener('beforeinput', guardNativeEditorInput, true);
+    window.addEventListener('paste', guardNativeEditorInput, true);
+    window.addEventListener('cut', guardNativeEditorInput, true);
     window.addEventListener('keydown', handleShortcut);
     return () => {
-      window.removeEventListener('beforeinput', guardNativeHistory, true);
+      window.removeEventListener('beforeinput', guardNativeEditorInput, true);
+      window.removeEventListener('paste', guardNativeEditorInput, true);
+      window.removeEventListener('cut', guardNativeEditorInput, true);
       window.removeEventListener('keydown', handleShortcut);
     };
-  }, [openFile, saveDocument]);
+  }, [openFile, saveDocument, viewMode]);
 
   useEffect(() => {
     let active = true;
@@ -1179,9 +1196,9 @@ export default function Home() {
       </header>
 
       <div className="view-controls" role="group" aria-label={t("编辑器视图")}>
-        <button type="button" aria-pressed={viewMode === 'editor'} className={viewMode === 'editor' ? 'active' : ''} onClick={() => setViewMode('editor')}><PenLine size={14} />  {t("纯编辑")}</button>
-        <button type="button" aria-pressed={viewMode === 'preview'} className={viewMode === 'preview' ? 'active' : ''} onClick={() => setViewMode('preview')}><Eye size={14} />  {t("纯预览")}</button>
-        <button type="button" aria-pressed={viewMode === 'split'} className={viewMode === 'split' ? 'active' : ''} onClick={() => setViewMode('split')}><PanelLeft size={14} /> {t("左编辑右预览")}</button>
+        <button type="button" aria-pressed={viewMode === 'editor'} className={viewMode === 'editor' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setViewMode('editor'); }}><PenLine size={14} />  {t("纯编辑")}</button>
+        <button type="button" aria-pressed={viewMode === 'preview'} className={viewMode === 'preview' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setViewMode('preview'); }}><Eye size={14} />  {t("纯预览")}</button>
+        <button type="button" aria-pressed={viewMode === 'split'} className={viewMode === 'split' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setViewMode('split'); }}><PanelLeft size={14} /> {t("左编辑右预览")}</button>
         {localPath && <button type="button" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); void reloadDocument(); }} title={t("重新读取磁盘文件；未保存的修改会先确认")}><RefreshCw size={14} /> {t("重新载入")}</button>}
       </div>
 

@@ -899,7 +899,7 @@ mod tests {
     #[test]
     fn pasted_images_create_or_reuse_images_without_overwriting() {
         let (root, document, state) = attachment_fixture();
-        let bytes = b"\x89PNG\r\n\x1a\nfixture";
+        let bytes = include_bytes!("../../tests/fixtures/assets/中文 图标.png");
         let data = STANDARD.encode(bytes);
         assert!(
             store_pasted_image(&document, "image.png", &data, &FileAccessState::default()).is_err()
@@ -937,7 +937,7 @@ mod tests {
         assert!(store_pasted_image(
             &document,
             "image.png",
-            &STANDARD.encode(b"\x89PNG\r\n\x1a\n"),
+            &STANDARD.encode(include_bytes!("../../tests/fixtures/assets/中文 图标.png")),
             &state
         )
         .is_err());
@@ -954,7 +954,7 @@ mod tests {
         assert!(store_pasted_image(
             &document,
             "image.png",
-            &STANDARD.encode(b"\x89PNG\r\n\x1a\n"),
+            &STANDARD.encode(include_bytes!("../../tests/fixtures/assets/中文 图标.png")),
             &state
         )
         .is_err());

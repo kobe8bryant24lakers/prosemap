@@ -25,6 +25,16 @@ export async function highlightCode(source: string, name: string) {
 
 type CodeBlockRange = { from: number; to: number; language: string; source: string };
 
+export class UnsupportedCodeLanguageError extends Error {
+  readonly language: string;
+
+  constructor(language: string) {
+    super(`暂不支持 ${language} 自动格式化；仍可使用缩进和语法高亮。`);
+    this.name = 'UnsupportedCodeLanguageError';
+    this.language = language;
+  }
+}
+
 export function findCodeBlock(document: string, position: number): CodeBlockRange | null {
   const tree = markdownLanguage.parser.parse(document);
   let result: CodeBlockRange | null = null;
@@ -51,7 +61,7 @@ export async function formatCode(source: string, language: string): Promise<stri
     html: 'html', vue: 'vue', yaml: 'yaml', yml: 'yaml', graphql: 'graphql', gql: 'graphql',
   };
   const parser = parsers[language.toLowerCase()];
-  if (!parser) throw new Error(`暂不支持 ${language} 自动格式化；仍可使用缩进和语法高亮。`);
+  if (!parser) throw new UnsupportedCodeLanguageError(language);
   const [{ format }, babel, estree, typescript, postcss, html, yaml, graphql] = await Promise.all([
     import('prettier/standalone'), import('prettier/plugins/babel'), import('prettier/plugins/estree'),
     import('prettier/plugins/typescript'), import('prettier/plugins/postcss'), import('prettier/plugins/html'),

@@ -1,5 +1,6 @@
 import { isDesktopRuntime } from './ai-client';
 import type { AiContextDocument } from './ai-context';
+import { validatePastedImage } from './image-paste';
 
 export type LocalDocument = {
   path: string;
@@ -24,8 +25,9 @@ export type LaunchTarget =
   | { kind: 'folder'; workspace: LocalWorkspace }
   | null;
 
-async function desktopInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+async function desktopInvoke<T>(command: string, args?: Record<string, unknown>, beforeInvoke?: () => void): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core');
+  beforeInvoke?.();
   return invoke<T>(command, args);
 }
 
@@ -58,14 +60,23 @@ export async function openRelativeFile(documentPath: string, source: string): Pr
 }
 
 export type SavedImage = { relativePath: string; name: string };
-export async function savePastedImage(documentPath: string, file: File): Promise<SavedImage> {
+export async function savePastedImage(documentPath: string, file: File, isCurrent: () => boolean = () => true): Promise<SavedImage> {
+  const ensureCurrent = () => {
+    if (!isCurrent()) throw new Error('粘贴位置或文档已变化，请重新粘贴图片。');
+  };
+  ensureCurrent();
+  await validatePastedImage(file);
+  ensureCurrent();
   const data = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).split(',')[1]);
     reader.onerror = () => reject(new Error('无法读取剪贴板图片'));
+    reader.onabort = () => reject(new Error('无法读取剪贴板图片'));
     reader.readAsDataURL(file);
   });
-  return desktopInvoke('save_pasted_image', { documentPath, name: file.name, data });
+  // Check after the IPC module loads too. Once native saving has started it
+  // cannot be rolled back here; the caller must still check before insertion.
+  return desktopInvoke('save_pasted_image', { documentPath, name: file.name, data }, ensureCurrent);
 }
 
 export async function readLaunchTarget(): Promise<LaunchTarget> {

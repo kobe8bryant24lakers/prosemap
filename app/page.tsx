@@ -200,6 +200,7 @@ export default function Home() {
   const previewContent = useDeferredValue(content);
   const [documentName, setDocumentName] = useState(t("ProseMap 入门"));
   const [selection, setSelection] = useState<SelectionRange>({ from: 0, to: 0, text: '' });
+  const [cursorLine, setCursorLine] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>(restoredViewMode);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantAction, setAssistantAction] = useState<AssistAction>('polish');
@@ -336,6 +337,7 @@ export default function Home() {
     }
     const main = update.state.selection.main;
     setSelection({ from: main.from, to: main.to, text: update.state.sliceDoc(main.from, main.to) });
+    setCursorLine(update.state.doc.lineAt(main.head).number);
   }, []);
 
   const askConfirmation = useCallback((request: ConfirmationRequest) => new Promise<boolean>((resolve) => {
@@ -432,6 +434,7 @@ export default function Home() {
     savedContentRef.current = document.path ? document.content : null;
     setAiContextDocuments([]);
     setSelection({ from: 0, to: 0, text: '' });
+    setCursorLine(1);
     updateDirtyState(false);
     activeWorkbenchSessionRef.current = null;
     workbenchPendingRef.current = false;
@@ -1289,7 +1292,7 @@ export default function Home() {
           </div>
           <footer className="statusbar">
             <span><i className="live-dot" />  {t("实时预览已开启")}</span>
-            <span>{t("行")} {content.slice(0, selection.from).split('\n').length} · {readableCharacters.toLocaleString('zh-CN')}  {t("字 · UTF-8")}</span>
+            <span>{t("行")} {cursorLine} · {readableCharacters.toLocaleString('zh-CN')}  {t("字 · UTF-8")}</span>
           </footer>
         </section>
 

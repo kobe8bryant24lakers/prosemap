@@ -1,5 +1,6 @@
 import { markdownLanguage } from '@codemirror/lang-markdown';
 import { diffArrays } from 'diff';
+import { splitGraphemes } from 'unicode-segmenter/grapheme';
 
 export type ProviderKind = 'openai' | 'anthropic';
 export type AssistAction = 'polish' | 'continue' | 'summarize' | 'custom' | 'mermaid';
@@ -305,5 +306,9 @@ export function safeDocumentName(value: string): string {
 }
 
 export function countReadableCharacters(value: string): number {
-  return value.replace(/\s/g, '').length;
+  // Count visible graphemes, not UTF-16 code units. Use the same Unicode rules
+  // on older WebViews that do not provide Intl.Segmenter.
+  let count = 0;
+  for (const grapheme of splitGraphemes(value)) if (/\S/u.test(grapheme)) count += 1;
+  return count;
 }

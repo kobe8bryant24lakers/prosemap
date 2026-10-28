@@ -89,6 +89,7 @@ import {
   type LocalFileEntry,
   type LocalWorkspace,
 } from '@/lib/local-desktop';
+import { includeSavedFile } from '@/lib/local-workspace';
 
 type ViewMode = 'split' | 'editor' | 'preview';
 
@@ -460,7 +461,7 @@ export default function Home() {
       const document = await pickLocalMarkdown();
       if (document) await commitDocumentReplacement(requestId, document);
     } catch (reason) {
-      showToast('error', reason instanceof Error ? reason.message : t("文件打开失败，请重试"));
+      showToast('error', typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("文件打开失败，请重试"));
     }
   }, [commitDocumentReplacement, showToast]);
 
@@ -486,6 +487,7 @@ export default function Home() {
       documentPathRef.current = saved.path;
       savedContentRef.current = saved.content;
       setDocumentName(safeDocumentName(saved.name));
+      setLocalWorkspace(workspace => includeSavedFile(workspace, saved));
       const savedLatestRevision = documentRevision === documentRevisionRef.current;
       if (savedLatestRevision) updateDirtyState(false);
       showToast(
@@ -944,7 +946,7 @@ export default function Home() {
       setFileExplorerOpen(true);
       showToast('success', t("已打开文件夹 {0}", workspace.name));
     } catch (reason) {
-      showToast('error', reason instanceof Error ? reason.message : t("文件夹打开失败，请重试"));
+      showToast('error', typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("文件夹打开失败，请重试"));
     }
   }
 
@@ -955,7 +957,7 @@ export default function Home() {
       const document = await readLocalMarkdown(entry.path);
       await commitDocumentReplacement(requestId, document);
     } catch (reason) {
-      showToast('error', reason instanceof Error ? reason.message : t("文件读取失败，请重试"));
+      showToast('error', typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("文件读取失败，请重试"));
     }
   }
 

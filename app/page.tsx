@@ -9,7 +9,7 @@ import { useLocale } from '@/lib/use-locale';
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { markdown as markdownLanguage } from '@codemirror/lang-markdown';
 import { inlineMarkdownEdit, lineMarkdownEdit, type MarkdownEdit, type MarkdownLineStyle } from '@/lib/markdown-editing';
-import { EditorState } from '@codemirror/state';
+import { EditorState, Prec } from '@codemirror/state';
 import { openSearchPanel, search } from '@codemirror/search';
 import { EditorView, keymap, type ViewUpdate } from '@codemirror/view';
 import { undo, redo, indentWithTab, isolateHistory } from '@codemirror/commands';
@@ -139,11 +139,13 @@ function inlineCommand(before: string, after = before, placeholder = '文字') {
 }
 const editorBasicSetup = { lineNumbers: true, highlightActiveLine: true, highlightActiveLineGutter: true, foldGutter: true, autocompletion: true, bracketMatching: true, closeBrackets: true, history: true };
 // Keep search state installed when React reconfigures the editor (e.g. locale changes).
-const baseEditorExtensions = [search(), keymap.of([
+// Markdown commands take precedence over default bindings such as Mod-i
+// (selectParentSyntax), while remaining scoped to this editor's focus.
+const baseEditorExtensions = [search(), Prec.high(keymap.of([
   { key: 'Mod-b', run: inlineCommand('**') },
   { key: 'Mod-i', run: inlineCommand('*') },
   { key: 'Mod-k', run: inlineCommand('[', '](https://)', '链接文字') },
-]), markdownLanguage({ codeLanguages: languages }), indentUnit.of('  '), syntaxHighlighting(classHighlighter), keymap.of([indentWithTab]), EditorView.lineWrapping];
+])), markdownLanguage({ codeLanguages: languages }), indentUnit.of('  '), syntaxHighlighting(classHighlighter), keymap.of([indentWithTab]), EditorView.lineWrapping];
 
 function normalizeMermaidStream(value: string): string {
   return value

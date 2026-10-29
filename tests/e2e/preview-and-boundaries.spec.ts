@@ -1,6 +1,27 @@
 import { test, expect } from '@playwright/test';
 import { draftSource, fixture, launchDocument, mod, savedSource } from './helpers';
 
+test('code copy reports clipboard rejection and recovers with exact displayed text', async ({ page }) => {
+  const source = '# Synthetic clipboard test\n\n```synthetic-unknown\nplain <marker> & text\n    preserved indentation\n```\n';
+  await launchDocument(page, source);
+  await page.evaluate(() => {
+    const w = window as any;
+    w.rejectCodeClipboard = true;
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => {
+      if (w.rejectCodeClipboard) throw new Error('Synthetic clipboard denial');
+      w.copiedCodeText = text;
+    } } });
+  });
+  const copy = page.locator('.preview-code-block button');
+  await copy.click();
+  await expect(copy).toHaveText('复制失败');
+  await page.evaluate(() => { (window as any).rejectCodeClipboard = false; });
+  await copy.click();
+  await expect(copy).toHaveText('已复制');
+  expect(await page.evaluate(() => (window as any).copiedCodeText)).toBe('plain <marker> & text\n    preserved indentation');
+  expect(await savedSource(page)).toBe(source);
+});
+
 test('full Markdown fixture: real rendering, unique anchors, footnotes, sanitized HTML and image errors', async ({ page }, testInfo) => {
   await page.route('https://raw.githubusercontent.com/**', route => route.abort());
   const original = fixture('full-coverage.md');

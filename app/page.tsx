@@ -1307,7 +1307,7 @@ export default function Home() {
               <button type="button" className="ai-chip" onClick={() => openAssistant('custom')}><Sparkles size={13} />  {t("AI 助手")}</button>
             </div>
           </header>
-          <div ref={previewScrollRef} className="preview-scroll"><MarkdownPreview markdown={previewContent} documentPath={localPath} onEditMermaid={editPreviewMermaid} /></div>
+          <div ref={previewScrollRef} className="preview-scroll"><MarkdownPreview key={JSON.stringify([documentSessionRef.current, localPath])} markdown={previewContent} documentPath={localPath} onEditMermaid={editPreviewMermaid} /></div>
         </section>
 
         {assistantOpen ? (

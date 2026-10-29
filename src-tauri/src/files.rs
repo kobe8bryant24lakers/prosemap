@@ -100,6 +100,14 @@ pub struct LocalWorkspace {
     pub root: String,
     pub name: String,
     pub files: Vec<LocalFileEntry>,
+    pub scan_limits: WorkspaceScanLimits,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceScanLimits {
+    pub file_count: Option<usize>,
+    pub depth: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -237,9 +245,19 @@ fn should_skip_directory(path: &Path) -> bool {
         )
 }
 
-fn collect_markdown_files(root: &Path) -> Vec<LocalFileEntry> {
-    fn visit(root: &Path, directory: &Path, depth: usize, files: &mut Vec<LocalFileEntry>) {
-        if depth > MAX_WORKSPACE_DEPTH || files.len() >= MAX_WORKSPACE_FILES {
+fn collect_markdown_files(root: &Path) -> (Vec<LocalFileEntry>, WorkspaceScanLimits) {
+    fn visit(
+        root: &Path,
+        directory: &Path,
+        depth: usize,
+        files: &mut Vec<LocalFileEntry>,
+        limits: &mut WorkspaceScanLimits,
+    ) {
+        if depth > MAX_WORKSPACE_DEPTH {
+            limits.depth = Some(MAX_WORKSPACE_DEPTH);
+            return;
+        }
+        if files.len() >= MAX_WORKSPACE_FILES {
             return;
         }
 
@@ -259,7 +277,7 @@ fn collect_markdown_files(root: &Path) -> Vec<LocalFileEntry> {
             }
             if file_type.is_dir() {
                 if !should_skip_directory(&path) {
-                    visit(root, &path, depth + 1, files);
+                    visit(root, &path, depth + 1, files, limits);
                 }
                 continue;
             }
@@ -279,23 +297,31 @@ fn collect_markdown_files(root: &Path) -> Vec<LocalFileEntry> {
                 name: display_name(&canonical, "未命名.md"),
                 relative_path: relative.to_string_lossy().into_owned(),
             });
+            if files.len() == MAX_WORKSPACE_FILES {
+                // Reaching the bound does not prove there is another matching
+                // file. Report the limit, rather than claiming a known omission.
+                limits.file_count = Some(MAX_WORKSPACE_FILES);
+            }
         }
     }
 
     let mut files = Vec::new();
-    visit(root, root, 0, &mut files);
+    let mut limits = WorkspaceScanLimits::default();
+    visit(root, root, 0, &mut files, &mut limits);
     files.sort_by_key(|entry| entry.relative_path.to_lowercase());
-    files
+    (files, limits)
 }
 
 fn workspace_from_canonical(root: &Path) -> Result<LocalWorkspace, String> {
     if !root.is_dir() {
         return Err("请选择文件夹".to_string());
     }
+    let (files, scan_limits) = collect_markdown_files(root);
     Ok(LocalWorkspace {
         root: root.to_string_lossy().into_owned(),
         name: display_name(root, "Markdown Workspace"),
-        files: collect_markdown_files(root),
+        files,
+        scan_limits,
     })
 }
 
@@ -848,6 +874,87 @@ pub fn read_launch_target(state: State<'_, FileAccessState>) -> Option<LaunchTar
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn workspace_fixture() -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "prosemap-synthetic-workspace-{}-{}",
+            std::process::id(),
+            SAVE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::canonicalize(root).unwrap()
+    }
+
+    #[test]
+    fn workspace_reports_the_file_limit_without_claiming_known_omissions() {
+        let root = workspace_fixture();
+        for index in 0..MAX_WORKSPACE_FILES - 1 {
+            fs::write(root.join(format!("synthetic-{index:04}.md")), "# Synthetic").unwrap();
+        }
+        let below = workspace_from_canonical(&root).unwrap();
+        assert_eq!(below.files.len(), MAX_WORKSPACE_FILES - 1);
+        assert_eq!(below.scan_limits.file_count, None);
+        for index in MAX_WORKSPACE_FILES - 1..=MAX_WORKSPACE_FILES {
+            fs::write(root.join(format!("synthetic-{index:04}.md")), "# Synthetic").unwrap();
+            let workspace = workspace_from_canonical(&root).unwrap();
+            assert_eq!(workspace.files.len(), MAX_WORKSPACE_FILES);
+            assert_eq!(workspace.scan_limits.file_count, Some(MAX_WORKSPACE_FILES));
+            assert_eq!(workspace.scan_limits.depth, None);
+            let wire = serde_json::to_value(&workspace).unwrap();
+            assert_eq!(wire["scanLimits"]["fileCount"], MAX_WORKSPACE_FILES);
+            assert!(wire["scanLimits"]["depth"].is_null());
+            assert!(workspace
+                .files
+                .windows(2)
+                .all(|pair| pair[0].relative_path <= pair[1].relative_path));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_depth_warning_preserves_hidden_build_and_symlink_filters() {
+        let root = workspace_fixture();
+        for directory in [
+            ".hidden",
+            "node_modules",
+            "target",
+            "dist",
+            "build",
+            "desktop-dist",
+            ".next",
+        ] {
+            fs::create_dir_all(root.join(directory)).unwrap();
+            fs::write(root.join(directory).join("hidden.md"), "# Synthetic hidden").unwrap();
+        }
+        fs::write(root.join("root.MD"), "# Synthetic root").unwrap();
+        fs::write(root.join("unsupported.txt"), "Synthetic plain text").unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.join("root.MD"), root.join("linked.md")).unwrap();
+            std::os::unix::fs::symlink(root.join(".hidden"), root.join("linked-folder")).unwrap();
+        }
+        let mut nested = root.clone();
+        for _ in 0..MAX_WORKSPACE_DEPTH {
+            nested = nested.join("level");
+        }
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("depth-12.markdown"), "# Synthetic depth 12").unwrap();
+        let boundary = workspace_from_canonical(&root).unwrap();
+        assert_eq!(boundary.files.len(), 2);
+        assert_eq!(boundary.scan_limits.depth, None);
+        fs::create_dir_all(nested.join("level")).unwrap();
+        fs::write(nested.join("level/depth-13.md"), "# Synthetic depth 13").unwrap();
+        let limited = workspace_from_canonical(&root).unwrap();
+        assert_eq!(limited.files.len(), 2);
+        assert_eq!(limited.scan_limits.depth, Some(MAX_WORKSPACE_DEPTH));
+        assert_eq!(limited.scan_limits.file_count, None);
+        fs::remove_file(root.join("root.MD")).unwrap();
+        fs::remove_file(nested.join("depth-12.markdown")).unwrap();
+        let empty = workspace_from_canonical(&root).unwrap();
+        assert!(empty.files.is_empty());
+        assert_eq!(empty.scan_limits.depth, Some(MAX_WORKSPACE_DEPTH));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn attachment_fixture() -> (PathBuf, PathBuf, FileAccessState) {
         let root = std::env::temp_dir().join(format!(

@@ -1227,6 +1227,11 @@ export default function Home() {
               </div>
               <button type="button" className="icon-button" onClick={() => setFileExplorerOpen(false)} aria-label={t("关闭文件列表")}><X size={15} /></button>
             </header>
+            {localWorkspace && <div className="file-scan-status" role="status">
+              <span>{t("已列出 {0} 个文件", localWorkspace.files.length.toLocaleString(locale))}</span>
+              {localWorkspace.scanLimits?.fileCount != null && <p>{t("本次扫描达到 {0} 个文件上限，可能还有文件未显示。", localWorkspace.scanLimits.fileCount.toLocaleString(locale))}</p>}
+              {localWorkspace.scanLimits?.depth != null && <p>{t("超过 {0} 层的子文件夹未扫描。", localWorkspace.scanLimits.depth)}</p>}
+            </div>}
             {localWorkspace ? (
               localWorkspace.files.length ? (
                 <div className="file-list">
@@ -1237,7 +1242,7 @@ export default function Home() {
                     </button>
                   ))}
                 </div>
-              ) : <p className="file-explorer-empty">{t("此文件夹中没有 Markdown 文件。")}</p>
+              ) : <p className="file-explorer-empty">{t(localWorkspace.scanLimits?.depth != null ? "扫描范围内没有 Markdown 文件。" : "此文件夹中没有 Markdown 文件。")}</p>
             ) : (
               <div className="file-explorer-welcome">
                 <FolderOpen size={27} />

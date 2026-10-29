@@ -96,6 +96,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .file-explorer > header span { color: var(--muted-light); font-size: var(--font-ui); font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .file-explorer > header strong { margin-top: 4px; overflow: hidden; color: var(--ink-soft); font-size: var(--font-ui); text-overflow: ellipsis; white-space: nowrap; }
 .file-explorer > header .icon-button { width: 29px; height: 29px; flex: none; }
+.file-scan-status { flex: none; padding: 8px 13px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: var(--font-caption); line-height: 1.5; }
+.file-scan-status p { margin: 5px 0 0; color: #8a5626; }
 .file-list { min-height: 0; flex: 1; overflow: auto; padding: 8px 7px 26px; }
 .file-list button { width: 100%; min-height: 31px; display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; gap: 6px; padding: 5px 8px; border: 0; border-radius: 7px; background: transparent; color: #617068; text-align: left; }
 .file-list button:hover { background: #eef3ef; color: var(--ink-soft); }

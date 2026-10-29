@@ -1,5 +1,9 @@
 // UI copy only. Never pass document content through this dictionary.
 export const english: Record<string, string> = {
+  "已列出 {0} 个文件": "Files listed: {0}",
+  "本次扫描达到 {0} 个文件上限，可能还有文件未显示。": "This scan reached the {0}-file limit. Additional files may be omitted.",
+  "超过 {0} 层的子文件夹未扫描。": "Folders deeper than {0} levels were not scanned.",
+  "扫描范围内没有 Markdown 文件。": "No Markdown files were found within the scan limits.",
   "编辑器正在更新，请稍后重试。": "The editor is updating. Please try again shortly.",
   "无法安全保存：文档行尾状态不一致。当前编辑内容已保留，请复制备份后重新打开文件。": "Cannot save safely because line-ending metadata is inconsistent. Your edits are retained. Copy a backup before reopening the file.",
   "改动过大，无法安全定位修改范围。请缩小修改范围后重试。": "The change is too large to locate safely. Try applying a smaller change.",

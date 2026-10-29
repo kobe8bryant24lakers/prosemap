@@ -18,6 +18,7 @@ export type LocalWorkspace = {
   root: string;
   name: string;
   files: LocalFileEntry[];
+  scanLimits?: { fileCount: number | null; depth: number | null };
 };
 
 export type LaunchTarget =

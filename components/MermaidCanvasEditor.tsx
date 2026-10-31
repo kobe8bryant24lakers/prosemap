@@ -1960,7 +1960,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       ...graph,
       nodes: graph.nodes.map((candidate) => candidate.id === id ? {
         ...candidate,
-        label: role === 'start' ? t("开始") : role === 'end' ? t("结束") : candidate.label,
+        label: role === 'start' ? t("开始") : role === 'end' ? t("结束") : nodeDisplayLabel(candidate, graph.kind),
         shape: role === 'state' ? 'rounded' : 'circle',
         data: { ...candidate.data, ref, stateRole: role },
       } : candidate),

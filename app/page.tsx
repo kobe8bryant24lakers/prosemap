@@ -207,6 +207,7 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<ViewMode>(restoredViewMode);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantAction, setAssistantAction] = useState<AssistAction>('polish');
+  const [assistantInstructionDrafts, setAssistantInstructionDrafts] = useState<Partial<Record<AssistAction, string>>>({});
   const [mermaidWorkbench, setMermaidWorkbench] = useState<MermaidWorkbenchSession | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelProfiles, setModelProfiles] = useState<ModelProfiles>(emptyModelProfiles);
@@ -454,6 +455,7 @@ export default function Home() {
     documentPathRef.current = document.path;
     savedContentRef.current = document.path ? document.content : null;
     replaceAiContextDocuments([]);
+    setAssistantInstructionDrafts({});
     setSelection({ from: 0, to: 0, text: '' });
     setCursorLine(1);
     updateDirtyState(false);
@@ -1340,6 +1342,7 @@ export default function Home() {
         {assistantOpen ? (
           <AssistantPanel
             action={assistantAction}
+            instruction={assistantInstructionDrafts[assistantAction] ?? ''}
             config={config}
             modelSwitcher={modelSwitcher}
             targetLength={targetLength}
@@ -1347,6 +1350,7 @@ export default function Home() {
             hasMermaidTarget={Boolean(mermaidTarget)}
             contextDocuments={aiContextDocuments}
             onActionChange={setAssistantAction}
+            onInstructionChange={(instruction) => setAssistantInstructionDrafts((current) => ({ ...current, [assistantAction]: instruction }))}
             onPickContext={() => void addAiContextFiles()}
             onRemoveContext={removeAiContextFile}
             onOpenSettings={() => setSettingsOpen(true)}

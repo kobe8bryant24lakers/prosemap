@@ -108,7 +108,7 @@ test('settings: save failure preserves draft, retry commits and later cancel doe
   await expect(page.getByLabel('模型名称', { exact: true })).toHaveValue('synthetic-model');
 });
 
-test('assistant: missing model and custom instruction disable generation; action changes clear instructions', async ({ page }) => {
+test('assistant: missing model and custom instruction disable generation; a new action starts with an empty draft', async ({ page }) => {
   await launchDocument(page, '原文');
   await boundary(page);
   await page.getByRole('button', { name: 'AI 文字助手', exact: true }).click();

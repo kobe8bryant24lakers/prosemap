@@ -6,12 +6,12 @@ import { t } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
 
 import { Bot, ChevronRight, FileText, KeyRound, Paperclip, PenLine, Sparkles, TextQuote, WandSparkles, Workflow, X } from 'lucide-react';
-import { useState } from 'react';
 import { MAX_AI_CONTEXT_CHARACTERS, type AiContextDocument } from '@/lib/ai-context';
 import { ACTION_LABELS, type AssistAction, type ModelConfig } from '@/lib/editor';
 
 type AssistantPanelProps = {
   action: AssistAction;
+  instruction: string;
   config: ModelConfig;
   modelSwitcher: ReactNode;
   targetLength: number;
@@ -19,6 +19,7 @@ type AssistantPanelProps = {
   hasMermaidTarget: boolean;
   contextDocuments: AiContextDocument[];
   onActionChange: (action: AssistAction) => void;
+  onInstructionChange: (instruction: string) => void;
   onPickContext: () => void;
   onRemoveContext: (path: string) => void;
   onOpenSettings: () => void;
@@ -35,6 +36,7 @@ const textActions: Array<{ action: Exclude<AssistAction, 'mermaid'>; icon: typeo
 
 export default function AssistantPanel({
   action,
+  instruction,
   config,
   modelSwitcher,
   targetLength,
@@ -42,6 +44,7 @@ export default function AssistantPanel({
   hasMermaidTarget,
   contextDocuments,
   onActionChange,
+  onInstructionChange,
   onPickContext,
   onRemoveContext,
   onOpenSettings,
@@ -49,7 +52,6 @@ export default function AssistantPanel({
   onClose,
 }: AssistantPanelProps) {
   useLocale();
-  const [instruction, setInstruction] = useState('');
   const configured = Boolean(config.apiKey && config.model);
   const contextCharacters = contextDocuments.reduce((total, document) => total + document.content.length, 0);
 
@@ -74,7 +76,7 @@ export default function AssistantPanel({
           <div className="section-kicker">{t("文字处理")}</div>
           <div className="assistant-action-list">
             {textActions.map(({ action: itemAction, icon: Icon, description }) => (
-              <button key={itemAction} type="button" className={`assistant-action ${action === itemAction ? 'active' : ''}`} onClick={() => { setInstruction(''); onActionChange(itemAction); }}>
+              <button key={itemAction} type="button" className={`assistant-action ${action === itemAction ? 'active' : ''}`} onClick={() => onActionChange(itemAction)}>
                 <span className="assistant-action-icon"><Icon size={16} /></span>
                 <span><strong>{t(ACTION_LABELS[itemAction])}</strong><small>{description}</small></span>
                 <ChevronRight size={15} />
@@ -85,7 +87,7 @@ export default function AssistantPanel({
 
         <section className="assistant-section mermaid-section">
           <div className="section-kicker">{t("智能可视化")}</div>
-          <button type="button" className={`mermaid-action ${action === 'mermaid' ? 'active' : ''}`} onClick={() => { setInstruction(''); onActionChange('mermaid'); }}>
+          <button type="button" className={`mermaid-action ${action === 'mermaid' ? 'active' : ''}`} onClick={() => onActionChange('mermaid')}>
             <span className="mermaid-action-art" aria-hidden="true"><i /><i /><i /></span>
             <span><b><Workflow size={15} />  {t("Mermaid 智能绘图")}</b><small>{t("用自然语言创建或修改流程图、时序图与架构图")}</small></span>
             <ChevronRight size={15} />
@@ -98,7 +100,7 @@ export default function AssistantPanel({
             <small>{action === 'mermaid' ? (hasMermaidTarget ? t("将修改光标所在的 Mermaid 图") : t("将在光标位置创建新图")) : hasSelection ? t("已选中 {0} 个字符", targetLength) : t("将处理全文 · {0} 个字符", targetLength)}</small>
           </div>
           <label htmlFor="ai-instruction">{instructionRequired ? t("告诉 AI 你的要求") : t("补充要求")}</label>
-          <textarea id="ai-instruction" value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder={placeholder} rows={4} />
+          <textarea id="ai-instruction" value={instruction} onChange={(event) => onInstructionChange(event.target.value)} placeholder={placeholder} rows={4} />
           <section className="assistant-context-files" aria-label={t("AI 上下文资料")}>
             <header>
               <span><Paperclip size={13} />  {t("上下文资料")}</span>

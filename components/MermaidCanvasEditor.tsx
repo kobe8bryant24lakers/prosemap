@@ -94,17 +94,21 @@ type MermaidCanvasEditorProps = {
 };
 
 /** Keep incomplete input editable without adding rejected graphs to source/history. */
-function GanttInput({ value, revision, onChange, disabled, placeholder }: {
+function GanttInput({ value, revision, onChange, onFocus, onBlur, disabled, placeholder }: {
   value: string;
   revision: MermaidFlowGraph;
   onChange: (value: string) => boolean;
+  onFocus?: () => void;
+  onBlur?: () => void;
   disabled?: boolean;
   placeholder?: string;
 }) {
   const [draft, setDraft] = useState({ value, revision, invalid: false });
   if (draft.revision !== revision) setDraft({ value, revision, invalid: false });
   return <input value={draft.revision === revision ? draft.value : value}
+    autoCapitalize="none" autoCorrect="off" spellCheck={false}
     disabled={disabled} placeholder={placeholder} aria-invalid={draft.invalid}
+    onFocus={onFocus} onBlur={onBlur}
     onChange={(event) => {
       const nextValue = event.target.value;
       const accepted = onChange(nextValue);
@@ -119,6 +123,7 @@ function safeCanvasRecord<T>(source?: Record<string, T>): Record<string, T> {
   return Object.assign(Object.create(null) as Record<string, T>, source);
 }
 type CanvasSnapshot = { graph: MermaidFlowGraph; layout: MermaidCanvasLayout };
+type CanvasPropertyEdit = { key: string; snapshot: CanvasSnapshot; undo: CanvasSnapshot[]; redo: CanvasSnapshot[] };
 type Marquee = { pointerId: number; start: Point; end: Point; initial: string[] };
 type DragState = {
   id: string;
@@ -644,6 +649,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   const zoomAtPointRef = useRef<(nextZoom: number, clientX: number, clientY: number) => void>(() => undefined);
   const undoStackRef = useRef<CanvasSnapshot[]>([]);
   const redoStackRef = useRef<CanvasSnapshot[]>([]);
+  const propertyEditRef = useRef<CanvasPropertyEdit | null>(null);
   const gestureHistoryRef = useRef<{ pointerId: number; snapshot: CanvasSnapshot; undo: CanvasSnapshot[]; redo: CanvasSnapshot[] } | null>(null);
   const onChangeRef = useRef(onChange);
   const currentGraphRef = useRef(graph);
@@ -663,7 +669,22 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     setHistoryStatus({ undo: undoStackRef.current.length, redo: redoStackRef.current.length });
   }
 
+  const finishPropertyEdit = useCallback(() => {
+    const edit = propertyEditRef.current;
+    propertyEditRef.current = null;
+    if (!edit || JSON.stringify(currentGraphRef.current) !== JSON.stringify(edit.snapshot.graph)) return;
+    // Local text undo can return to the starting value. An empty transaction
+    // must neither leave an extra canvas undo step nor discard an older redo.
+    undoStackRef.current = edit.undo;
+    redoStackRef.current = edit.redo;
+    layoutRef.current = edit.snapshot.layout;
+    setCanvasLayout(edit.snapshot.layout);
+    setHistoryStatus({ undo: edit.undo.length, redo: edit.redo.length });
+  }, []);
+  const propertyInputEvents = { onFocus: finishPropertyEdit, onBlur: finishPropertyEdit };
+
   function recordCanvasHistory() {
+    finishPropertyEdit();
     undoStackRef.current.push({ graph: currentGraphRef.current, layout: layoutRef.current });
     if (undoStackRef.current.length > 80) undoStackRef.current.shift();
     redoStackRef.current = [];
@@ -672,6 +693,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
 
   function recordGestureHistory(pointerId: number) {
     if (gestureHistoryRef.current) return;
+    finishPropertyEdit();
     gestureHistoryRef.current = {
       pointerId, snapshot: { graph: currentGraphRef.current, layout: layoutRef.current },
       undo: [...undoStackRef.current], redo: [...redoStackRef.current],
@@ -692,7 +714,22 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     return true;
   }
 
+  function commitPropertyGraph(key: string, nextGraph: MermaidFlowGraph) {
+    if (propertyEditRef.current?.key !== key) finishPropertyEdit();
+    const firstChange = !propertyEditRef.current;
+    const changed = JSON.stringify(currentGraphRef.current) !== JSON.stringify(nextGraph);
+    const edit = firstChange && changed ? {
+      key, snapshot: { graph: currentGraphRef.current, layout: layoutRef.current },
+      undo: [...undoStackRef.current], redo: [...redoStackRef.current],
+    } : null;
+    const accepted = commitGraph(nextGraph, firstChange);
+    // Rejected drafts and unchanged values do not consume the first boundary.
+    if (accepted && edit) propertyEditRef.current = edit;
+    return accepted;
+  }
+
   function undoGraphChange() {
+    finishPropertyEdit();
     const cancelledGesture = gestureHistoryRef.current !== null;
     cancelPointerInteractions();
     if (cancelledGesture) return;
@@ -712,6 +749,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   }
 
   function redoGraphChange() {
+    finishPropertyEdit();
     const cancelledGesture = gestureHistoryRef.current !== null;
     cancelPointerInteractions();
     if (cancelledGesture) return;
@@ -828,6 +866,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     finishViewportPanByPointerId();
     undoStackRef.current = [];
     redoStackRef.current = [];
+    propertyEditRef.current = null;
     labelEditRef.current = null;
     setHistoryStatus({ undo: 0, redo: 0 });
     setSelection(null);
@@ -877,6 +916,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     if (kindChanged) {
       undoStackRef.current = [];
       redoStackRef.current = [];
+      propertyEditRef.current = null;
       updateHistoryStatus();
       setSelection(null);
       setEditingNodeId(null);
@@ -934,6 +974,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
 
   useLayoutEffect(() => {
     if (!active) {
+      finishPropertyEdit();
       cancelPointerInteractions();
       finishViewportPanByPointerId(panStateRef.current?.pointerId);
       return;
@@ -989,14 +1030,15 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       canvasY: (bounds.minY + bounds.maxY) / 2,
     }, zoom);
     shouldCenterViewport.current = false;
-  }, [active, cancelPointerInteractions, canvasLayout, finishViewportPanByPointerId, graph, positions, stageHeight, stageWidth, zoom]);
+  }, [active, cancelPointerInteractions, canvasLayout, finishPropertyEdit, finishViewportPanByPointerId, graph, positions, stageHeight, stageWidth, zoom]);
 
   useLayoutEffect(() => {
     if (!suspended) return;
+    finishPropertyEdit();
     spacePressedRef.current = false;
     cancelPointerInteractions();
     finishViewportPanByPointerId(panStateRef.current?.pointerId);
-  }, [cancelPointerInteractions, finishViewportPanByPointerId, suspended]);
+  }, [cancelPointerInteractions, finishPropertyEdit, finishViewportPanByPointerId, suspended]);
 
   useEffect(() => {
     if (!active || suspended) return;
@@ -1795,7 +1837,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     commitGraph({ ...graph, nodes, edges });
   }
 
-  function updateNodeData(id: string, update: Partial<NodeData>) {
+  function updateNodeData(id: string, update: Partial<NodeData>, propertyKey?: string) {
     const previousRef = graph.nodes.find((node) => node.id === id)?.data?.ref ?? id;
     let nodes = graph.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, ...update } } : node);
     if (graph.kind === 'gantt' && update.ref !== undefined && update.ref !== previousRef) {
@@ -1805,10 +1847,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           prefix + refs.replace(/\S+/g, (ref) => ref === previousRef ? update.ref! : ref))),
       } } : node);
     }
-    return commitGraph({
+    const next = {
       ...graph,
       nodes,
-    });
+    };
+    return propertyKey ? commitPropertyGraph(propertyKey, next) : commitGraph(next);
   }
 
   function updateNodeDetail(id: string, index: number, value: string) {
@@ -1816,7 +1859,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     if (!node) return;
     const details = [...(node.data?.details ?? [])];
     details[index] = value;
-    updateNodeData(id, { details });
+    updateNodeData(id, { details }, `node:${id}:detail:${index}`);
   }
 
   function addNodeDetail(id: string) {
@@ -1832,8 +1875,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     updateNodeData(id, { details: (node.data?.details ?? []).filter((_, detailIndex) => detailIndex !== index) });
   }
 
-  function updateEdgeToken(id: string, token: string) {
-    commitGraph({
+  function updateEdgeToken(id: string, token: string, propertyKey?: string) {
+    const next = {
       ...graph,
       edges: graph.edges.map((edge) => {
         if (edge.id !== id) return edge;
@@ -1846,7 +1889,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
             : edge.style;
         return { ...edge, style, data: { ...edge.data, token } };
       }),
-    });
+    };
+    return propertyKey ? commitPropertyGraph(propertyKey, next) : commitGraph(next);
   }
 
   function moveEdge(id: string, offset: -1 | 1) {
@@ -1897,7 +1941,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     const node = graph.nodes.find((candidate) => candidate.id === id);
     const timing = [...(node?.data?.ganttTiming ?? [])];
     timing[index] = value;
-    return updateNodeData(id, { ganttTiming: timing });
+    return updateNodeData(id, { ganttTiming: timing }, `node:${id}:timing:${index}`);
   }
 
   function changeStateRole(id: string, role: 'start' | 'end' | 'state') {
@@ -2629,6 +2673,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
               <label key={`${selectedNode.id}-detail-editor-${index}`}>
                 <span>{index + 1}</span>
                 <input
+                  {...propertyInputEvents}
                   value={detail}
                   onChange={(event) => updateNodeDetail(selectedNode.id, index, event.target.value)}
                   placeholder={graph.kind === 'class' ? t("+String id 或 +save()") : 'string id PK'}
@@ -2644,10 +2689,10 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
 
       {selectedNode && graph.kind === 'gantt' ? (
         <div className="canvas-semantic-inspector canvas-gantt-inspector">
-          <label><span>{t("分组")}</span><input value={selectedNode.data?.ganttSection ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { ganttSection: event.target.value })} placeholder={t("例如：设计")} /></label>
-          <label><span>{t("任务 ID")}</span><GanttInput key={`${selectedNode.id}-ref`} revision={graph} value={selectedNode.data?.ref ?? selectedNode.id} onChange={(value) => updateNodeData(selectedNode.id, { ref: value })} placeholder={t("唯一 ID")} /></label>
-          <label><span>{t("开始")}</span><GanttInput key={`${selectedNode.id}-start`} revision={graph} disabled={selectedGanttHasDependency} value={selectedGanttStart} onChange={(value) => updateNodeData(selectedNode.id, { ganttStart: value })} placeholder={selectedGanttHasDependency ? t("由依赖关系决定") : ganttDateFormat(graph)} /></label>
-          <label><span>{t("工期 / 结束")}</span><GanttInput key={`${selectedNode.id}-timing`} revision={graph} value={selectedNode.data?.ganttTiming?.[0] ?? '1d'} onChange={(value) => updateGanttTiming(selectedNode.id, 0, value)} placeholder={t("例如：5d 或 2026-01-10")} /></label>
+          <label><span>{t("分组")}</span><input {...propertyInputEvents} value={selectedNode.data?.ganttSection ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { ganttSection: event.target.value }, `node:${selectedNode.id}:section`)} placeholder={t("例如：设计")} /></label>
+          <label><span>{t("任务 ID")}</span><GanttInput {...propertyInputEvents} key={`${selectedNode.id}-ref`} revision={graph} value={selectedNode.data?.ref ?? selectedNode.id} onChange={(value) => updateNodeData(selectedNode.id, { ref: value }, `node:${selectedNode.id}:ref`)} placeholder={t("唯一 ID")} /></label>
+          <label><span>{t("开始")}</span><GanttInput {...propertyInputEvents} key={`${selectedNode.id}-start`} revision={graph} disabled={selectedGanttHasDependency} value={selectedGanttStart} onChange={(value) => updateNodeData(selectedNode.id, { ganttStart: value }, `node:${selectedNode.id}:start`)} placeholder={selectedGanttHasDependency ? t("由依赖关系决定") : ganttDateFormat(graph)} /></label>
+          <label><span>{t("工期 / 结束")}</span><GanttInput {...propertyInputEvents} key={`${selectedNode.id}-timing`} revision={graph} value={selectedNode.data?.ganttTiming?.[0] ?? '1d'} onChange={(value) => updateGanttTiming(selectedNode.id, 0, value)} placeholder={t("例如：5d 或 2026-01-10")} /></label>
           <div className="canvas-gantt-statuses" role="group" aria-label={t("任务状态")}>
             <span>{t("状态")}</span>
             {GANTT_STATUS_OPTIONS.map((option) => (
@@ -2678,8 +2723,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           {graph.kind === 'class' && selectedClassRelation ? (
             <>
               <label><span>{t("关系类型")}</span><select value={selectedClassRelation.relation} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassRelation(selectedEdge.data?.token, event.target.value))}>{CLASS_RELATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label><span>{t("起点多重性")}</span><input value={selectedClassRelation.fromMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'from', event.target.value))} placeholder={t("例如 1")} /></label>
-              <label><span>{t("终点多重性")}</span><input value={selectedClassRelation.toMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'to', event.target.value))} placeholder={t("例如 0..*")} /></label>
+              <label><span>{t("起点多重性")}</span><input {...propertyInputEvents} value={selectedClassRelation.fromMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'from', event.target.value), `edge:${selectedEdge.id}:fromMultiplicity`)} placeholder={t("例如 1")} /></label>
+              <label><span>{t("终点多重性")}</span><input {...propertyInputEvents} value={selectedClassRelation.toMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'to', event.target.value), `edge:${selectedEdge.id}:toMultiplicity`)} placeholder={t("例如 0..*")} /></label>
             </>
           ) : null}
           {graph.kind === 'er' && selectedErRelation ? (
@@ -2701,7 +2746,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       {graph.data?.groups?.length ? <details className="canvas-groups-panel">
         <summary>{t("包与系统边界（")}{graph.data.groups.length}）</summary>
         <div>{graph.data.groups.map((group) => <div key={group.id}>
-          <input aria-label={t("分组名称 {0}", group.id)} value={group.label} onChange={(event) => commitGraph({ ...graph, data: { ...graph.data, groups: graph.data!.groups!.map((entry) => entry.id === group.id ? { ...entry, label: event.target.value } : entry) } })} />
+          <input {...propertyInputEvents} aria-label={t("分组名称 {0}", group.id)} value={group.label} onChange={(event) => commitPropertyGraph(`group:${group.id}:label`, { ...graph, data: { ...graph.data, groups: graph.data!.groups!.map((entry) => entry.id === group.id ? { ...entry, label: event.target.value } : entry) } })} />
           <select aria-label={t("父级分组 {0}", group.id)} value={group.parentId ?? ''} onChange={(event) => commitGraph({ ...graph, data: { ...graph.data, groups: graph.data!.groups!.map((entry) => entry.id === group.id ? { ...entry, parentId: event.target.value || undefined } : entry) } })}>
             <option value="">{t("顶层")}</option>
             {graph.data!.groups!.filter((candidate) => {

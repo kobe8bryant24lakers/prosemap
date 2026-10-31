@@ -535,6 +535,16 @@ function erRelationLabel(token?: string) {
   return `${from} → ${to}`;
 }
 
+function nodeDisplayLabel(node: MermaidFlowNode, kind: MermaidFlowGraph['kind']) {
+  // Pseudostates have no source label. Translate their UI name without changing
+  // graph data or translating ordinary state names supplied by the user.
+  if (kind === 'state') {
+    if (node.data?.stateRole === 'start') return t("开始");
+    if (node.data?.stateRole === 'end') return t("结束");
+  }
+  return node.label;
+}
+
 function nodeMeta(node: MermaidFlowNode, kind: MermaidFlowGraph['kind']) {
   if (kind === 'sequence') return node.data?.sequenceType === 'actor' ? t("角色") : t("参与者");
   if (kind === 'state') {
@@ -2485,7 +2495,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       <div className="canvas-context-bar" aria-live="polite" onMouseDown={(event) => { if ((event.target as Element).closest('button')) event.preventDefault(); }}>
         {connectMode ? (
           <>
-            <span className="canvas-selection-title"><Link2 size={13} /><b>{connectingNode ? t("起点：{0}", connectingNode.label || connectingNode.id) : t("添加{0}", copy.edge)}</b></span>
+            <span className="canvas-selection-title"><Link2 size={13} /><b>{connectingNode ? t("起点：{0}", nodeDisplayLabel(connectingNode, graph.kind) || connectingNode.id) : t("添加{0}", copy.edge)}</b></span>
             <span className="canvas-context-divider" />
             <span className="canvas-connect-guidance">
               {connectingNode
@@ -2509,7 +2519,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           </>
         ) : selectedNode ? (
           <>
-            <span className="canvas-selection-title"><MousePointer2 size={13} /><b>{selectedNode.label || selectedNode.id}</b></span>
+            <span className="canvas-selection-title"><MousePointer2 size={13} /><b>{nodeDisplayLabel(selectedNode, graph.kind) || selectedNode.id}</b></span>
             {graph.data?.groups?.length ? <label className="canvas-group-membership">{t("所属包 / 边界")} <select aria-label={t("所属包 / 边界")} value={selectedNode.data?.groupId ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { groupId: event.target.value || undefined })}>
               <option value="">{t("外部")}</option>
               {graph.data.groups.map((group) => <option key={group.id} value={group.id}>{group.label}</option>)}
@@ -2649,13 +2659,13 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
               <label>
                 <span>{graph.kind === 'mindmap' ? t("父主题") : graph.kind === 'gantt' ? t("前置任务") : t("起点")}</span>
                 <select value={selectedEdge.from} onChange={(event) => retargetEdge(selectedEdge.id, 'from', event.target.value)}>
-                  {graph.nodes.map((node) => <option key={node.id} value={node.id} disabled={!canRetargetEdge(selectedEdge, 'from', node.id)}>{node.label || node.id}</option>)}
+                  {graph.nodes.map((node) => <option key={node.id} value={node.id} disabled={!canRetargetEdge(selectedEdge, 'from', node.id)}>{nodeDisplayLabel(node, graph.kind) || node.id}</option>)}
                 </select>
               </label>
               <label>
                 <span>{graph.kind === 'mindmap' ? t("子主题") : graph.kind === 'gantt' ? t("后续任务") : t("终点")}</span>
                 <select value={selectedEdge.to} onChange={(event) => retargetEdge(selectedEdge.id, 'to', event.target.value)}>
-                  {graph.nodes.map((node) => <option key={node.id} value={node.id} disabled={!canRetargetEdge(selectedEdge, 'to', node.id)}>{node.label || node.id}</option>)}
+                  {graph.nodes.map((node) => <option key={node.id} value={node.id} disabled={!canRetargetEdge(selectedEdge, 'to', node.id)}>{nodeDisplayLabel(node, graph.kind) || node.id}</option>)}
                 </select>
               </label>
             </>
@@ -2883,6 +2893,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                   {editing ? (
                     <input
                       autoFocus
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                       value={edge.label}
                       onPointerDown={(event) => event.stopPropagation()}
                       onClick={(event) => event.stopPropagation()}
@@ -2912,6 +2925,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                 ? mermaidSequenceLifelineHeight(node, stageHeight, position.y)
                 : size.height;
               const selected = selectedIds.includes(node.id);
+              const displayLabel = nodeDisplayLabel(node, graph.kind);
               const editing = editingNodeId === node.id;
               const connectionOrigin = connectingFrom === node.id || connectionDrag?.from === node.id;
               const connectionTarget = connectionDrag?.target === node.id;
@@ -2941,7 +2955,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                     if (!(graph.kind === 'state' && node.data?.stateRole !== 'state')) setEditingNodeId(node.id);
                   }}
                   role="button"
-                  aria-label={`${node.label} ${copy.node}`}
+                  aria-label={`${displayLabel} ${copy.node}`}
                   aria-pressed={selected}
                   tabIndex={-1}
                 >
@@ -2952,7 +2966,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                       data-mermaid-node-id={node.id}
                       role="button"
                       tabIndex={-1}
-                      aria-label={t("选择 {0} 对象生命线", node.label)}
+                      aria-label={t("选择 {0} 对象生命线", displayLabel)}
                       onPointerDown={(event) => {
                         if (event.button !== 0 || handTool || spacePressedRef.current) return;
                         event.preventDefault();
@@ -2976,7 +2990,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                         onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                         onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
                         onClick={(event) => event.stopPropagation()}
-                        aria-label={t("从 {0} 生命线拖动创建消息", node.label)}
+                        aria-label={t("从 {0} 生命线拖动创建消息", displayLabel)}
                         title={t("拖动生命线创建消息")}
                       />
                     </div>
@@ -2992,6 +3006,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                     {editing ? (
                       <input
                         autoFocus
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
                         value={node.label}
                         onPointerDown={(event) => event.stopPropagation()}
                         onClick={(event) => event.stopPropagation()}
@@ -3005,7 +3022,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                         }}
                         aria-label={t("{0}名称", copy.node)}
                       />
-                    ) : <span className="canvas-node-title">{node.label || node.id}</span>}
+                    ) : <span className="canvas-node-title">{displayLabel || node.id}</span>}
                     <small className="canvas-node-meta">{nodeMeta(node, graph.kind)}</small>
                     {(graph.kind === 'class' || graph.kind === 'er') ? (
                       <div className="canvas-node-details">
@@ -3024,7 +3041,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                     <div
                       className="canvas-node-resize-frame"
                       style={{ height: lifelineHeight + 14 }}
-                      aria-label={t("调整 {0} 对象生命线大小", node.label)}
+                      aria-label={t("调整 {0} 对象生命线大小", displayLabel)}
                     >
                       {([
                         ['west', t("左边缘"), t("横向调整宽度")],
@@ -3042,14 +3059,14 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                           onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                           onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
                           onClick={(event) => event.stopPropagation()}
-                          aria-label={t("从{0}{1} {2}", label, action, node.label)}
+                          aria-label={t("从{0}{1} {2}", label, action, displayLabel)}
                           title={t("拖动{0}{1}", label, action)}
                         />
                       ))}
                     </div>
                   ) : null}
                   {graph.kind === 'sequence' && !editing ? (
-                    <div className="canvas-node-connection-points" aria-label={t("从 {0} 拖动创建消息", node.label)}>
+                    <div className="canvas-node-connection-points" aria-label={t("从 {0} 拖动创建消息", displayLabel)}>
                       {(['top', 'right', 'bottom', 'left'] as const).map((side) => (
                         <button
                           type="button"
@@ -3060,14 +3077,14 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                           onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                           onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
                           onClick={(event) => event.stopPropagation()}
-                          aria-label={t("从 {0} 的{1}连接点拖动创建消息", node.label, side === 'top' ? t("上方") : side === 'right' ? t("右侧") : side === 'bottom' ? t("下方") : t("左侧"))}
+                          aria-label={t("从 {0} 的{1}连接点拖动创建消息", displayLabel, side === 'top' ? t("上方") : side === 'right' ? t("右侧") : side === 'bottom' ? t("下方") : t("左侧"))}
                           title={t("拖动以连接（Drag to connect）")}
                         />
                       ))}
                     </div>
                   ) : null}
                   {selected && selectedIds.length === 1 && quickAddDirections.length ? (
-                    <div className="canvas-node-quick-add" aria-label={t("围绕 {0} 快速创建", node.label)}>
+                    <div className="canvas-node-quick-add" aria-label={t("围绕 {0} 快速创建", displayLabel)}>
                       {QUICK_ADD_OPTIONS.filter((option) => quickAddDirections.includes(option.value)).map(({ value, label, icon: Icon }) => (
                         <button
                           type="button"
@@ -3105,7 +3122,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                       onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                       onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
                       onClick={(event) => event.stopPropagation()}
-                      aria-label={t("从 {0} 创建{1}", node.label, copy.edge)}
+                      aria-label={t("从 {0} 创建{1}", displayLabel, copy.edge)}
                       title={t("点击后再选目标，或直接拖到另一{0}", copy.node)}
                     >
                       <Plus size={13} />

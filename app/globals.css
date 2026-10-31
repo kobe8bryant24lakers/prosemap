@@ -191,6 +191,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .mermaid-canvas.editable { cursor: pointer; }
 .mermaid-svg { display: block; margin-inline: auto; transition: width .16s ease; }
 .mermaid-svg > svg { width: 100%!important; max-width: none!important; height: auto!important; display: block; margin: 0 auto; }
+/* Keep sequence crossheads solid on WebKit versions affected by bug 192539.
+   Override Mermaid's inline 0,0 with a nonzero dash longer than the glyph and
+   no gap. This resets marker paint while leaving messageLine1 dashed. */
+.mermaid-svg marker[id$="-crosshead"] path, .mermaid-fullscreen-svg marker[id$="-crosshead"] path { stroke-dasharray: 1000 0!important; }
 .mermaid-loading { min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 11px; color: var(--muted); font-size: var(--font-ui); }
 .mermaid-loading i { width: 23px; height: 23px; border: 2px solid #d7e5de; border-top-color: var(--green); border-radius: 50%; animation: spin .8s linear infinite; }
 .mermaid-error { display: flex; flex-direction: column; padding: 20px; background: #fff8f7; color: var(--red); }

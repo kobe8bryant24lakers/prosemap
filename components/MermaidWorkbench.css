@@ -242,7 +242,10 @@
 .canvas-alignment-guide.horizontal { left: 0; height: 0; border-top: 1px dashed #2b9c70; }
 .canvas-edge-layer { position: absolute; inset: 0; z-index: 1; overflow: visible; }
 .canvas-edge-layer marker path { fill: #557669; }
-.canvas-edge-layer marker .canvas-marker-cross, .canvas-edge-layer marker .canvas-marker-async { fill: none; stroke: #557669; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+/* Older WebKit leaks the message's dash paint into stroked markers even for
+   none/0. A nonzero dash longer than these fixed glyphs resets that state; a
+   zero gap keeps the marker solid without changing the message's line style. */
+.canvas-edge-layer marker .canvas-marker-cross, .canvas-edge-layer marker .canvas-marker-async { fill: none; stroke: #557669; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1000 0; }
 .canvas-edge-visible, .canvas-edge-preview { fill: none; stroke: #557669; stroke-width: 2; }
 .canvas-edge.dotted .canvas-edge-visible { stroke-dasharray: 6 6; }
 .canvas-edge.token-dashed .canvas-edge-visible { stroke-dasharray: 6 5; }

@@ -2875,7 +2875,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                     : markerEnd ? `url(#${markerId})` : undefined;
                   return (
                     <g key={edge.id} className={`canvas-edge kind-${graph.kind} ${edge.style}${tokenDashed ? ' token-dashed' : ''}${selected ? ' selected' : ''}`} data-mermaid-edge-id={edge.id}>
-                      <path className="canvas-edge-visible" d={geometry.path} markerStart={markerStartUrl} markerEnd={markerEndUrl} />
+                      {/* WebKit can retain stale marker paint after an attribute change.
+                          Replace only the visible path when its marker shapes change. */}
+                      <path key={sequenceVisual ? `${sequenceVisual.startMarker}:${sequenceVisual.endMarker}` : undefined} className="canvas-edge-visible" d={geometry.path} markerStart={markerStartUrl} markerEnd={markerEndUrl} />
                       <path
                         className="canvas-edge-hit"
                         d={geometry.path}

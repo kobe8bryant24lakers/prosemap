@@ -1,5 +1,6 @@
 // UI copy only. Never pass document content through this dictionary.
 export const english: Record<string, string> = {
+  "未完成": "Incomplete",
   "已列出 {0} 个文件": "Files listed: {0}",
   "本次扫描达到 {0} 个文件上限，可能还有文件未显示。": "This scan reached the {0}-file limit. Additional files may be omitted.",
   "超过 {0} 层的子文件夹未扫描。": "Folders deeper than {0} levels were not scanned.",
@@ -760,6 +761,10 @@ export const english: Record<string, string> = {
   "语言切换立即生效，并自动保存在本机。": "Language changes apply immediately and are saved on this device.",
   "全屏编辑": "Expand workspace",
   "还原窗口": "Restore workspace",
+  "请输入 API 地址": "Enter an API endpoint",
+  "API 地址不能包含用户名或密码": "API endpoints cannot contain a username or password",
+  "API 地址不能包含查询参数（?）": "API endpoints cannot contain query parameters (?)",
+  "API 地址不能包含锚点（#）": "API endpoints cannot contain fragments (#)",
   "API 地址无效": "Invalid API endpoint",
   "API 地址必须使用 HTTP 或 HTTPS": "API endpoints must use HTTP or HTTPS",
   "API 地址不能包含凭据、查询参数或锚点": "API endpoints cannot contain credentials, query parameters, or fragments",

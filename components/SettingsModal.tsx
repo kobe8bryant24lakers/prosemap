@@ -22,21 +22,36 @@ const providerCopy: Record<ProviderKind, { name: string; detail: string; model: 
   anthropic: { name: 'Anthropic Claude', get detail() { return t("Anthropic Messages API 与 Claude 系列模型"); }, get model() { return t("例如：claude-sonnet-4-5"); } },
 };
 
-function isValidEndpoint(value: string): boolean {
+function endpointValidationError(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return '请输入 API 地址';
   try {
-    const endpoint = new URL(value.trim());
-    return (
-      (endpoint.protocol === 'https:' || endpoint.protocol === 'http:')
-      && endpoint.hostname.length > 0
-      && endpoint.username.length === 0
-      && endpoint.password.length === 0
-      && endpoint.search.length === 0
-      && endpoint.hash.length === 0
-      && endpoint.port !== '0'
-    );
+    const endpoint = new URL(trimmed);
+    if (endpoint.protocol !== 'https:' && endpoint.protocol !== 'http:') return 'API 地址必须使用 HTTP 或 HTTPS';
+    if (!endpoint.hostname.replace(/\.+$/, '')) return 'API 地址缺少有效的主机名或 IP';
+    if (endpoint.username || endpoint.password) return 'API 地址不能包含用户名或密码';
+    // search/hash omit empty delimiters; href preserves them and encoded path characters.
+    if (endpoint.href.split('#', 1)[0].includes('?')) return 'API 地址不能包含查询参数（?）';
+    if (endpoint.href.includes('#')) return 'API 地址不能包含锚点（#）';
+    if (endpoint.port === '0') return 'API 地址端口必须在 1 到 65535 之间';
+    return null;
   } catch {
-    return false;
+    // URL rejects malformed/out-of-range ports before exposing .port. Only
+    // inspect a recognizable authority to explain that parse failure precisely.
+    const port = trimmed.match(/^https?:\/\/(?:[^/?#]*@)?(?:\[[^\]]+\]|[^:/?#@]+):([^/?#]*)(?:[/?#]|$)/i)?.[1];
+    if (port && (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535)) {
+      return 'API 地址端口必须在 1 到 65535 之间';
+    }
+    return 'API 地址无效';
   }
+}
+
+function isValidEndpoint(value: string): boolean {
+  return endpointValidationError(value) === null;
+}
+
+function isCompleteProfile(profile: ModelProfile): boolean {
+  return profile.model.trim().length > 0 && profile.apiKey.trim().length > 0 && isValidEndpoint(profile.baseUrl);
 }
 
 export default function SettingsModal({ settings, storage, onSave, onClose }: SettingsModalProps) {
@@ -73,7 +88,8 @@ export default function SettingsModal({ settings, storage, onSave, onClose }: Se
     }));
   }
 
-  const valid = collection.profiles.every((profile) => profile.model.trim().length > 0 && profile.apiKey.trim().length > 0 && isValidEndpoint(profile.baseUrl));
+  const valid = collection.profiles.every(isCompleteProfile);
+  const endpointError = draft ? endpointValidationError(draft.baseUrl) : null;
 
   async function save() {
     setSaving(true);
@@ -93,6 +109,7 @@ export default function SettingsModal({ settings, storage, onSave, onClose }: Se
           <button type="button" className="icon-button modal-close" onClick={onClose} disabled={saving} aria-label={t("关闭模型配置")}><X size={18} /></button>
         </header>
 
+        <div className="settings-scroll">
         <fieldset className="settings-body" disabled={saving}>
           <div className="language-settings field-group">
             <label htmlFor="interface-language">{t('界面语言')}</label>
@@ -107,6 +124,7 @@ export default function SettingsModal({ settings, storage, onSave, onClose }: Se
             <div className="profile-list">
               {collection.profiles.map((profile) => <button type="button" aria-pressed={profile.id === draft?.id} className={profile.id === draft?.id ? 'selected' : ''} key={profile.id} onClick={() => { setEditingId(profile.id); setShowKey(false); }}>
                 <span>{profile.name || profile.model || t('新模型')}</span>{profile.id === collection.activeId && <small>{t('当前使用')}</small>}
+                {!isCompleteProfile(profile) && <small className="profile-incomplete">{t('未完成')}</small>}
               </button>)}
             </div>
           </div>
@@ -140,9 +158,12 @@ export default function SettingsModal({ settings, storage, onSave, onClose }: Se
                 value={draft.baseUrl}
                 onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
                 placeholder="https://api.example.com:8443/v1"
-                aria-describedby="base-url-help"
+                aria-invalid={Boolean(endpointError)}
+                aria-describedby={endpointError ? 'base-url-error base-url-help' : 'base-url-help'}
+                aria-errormessage={endpointError ? 'base-url-error' : undefined}
                 spellCheck={false}
               />
+              {endpointError && <p id="base-url-error" className="profile-validation" role="status">{t(endpointError)}</p>}
               <small id="base-url-help">{t("HTTPS 域名会严格校验证书；HTTPS IP 会跳过证书校验，仅用于可信网络。端口不参与证书校验。本机或私网也可使用 HTTP（如 http://127.0.0.1:11434/v1）。")}</small>
             </div>
             <div className="field-group">
@@ -175,6 +196,7 @@ export default function SettingsModal({ settings, storage, onSave, onClose }: Se
             <div><strong>{storage === 'system' ? t("配置将安全保存在本机") : t("配置仅用于本次会话")}</strong><p>{storage === 'system' ? t("桌面端使用系统安全凭据库加密保存，重启后仍可使用；不会写入源码或服务端日志。浏览器预览环境不持久化密钥。") : t("当前使用内存存储，不访问系统凭据库，也不写入磁盘。退出后需重新填写。")}</p></div>
           </div>
         </fieldset>
+        </div>
 
         <footer className="settings-footer">
           <button type="button" className="secondary-button" onClick={onClose} disabled={saving}>{t("取消")}</button>

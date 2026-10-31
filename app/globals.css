@@ -281,8 +281,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .compose-footnote { margin: 8px 0 0; color: var(--muted-light); font-size: var(--font-caption); text-align: center; line-height: 1.55; }
 
 .modal-backdrop { z-index: 50; position: fixed; inset: 0; display: grid; place-items: center; padding: 22px; background: rgb(12 29 21 / 46%); backdrop-filter: blur(5px); animation: fade-in .14s ease-out; }
-.settings-modal { width: min(640px, 100%); max-height: min(760px, calc(100dvh - 34px)); overflow: auto; border: 1px solid rgb(255 255 255 / 55%); border-radius: 17px; background: #fff; box-shadow: var(--shadow-lg); animation: modal-in .18s ease-out; }
+.settings-modal { display: flex; flex-direction: column; width: min(640px, 100%); max-height: min(760px, calc(100dvh - 34px)); overflow: hidden; border: 1px solid rgb(255 255 255 / 55%); border-radius: 17px; background: #fff; box-shadow: var(--shadow-lg); animation: modal-in .18s ease-out; }
 .settings-header, .diff-header { position: relative; display: flex; align-items: center; gap: 11px; padding: 18px 19px; border-bottom: 1px solid var(--line); }
+.settings-header { flex: none; }
 .settings-icon, .diff-heading-icon { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--green-soft); color: var(--green); }
 .settings-header h2, .diff-header h2 { margin: 0; color: var(--ink); font-size: var(--font-heading); letter-spacing: -.01em; }
 .settings-header p, .diff-header p { margin: 4px 0 0; color: var(--muted); font-size: var(--font-caption);  line-height: 1.5;}
@@ -300,6 +301,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .confirmation-submit:hover { background: var(--green-dark); }
 .confirmation-submit.destructive { border-color: #a94f48; background: #a94f48; }
 .confirmation-submit.destructive:hover { border-color: #8e3f39; background: #8e3f39; }
+.settings-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .settings-body { padding: 20px; }
 .field-group > label { display: block; margin-bottom: 7px; color: var(--ink-soft); font-size: var(--font-ui); font-weight: 750; }
 .provider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -321,7 +323,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .secret-input button { position: absolute; top: 3px; right: 3px; width: 31px; height: 31px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
 .security-card { margin-top: 19px; display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 13px; border: 1px solid #cbe0d4; border-radius: 10px; background: #f0f8f4; color: var(--green); }
 .security-card strong { display: block; font-size: var(--font-ui); }.security-card p { margin: 4px 0 0; color: var(--muted); font-size: var(--font-caption); line-height: 1.55; }
-.settings-footer { position: sticky; bottom: 0; z-index: 1; display: flex; justify-content: flex-end; gap: 8px; padding: 13px 19px; border-top: 1px solid var(--line); background: #fafbfa; }
+.settings-footer { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 13px 19px; border-top: 1px solid var(--line); background: #fafbfa; }
 .secondary-button, .confirm-button { min-height: 35px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 13px; border-radius: 8px; font-size: var(--font-ui); font-weight: 750; }
 .secondary-button { border: 1px solid var(--line-strong); background: #fff; color: var(--ink-soft); }
 .confirm-button { border: 1px solid var(--green); background: var(--green); color: #fff; }
@@ -501,6 +503,7 @@ fieldset.settings-body { margin: 0; border: 0; min-width: 0; }
 .profile-list button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .profile-list button.selected { background: var(--green-soft); border-color: var(--green); }
 .profile-list small { flex: none; color: var(--green); }
+.profile-list .profile-incomplete { color: var(--amber); }
 .profile-actions { justify-content: flex-end; }
 .profile-actions + .field-group { margin-bottom: 16px; }
 .profile-validation { color: var(--amber); font-size: var(--font-caption); }

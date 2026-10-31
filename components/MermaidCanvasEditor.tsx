@@ -643,6 +643,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   const draggingRef = useRef<DragState | null>(null);
   const resizingRef = useRef<ResizeState | null>(null);
   const connectionDragRef = useRef<ConnectionDrag | null>(null);
+  const suppressConnectionClickRef = useRef(false);
   const interactionCaptureRef = useRef<{ pointerId: number; element: HTMLElement | SVGElement } | null>(null);
   const didPanRef = useRef(false);
   const pendingViewportRef = useRef<PendingViewport | null>(null);
@@ -835,6 +836,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     }
     const activeConnection = connectionDragRef.current;
     if (activeConnection && (pointerId === undefined || activeConnection.pointerId === pointerId)) {
+      if (activeConnection.source === 'lifeline') suppressConnectionClickRef.current = true;
       connectionDragRef.current = null;
       setConnectionDrag(null);
     }
@@ -1256,6 +1258,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         connectionDragRef.current = null;
         setConnectionDrag(null);
         const moved = activeConnection.moved;
+        if (activeConnection.source === 'lifeline') suppressConnectionClickRef.current = moved;
         if (!moved) {
           if (activeConnection.source === 'lifeline') {
             setSelection({ kind: 'node', id: activeConnection.from });
@@ -2024,6 +2027,17 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     if (connectMode || event.detail === 0) activateNode(node);
   }
 
+  function handleSequenceLifelineClick(event: ReactMouseEvent<HTMLElement | SVGElement>, node: MermaidFlowNode, selectWhenIdle = false) {
+    event.stopPropagation();
+    const suppressed = suppressConnectionClickRef.current;
+    suppressConnectionClickRef.current = false;
+    // A completed/cancelled drag can still emit a click. It must not append a
+    // second message; keyboard activation (detail 0) is a separate action.
+    if (suppressed && event.detail > 0) return;
+    if (connectMode && event.detail > 1) return;
+    if ((connectMode || selectWhenIdle) && !handTool && !spacePressedRef.current) activateNode(node);
+  }
+
   function beginConnectionFrom(nodeId: string) {
     setConnectionIssue(null);
     setConnectMode(true);
@@ -2188,6 +2202,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     event.preventDefault();
     event.stopPropagation();
     cancelPointerInteractions();
+    suppressConnectionClickRef.current = false;
     setConnectionIssue(null);
     setSelection({ kind: 'node', id: nodeId });
     setEditingNodeId(null);
@@ -2889,11 +2904,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                       onPointerDown={(event) => startConnectionDrag(event, node.id, 'lifeline')}
                       onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                       onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (connectMode && event.detail > 1) return;
-                        if (!handTool && !spacePressedRef.current) activateNode(node);
-                      }}
+                      onClick={(event) => handleSequenceLifelineClick(event, node, true)}
                     />
                   );
                 }) : null}
@@ -3039,7 +3050,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                         onPointerDown={(event) => startConnectionDrag(event, node.id, 'lifeline')}
                         onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                         onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
-                        onClick={(event) => event.stopPropagation()}
+                        onClick={(event) => handleSequenceLifelineClick(event, node)}
                         aria-label={t("从 {0} 生命线拖动创建消息", displayLabel)}
                         title={t("拖动生命线创建消息")}
                       />

@@ -67,5 +67,8 @@ export function mergeAiContextDocuments(
 ): AiContextDocument[] {
   const merged = new Map(current.map((document) => [document.path, document]));
   for (const document of incoming) merged.set(document.path, document);
-  return [...merged.values()].slice(0, MAX_AI_CONTEXT_FILES);
+  if (merged.size > MAX_AI_CONTEXT_FILES) {
+    throw new Error('最多可保留 ' + MAX_AI_CONTEXT_FILES + ' 个上下文文件，请先移除现有资料');
+  }
+  return [...merged.values()];
 }

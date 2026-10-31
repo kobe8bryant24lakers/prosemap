@@ -318,7 +318,10 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
           className="mermaid-fullscreen-backdrop"
           role="presentation"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setFullscreenOpen(false);
+            if (event.target !== event.currentTarget) return;
+            // Dismissal restores the opener; the same mousedown must not blur it.
+            event.preventDefault();
+            setFullscreenOpen(false);
           }}
         >
           <section ref={fullscreenDialogRef} className="mermaid-fullscreen-dialog" role="dialog" aria-modal="true" aria-labelledby={fullscreenTitleId} tabIndex={-1}>

@@ -223,6 +223,7 @@ export default function Home() {
   const [localWorkspace, setLocalWorkspace] = useState<LocalWorkspace | null>(null);
   const [fileExplorerOpen, setFileExplorerOpen] = useState(false);
   const [aiContextDocuments, setAiContextDocuments] = useState<AiContextDocument[]>([]);
+  const aiContextDocumentsRef = useRef<AiContextDocument[]>([]);
   const [isDirty, setIsDirty] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [confirmation, setConfirmation] = useState<ActiveConfirmation | null>(null);
@@ -314,20 +315,29 @@ export default function Home() {
     { key: 'Mod-Shift-f', run: () => { void formatCurrentCodeBlock(); return true; } },
   ])], [formatCurrentCodeBlock, locale, rawDocument]);
 
+  const replaceAiContextDocuments = useCallback((documents: AiContextDocument[]) => {
+    aiContextDocumentsRef.current = documents;
+    setAiContextDocuments(documents);
+  }, []);
+
   const addAiContextFiles = useCallback(async () => {
+    const session = documentSessionRef.current;
     try {
       const picked = await pickAiContextFiles();
-      if (!picked.length) return;
-      setAiContextDocuments((current) => mergeAiContextDocuments(current, picked));
+      if (session !== documentSessionRef.current || !picked.length) return;
+      // Validate the complete batch against the latest list before committing it.
+      const merged = mergeAiContextDocuments(aiContextDocumentsRef.current, picked);
+      replaceAiContextDocuments(merged);
       showToast('success', t("上下文资料已更新"));
     } catch (reason) {
-      showToast('error', reason instanceof Error ? reason.message : t("无法读取上下文文件"));
+      if (session !== documentSessionRef.current) return;
+      showToast('error', typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("无法读取上下文文件"));
     }
-  }, [showToast]);
+  }, [replaceAiContextDocuments, showToast]);
 
   const removeAiContextFile = useCallback((path: string) => {
-    setAiContextDocuments((current) => current.filter((document) => document.path !== path));
-  }, []);
+    replaceAiContextDocuments(aiContextDocumentsRef.current.filter((document) => document.path !== path));
+  }, [replaceAiContextDocuments]);
 
   const updateDirtyState = useCallback((dirty: boolean) => {
     dirtyRef.current = dirty;
@@ -443,7 +453,7 @@ export default function Home() {
     setLocalPath(document.path);
     documentPathRef.current = document.path;
     savedContentRef.current = document.path ? document.content : null;
-    setAiContextDocuments([]);
+    replaceAiContextDocuments([]);
     setSelection({ from: 0, to: 0, text: '' });
     setCursorLine(1);
     updateDirtyState(false);
@@ -451,7 +461,7 @@ export default function Home() {
     workbenchPendingRef.current = false;
     setMermaidWorkbench(null);
     if (announcement) showToast('success', announcement);
-  }, [showToast, updateDirtyState]);
+  }, [replaceAiContextDocuments, showToast, updateDirtyState]);
 
   const commitDocumentReplacement = useCallback(async (
     requestId: number,

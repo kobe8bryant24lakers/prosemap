@@ -2023,17 +2023,17 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         duplicateSelection();
         return;
       }
-      if (event.key === '+' || event.key === '=' || event.code === 'NumpadAdd') {
+      if (!isControl && (event.key === '+' || event.key === '=' || event.code === 'NumpadAdd')) {
         event.preventDefault();
         zoomAroundViewportCenter(zoomRef.current + 0.1);
         return;
       }
-      if (event.key === '-' || event.key === '_' || event.code === 'NumpadSubtract') {
+      if (!isControl && (event.key === '-' || event.key === '_' || event.code === 'NumpadSubtract')) {
         event.preventDefault();
         zoomAroundViewportCenter(zoomRef.current - 0.1);
         return;
       }
-      if (event.key === '0' || event.code === 'Numpad0') {
+      if (!isControl && (event.key === '0' || event.code === 'Numpad0')) {
         event.preventDefault();
         zoomAroundViewportCenter(1);
         return;

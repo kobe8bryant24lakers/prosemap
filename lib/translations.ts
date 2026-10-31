@@ -785,6 +785,7 @@ export const english: Record<string, string> = {
   "仅支持 UTF-8 编码的 Markdown 文件": "Markdown files must use UTF-8 encoding",
   "请选择文件夹": "Choose a folder",
   "一次最多选择 {0} 个上下文文件": "Select up to {0} context files at once",
+  "最多可保留 {0} 个上下文文件，请先移除现有资料": "Keep up to {0} context files. Remove existing files before adding more.",
   "上下文仅支持常见文本、资料与代码文件": "Context supports common text, reference, and code files",
   "无法读取上下文文件信息": "Could not read context file information",
   "上下文文件 {0} 不能超过 2 MB": "Context file {0} must be no larger than 2 MB",

@@ -302,7 +302,15 @@ export default function Home() {
     'match case': '区分大小写', 'regexp': '正则表达式', 'by word': '全词匹配',
     'replace': '替换', 'replace all': '全部替换', 'close': '关闭查找',
     'current match': '当前匹配', 'on line': '所在行', 'No matches': '没有匹配项',
-  } : {}), keymap.of([
+  } : {}), Prec.high(keymap.of([
+    { key: 'Mod-Shift-m', run: (view) => {
+      // Override the default Diagnostics binding only in the document editor.
+      if (!view.hasFocus) return false;
+      setAssistantAction('mermaid');
+      setAssistantOpen(true);
+      return true;
+    } },
+  ])), keymap.of([
     { key: 'Mod-Shift-f', run: () => { void formatCurrentCodeBlock(); return true; } },
   ])], [formatCurrentCodeBlock, locale, rawDocument]);
 
@@ -646,6 +654,8 @@ export default function Home() {
         return;
       }
       if (!dialogs.length && event.shiftKey && key === 'm') {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
         event.preventDefault();
         setAssistantAction('mermaid');
         setAssistantOpen(true);

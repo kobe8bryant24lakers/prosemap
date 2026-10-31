@@ -838,5 +838,63 @@ export const english: Record<string, string> = {
   "模型响应解码失败": "Could not decode the model response",
   "发送模型请求失败": "Could not send the model request",
   "模型返回了无效的流式数据": "The model returned invalid streaming data",
-  "上游模型服务返回错误": "The upstream model service returned an error"
+  "上游模型服务返回错误": "The upstream model service returned an error",
+  "无法向编辑器传递模型推理": "Could not deliver model reasoning to the editor",
+  "无法向编辑器传递模型响应": "Could not deliver the model response to the editor",
+  "模型响应超过大小限制": "The model response exceeds the size limit",
+  "无法完成模型响应": "Could not complete the model response",
+  "模型输出超过 8 MB 限制": "The model output exceeds the 8 MB limit",
+  "模型返回了无效的 UTF-8 数据": "The model returned invalid UTF-8 data",
+  "模型响应提前结束，请重试": "The model response ended early. Please retry.",
+  "请求标识重复": "Duplicate request ID"
 };
+
+
+/** Only application-owned error envelopes from ai.rs; all slots remain opaque. */
+export const modelErrorTemplates: Record<string, string> = {
+  "无法解析 API 主机名 {0}：{1}。请求地址：{2}": "Could not resolve API hostname {0}: {1}. Request URL: {2}",
+  "API 地址返回了重定向（HTTP {0}）；为保护密钥，应用不会自动跟随。请填写最终 API 地址。请求地址：{1}": "The API endpoint redirected (HTTP {0}). To protect your key, the app will not follow redirects. Enter the final API endpoint. Request URL: {1}",
+  "模型服务返回了无法识别的内容（Content-Type: 未提供）。请检查 API 地址与服务类型。请求地址：{0}": "The model service returned unrecognized content without a Content-Type header. Check the API endpoint and service type. Request URL: {0}",
+  "模型服务返回了无法识别的内容（Content-Type: {0}）。请检查 API 地址与服务类型。请求地址：{1}": "The model service returned unrecognized content (Content-Type: {0}). Check the API endpoint and service type. Request URL: {1}",
+  "模型服务返回了空内容或不兼容的响应格式。请检查服务类型与模型接口。请求地址：{0}": "The model service returned empty content or an incompatible response format. Check the service type and model API. Request URL: {0}",
+};
+
+for (const summary of [
+  "请求格式或参数不受模型服务支持", "API 密钥无效或未获得授权",
+  "模型账户余额或付费状态异常", "模型服务拒绝访问当前模型或资源",
+  "API 路径或模型不存在", "API 路径不接受当前请求方法", "模型服务处理请求超时",
+  "模型服务拒绝了冲突的请求", "模型服务无法处理请求参数",
+  "请求过于频繁、额度不足或已达到限额", "上游模型服务暂时不可用", "上游模型服务拒绝了本次请求",
+]) {
+  const zh = summary + "（HTTP {0}）。请求地址：{1}";
+  const en = english[summary] + " (HTTP {0}). Request URL: {1}";
+  // Match the detailed form first so the upstream text is one untouched value.
+  modelErrorTemplates[zh + "。服务返回：{2}"] = en + ". Service response: {2}";
+  modelErrorTemplates[zh] = en;
+}
+
+for (const summary of [
+  "TLS 握手或证书校验失败，请检查服务证书链或企业代理证书",
+  "模型服务拒绝连接，请确认服务已启动且 API 端口正确",
+  "模型服务所在网络不可达，请检查网络、VPN 或代理",
+  "模型服务域名解析失败，请检查 API 地址或 DNS", "代理连接失败，请检查代理地址、认证与放行规则",
+  "连接被模型服务或中间代理意外断开", "连接模型服务超时，请检查 API 地址、网络、VPN 或代理",
+  "等待模型服务响应超时，请稍后重试或缩小处理内容",
+  "无法与模型服务建立 TCP 连接，请检查地址、端口、网络或代理",
+  "模型请求构造失败，请检查 API 地址与请求配置", "模型请求或响应数据传输失败",
+  "模型响应解码失败", "发送模型请求失败",
+]) {
+  const zh = summary + "。请求地址：{0}";
+  const en = english[summary].replace(/\.$/, "") + ". Request URL: {0}";
+  for (const [source, translated] of [[zh, en], ["模型流式响应意外中断。" + zh, "The model stream was interrupted. " + en]]) {
+    modelErrorTemplates[source + "。底层原因：{1}"] = translated + ". Root cause: {1}";
+    modelErrorTemplates[source] = translated;
+  }
+}
+
+for (const summary of [
+  "API 主机名没有可用的网络地址", "API 地址解析到了不可用的网络地址",
+  "HTTP API 地址仅允许本机、私有网络或链路本地目标", "API 地址缺少有效端口", "API 地址缺少有效的主机名或 IP",
+]) {
+  modelErrorTemplates[summary + "。请求地址：{0}"] = english[summary] + ". Request URL: {0}";
+}

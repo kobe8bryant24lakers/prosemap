@@ -2038,7 +2038,12 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         zoomAroundViewportCenter(zoomRef.current + 0.1);
         return;
       }
-      if (!isControl && (event.key === '-' || event.key === '_' || event.code === 'NumpadSubtract')) {
+      // The native Ctrl+Shift+Minus path can report two em dashes. Keep this
+      // alias narrow so other layouts' physical Minus keys retain their meaning.
+      const localizedMinus = event.key === '\u2014\u2014' && event.code === 'Minus'
+        && event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey
+        && !event.nativeEvent.isComposing;
+      if (!isControl && (event.key === '-' || event.key === '_' || event.code === 'NumpadSubtract' || localizedMinus)) {
         event.preventDefault();
         zoomAroundViewportCenter(zoomRef.current - 0.1);
         return;

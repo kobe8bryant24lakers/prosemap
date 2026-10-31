@@ -197,6 +197,49 @@ function preserveMemberEdits(source: string, before: MermaidVisualGraph, after: 
   } catch { return null; }
 }
 
+/** Reordering sequence messages changes message slots, not the intervening
+ * directives. A generic line diff can instead move/reformat those directives.
+ * Handle only a pure permutation with unambiguous, exact message spellings. */
+function preserveSequenceMessageOrder(source: string, before: MermaidVisualGraph, after: MermaidVisualGraph, previous: string, next: string) {
+  if (before.kind !== 'sequence' || after.kind !== 'sequence'
+    || JSON.stringify({ ...before, edges: [] }) !== JSON.stringify({ ...after, edges: [] })
+    || before.edges.length !== after.edges.length) return null;
+  const originals = new Map(before.edges.map(edge => [edge.id, JSON.stringify(edge)]));
+  if (originals.size !== before.edges.length || new Set(after.edges.map(edge => edge.id)).size !== after.edges.length
+    || after.edges.some(edge => originals.get(edge.id) !== JSON.stringify(edge))) return null;
+
+  const raw = sourceLines(source, 'sequence');
+  const oldLines = sourceLines(previous, 'sequence');
+  const newLines = sourceLines(next, 'sequence');
+  if (oldLines.length !== newLines.length) return null;
+  const locations = new Map<string, number[]>();
+  const canonicalCounts = new Map<string, number>();
+  raw.forEach((line, index) => locations.set(line.text.trim(), [...locations.get(line.text.trim()) ?? [], index]));
+  oldLines.forEach(line => canonicalCounts.set(line.text.trim(), (canonicalCounts.get(line.text.trim()) ?? 0) + 1));
+  const locate = (text: string) => {
+    const key = text.trim();
+    const found = locations.get(key);
+    return canonicalCounts.get(key) === 1 && found?.length === 1 ? found[0] : -1;
+  };
+  const isMessage = (text: string) => parseMermaidVisualSource(`sequenceDiagram\n${text}`)?.edges.length === 1;
+  const edits: Array<{ at: number; text: string }> = [];
+  for (let index = 0; index < oldLines.length; index++) {
+    if (oldLines[index].text === newLines[index].text) continue;
+    if (!isMessage(oldLines[index].text) || !isMessage(newLines[index].text)) return null;
+    const at = locate(oldLines[index].text);
+    const from = locate(newLines[index].text);
+    if (at < 0 || from < 0) return null;
+    const slot = raw[at].text;
+    edits.push({ at, text: slot.match(/^\s*/)![0] + raw[from].text.trim() + slot.match(/\s*$/)![0] });
+  }
+  for (const edit of edits) raw[edit.at].text = edit.text;
+  const candidate = raw.map(line => line.text + line.eol).join('');
+  try {
+    const parsed = parseMermaidVisualSource(candidate);
+    return parsed && serializeMermaidVisualGraph(parsed) === next ? candidate : null;
+  } catch { return null; }
+}
+
 /** Project canonical graph changes onto original source locations. Mapping is
  * scoped for members and groups; ambiguous occurrences are never guessed.
  * Reparse the complete result before accepting a source-preserving edit. */
@@ -217,6 +260,8 @@ export function preserveMermaidSource(source: string, before: MermaidVisualGraph
   } catch { return next; }
   if (previous === next) return source;
   if (before.kind !== after.kind) return next;
+  const sequenceOrder = preserveSequenceMessageOrder(source, before, after, previous, next);
+  if (sequenceOrder !== null) return sequenceOrder;
   if (before.kind === 'flowchart') {
     const inlineEdit = preserveFlowchartNodeEdits(source, before, after, next);
     if (inlineEdit !== null) return inlineEdit;

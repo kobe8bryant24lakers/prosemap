@@ -493,6 +493,20 @@ function parseClassToken(token = '-->') {
   };
 }
 
+type ClassRelationMarker = 'none' | 'open' | 'triangle' | 'diamond' | 'filled-diamond';
+
+function classRelationMarkers(relation: string): [ClassRelationMarker, ClassRelationMarker] {
+  switch (relation) {
+    case '<|--': return ['triangle', 'none'];
+    case '*--': return ['filled-diamond', 'none'];
+    case 'o--': return ['diamond', 'none'];
+    case '..|>': return ['none', 'triangle'];
+    case '-->':
+    case '..>': return ['none', 'open'];
+    default: return ['none', 'none'];
+  }
+}
+
 function classRelationLabel(token = '-->') {
   const relation = parseClassToken(token).relation;
   return CLASS_RELATION_OPTIONS.find((option) => option.value === relation)?.label ?? relation;
@@ -2833,6 +2847,12 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                 <marker id={asyncMarkerId} markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
                   <path className="canvas-marker-async" d="M 1 1 L 8 5 L 1 9" />
                 </marker>
+                {(['open', 'triangle', 'diamond', 'filled-diamond'] as const).map((shape) => {
+                  const diamond = shape === 'diamond' || shape === 'filled-diamond';
+                  return <marker key={shape} id={`canvas-class-${shape}-${canvasId}`} markerWidth={diamond ? 13 : 11} markerHeight="10" refX={diamond ? 11 : 9} refY="5" orient="auto-start-reverse" markerUnits="strokeWidth">
+                    <path className={`canvas-marker-class ${shape}`} d={diamond ? 'M 1 5 L 6 1 L 11 5 L 6 9 Z' : `M 1 1 L 9 5 L 1 9${shape === 'triangle' ? ' Z' : ''}`} />
+                  </marker>;
+                })}
                 <filter id={sketchFilterId} filterUnits="userSpaceOnUse" x={-120} y={-120} width={stageWidth + 240} height={stageHeight + 240} colorInterpolationFilters="sRGB">
                   <feTurbulence type="fractalNoise" baseFrequency="0.015 0.075" numOctaves="1" seed="7" result="sketchNoise" />
                   <feDisplacementMap in="SourceGraphic" in2="sketchNoise" scale="1.35" xChannelSelector="R" yChannelSelector="G" />
@@ -2864,20 +2884,22 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                   const selected = selection?.kind === 'edge' && selection.id === edge.id;
                   const rawRelation = graph.kind === 'class' ? parseClassToken(edge.data?.token).relation : edge.data?.token ?? '';
                   const sequenceVisual = graph.kind === 'sequence' ? mermaidSequenceMessageVisual(rawRelation) : null;
+                  const classMarkers = graph.kind === 'class' ? classRelationMarkers(rawRelation) : null;
                   const tokenDashed = sequenceVisual?.dashed ?? rawRelation.startsWith('..');
                   const markerEnd = graph.kind === 'flowchart'
                     ? edge.style !== 'line'
-                    : graph.kind === 'state' || graph.kind === 'gantt'
-                      || (graph.kind === 'class' && rawRelation.endsWith('>') && !rawRelation.startsWith('<|'));
-                  const markerStartUrl = sequenceVisual ? sequenceMarkerUrl(sequenceVisual.startMarker) : undefined;
+                    : graph.kind === 'state' || graph.kind === 'gantt';
+                  const classMarkerUrl = (marker: ClassRelationMarker) => marker === 'none' ? undefined : `url(#canvas-class-${marker}-${canvasId})`;
+                  const markerStartUrl = sequenceVisual ? sequenceMarkerUrl(sequenceVisual.startMarker) : classMarkers ? classMarkerUrl(classMarkers[0]) : undefined;
                   const markerEndUrl = sequenceVisual
                     ? sequenceMarkerUrl(sequenceVisual.endMarker)
-                    : markerEnd ? `url(#${markerId})` : undefined;
+                    : classMarkers ? classMarkerUrl(classMarkers[1]) : markerEnd ? `url(#${markerId})` : undefined;
+                  const markerShapeKey = sequenceVisual ? `${sequenceVisual.startMarker}:${sequenceVisual.endMarker}` : classMarkers?.join(':');
                   return (
                     <g key={edge.id} className={`canvas-edge kind-${graph.kind} ${edge.style}${tokenDashed ? ' token-dashed' : ''}${selected ? ' selected' : ''}`} data-mermaid-edge-id={edge.id}>
                       {/* WebKit can retain stale marker paint after an attribute change.
                           Replace only the visible path when its marker shapes change. */}
-                      <path key={sequenceVisual ? `${sequenceVisual.startMarker}:${sequenceVisual.endMarker}` : undefined} className="canvas-edge-visible" d={geometry.path} markerStart={markerStartUrl} markerEnd={markerEndUrl} />
+                      <path key={markerShapeKey} className="canvas-edge-visible" d={geometry.path} markerStart={markerStartUrl} markerEnd={markerEndUrl} />
                       <path
                         className="canvas-edge-hit"
                         d={geometry.path}

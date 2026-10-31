@@ -24,9 +24,8 @@ export default function DiffModal({ proposal, onAccept, onReject, onStop }: Diff
     let added = 0;
     let removed = 0;
     for (const change of changes) {
-      const lines = Math.max(1, change.value.split('\n').filter(Boolean).length);
-      if (change.added) added += lines;
-      if (change.removed) removed += lines;
+      if (change.added) added += change.count;
+      if (change.removed) removed += change.count;
     }
     return { added, removed };
   }, [changes]);

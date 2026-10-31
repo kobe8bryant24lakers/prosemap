@@ -2853,6 +2853,16 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                     <path className={`canvas-marker-class ${shape}`} d={diamond ? 'M 1 5 L 6 1 L 11 5 L 6 9 Z' : `M 1 1 L 9 5 L 1 9${shape === 'triangle' ? ' Z' : ''}`} />
                   </marker>;
                 })}
+                {ER_CARDINALITIES.map(({ value }) => {
+                  const many = value.endsWith('many'), zero = value.startsWith('zero');
+                  const path = many
+                    ? `M 10 6 L 17 1 M 10 6 L 17 11${zero ? '' : ' M 4 1 V 11'}`
+                    : zero ? 'M 15 1 V 11' : 'M 10 1 V 11 M 15 1 V 11';
+                  return <marker key={value} id={`canvas-er-${value}-${canvasId}`} markerWidth="19" markerHeight="12" refX="18" refY="6" orient="auto-start-reverse" markerUnits="strokeWidth">
+                    <path className="canvas-marker-er" d={path} />
+                    {zero ? <circle className="canvas-marker-er circle" cx="4" cy="6" r="3" /> : null}
+                  </marker>;
+                })}
                 <filter id={sketchFilterId} filterUnits="userSpaceOnUse" x={-120} y={-120} width={stageWidth + 240} height={stageHeight + 240} colorInterpolationFilters="sRGB">
                   <feTurbulence type="fractalNoise" baseFrequency="0.015 0.075" numOctaves="1" seed="7" result="sketchNoise" />
                   <feDisplacementMap in="SourceGraphic" in2="sketchNoise" scale="1.35" xChannelSelector="R" yChannelSelector="G" />
@@ -2885,16 +2895,22 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                   const rawRelation = graph.kind === 'class' ? parseClassToken(edge.data?.token).relation : edge.data?.token ?? '';
                   const sequenceVisual = graph.kind === 'sequence' ? mermaidSequenceMessageVisual(rawRelation) : null;
                   const classMarkers = graph.kind === 'class' ? classRelationMarkers(rawRelation) : null;
-                  const tokenDashed = sequenceVisual?.dashed ?? rawRelation.startsWith('..');
+                  const erRelation = graph.kind === 'er' ? parseErToken(rawRelation) : null;
+                  const tokenDashed = sequenceVisual?.dashed ?? (erRelation ? !erRelation.identifying : rawRelation.startsWith('..'));
                   const markerEnd = graph.kind === 'flowchart'
                     ? edge.style !== 'line'
                     : graph.kind === 'state' || graph.kind === 'gantt';
                   const classMarkerUrl = (marker: ClassRelationMarker) => marker === 'none' ? undefined : `url(#canvas-class-${marker}-${canvasId})`;
-                  const markerStartUrl = sequenceVisual ? sequenceMarkerUrl(sequenceVisual.startMarker) : classMarkers ? classMarkerUrl(classMarkers[0]) : undefined;
+                  const erMarkerUrl = (cardinality: ErCardinality) => `url(#canvas-er-${cardinality}-${canvasId})`;
+                  const markerStartUrl = sequenceVisual
+                    ? sequenceMarkerUrl(sequenceVisual.startMarker)
+                    : classMarkers ? classMarkerUrl(classMarkers[0]) : erRelation ? erMarkerUrl(erRelation.from) : undefined;
                   const markerEndUrl = sequenceVisual
                     ? sequenceMarkerUrl(sequenceVisual.endMarker)
-                    : classMarkers ? classMarkerUrl(classMarkers[1]) : markerEnd ? `url(#${markerId})` : undefined;
-                  const markerShapeKey = sequenceVisual ? `${sequenceVisual.startMarker}:${sequenceVisual.endMarker}` : classMarkers?.join(':');
+                    : classMarkers ? classMarkerUrl(classMarkers[1]) : erRelation ? erMarkerUrl(erRelation.to) : markerEnd ? `url(#${markerId})` : undefined;
+                  const markerShapeKey = sequenceVisual
+                    ? `${sequenceVisual.startMarker}:${sequenceVisual.endMarker}`
+                    : classMarkers ? classMarkers.join(':') : erRelation ? `er:${erRelation.from}:${erRelation.to}` : undefined;
                   return (
                     <g key={edge.id} className={`canvas-edge kind-${graph.kind} ${edge.style}${tokenDashed ? ' token-dashed' : ''}${selected ? ' selected' : ''}`} data-mermaid-edge-id={edge.id}>
                       {/* WebKit can retain stale marker paint after an attribute change.

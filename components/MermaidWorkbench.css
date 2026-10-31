@@ -249,6 +249,8 @@
 .canvas-edge-layer marker .canvas-marker-class { fill: var(--canvas-marker-background, #f3f7f4); stroke: #557669; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1000 0; }
 .canvas-edge-layer marker .canvas-marker-class.open { fill: none; }
 .canvas-edge-layer marker .canvas-marker-class.filled-diamond { fill: #557669; }
+.canvas-edge-layer marker .canvas-marker-er { fill: none; stroke: #557669; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1000 0; }
+.canvas-edge-layer marker .canvas-marker-er.circle { fill: var(--canvas-marker-background, #f3f7f4); }
 .canvas-style-handdrawn { --canvas-marker-background: #faf9f3; }
 .canvas-edge-visible, .canvas-edge-preview { fill: none; stroke: #557669; stroke-width: 2; }
 .canvas-edge.dotted .canvas-edge-visible { stroke-dasharray: 6 6; }

@@ -198,6 +198,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 /* Class relationship outlines need the same old-WebKit paint reset; keep
    realization triangles and dependency arrowheads solid on dashed edges. */
 :is(.mermaid-svg, .mermaid-fullscreen-svg) marker.classDiagram :is(path, polygon) { stroke-dasharray: 1000 0!important; }
+/* ER circles, cardinality bars and crow feet also remain continuous when the
+   relationship itself is non-identifying (dashed). */
+:is(.mermaid-svg, .mermaid-fullscreen-svg) marker.er :is(path, circle) { stroke-dasharray: 1000 0!important; }
 .mermaid-loading { min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 11px; color: var(--muted); font-size: var(--font-ui); }
 .mermaid-loading i { width: 23px; height: 23px; border: 2px solid #d7e5de; border-top-color: var(--green); border-radius: 50%; animation: spin .8s linear infinite; }
 .mermaid-error { display: flex; flex-direction: column; padding: 20px; background: #fff8f7; color: var(--red); }

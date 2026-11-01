@@ -99,6 +99,39 @@ test('a group member may use free space inside its own ancestors', () => {
   assert.deepEqual(placeMermaidCanvasNode(graph, positions, node, preferred), preferred);
 });
 
+test('constrained insertion avoids occupied space without reversing the requested axis', () => {
+  const graph = parseMermaidVisualSource('flowchart LR\nsubgraph Busy["SYNTHETIC occupied boundary"]\nA["SYNTHETIC A"]\nB["SYNTHETIC B"]\nend');
+  const positions = { A: { x: 50, y: 50 }, B: { x: 9000, y: 9000 } };
+  const original = JSON.stringify(positions), node = { id: 'Added', label: 'SYNTHETIC added', shape: 'rectangle' };
+  const preferred = { x: 500, y: 500 };
+  // This boundary exceeds the local search radius and exercises the fallback too.
+  for (const minimum of [{ x: preferred.x }, { y: preferred.y }]) {
+    const point = placeMermaidCanvasNode(graph, positions, node, preferred, minimum);
+    if (minimum.x !== undefined) assert.ok(point.x >= minimum.x);
+    if (minimum.y !== undefined) assert.ok(point.y >= minimum.y);
+    assertContainment({ ...graph, nodes: [...graph.nodes, node] }, { ...positions, Added: point });
+  }
+  assert.equal(JSON.stringify(positions), original);
+});
+
+for (const fixture of fixtures.templates) test(`${fixture.template}: connected group insertion honors its own direction and preserves unrelated positions`, () => {
+  const graph = parseMermaidVisualSource(fixture.source), layout = layoutMermaidGraph(graph);
+  for (const direction of ['LR', 'TB', 'RL', 'BT']) {
+    const child = { id: 'SYNTHETIC_Child', label: 'SYNTHETIC child', shape: 'rectangle', data: { groupId: 'SyntheticInner' } };
+    const next = { ...graph, nodes: [...graph.nodes, child], edges: [...graph.edges, { ...graph.edges[0], id: 'SYNTHETIC_Edge', from: 'SyntheticLeaf', to: child.id }] };
+    const result = reconcileMermaidCanvasGroups(graph, next, layout, direction);
+    assertContainment(next, result.positions);
+    const a = result.positions.SyntheticLeaf, b = result.positions[child.id];
+    const aSize = mermaidCanvasNodeSize(graph.nodes.find(n => n.id === 'SyntheticLeaf'), graph.kind), bSize = mermaidCanvasNodeSize(child, graph.kind);
+    if (direction === 'LR') assert.ok(b.x >= a.x + aSize.width);
+    if (direction === 'TB') assert.ok(b.y >= a.y + aSize.height);
+    if (direction === 'RL') assert.ok(b.x + bSize.width <= a.x);
+    if (direction === 'BT') assert.ok(b.y + bSize.height <= a.y);
+    for (const node of graph.nodes.filter(n => !['SyntheticMiddle', 'SyntheticInner'].includes(n.data?.groupId))) assert.deepEqual(result.positions[node.id], layout.positions[node.id]);
+    assert.equal(next.direction, graph.direction);
+  }
+});
+
 function assertContainment(graph, positions) {
   const bounds = mermaidGroupBounds(graph, positions);
   const ancestors = id => { const result = new Set(); while (id) { result.add(id); id = graph.data.groups.find(g => g.id === id)?.parentId; } return result; };

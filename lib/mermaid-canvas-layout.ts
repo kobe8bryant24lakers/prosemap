@@ -258,6 +258,7 @@ export function placeMermaidCanvasNode(
   positions: MermaidCanvasNodePositions,
   node: MermaidFlowNode,
   preferred: MermaidCanvasPoint,
+  minimum: Partial<MermaidCanvasPoint> = {},
 ): MermaidCanvasPoint {
   const size = mermaidCanvasNodeSize(node, graph.kind);
   const occupied = graph.nodes.filter((other) => other.id !== node.id && positions[other.id]).map((other) => ({
@@ -269,7 +270,7 @@ export function placeMermaidCanvasNode(
   for (const [id, bounds] of Object.entries(mermaidGroupBounds(graph, positions))) {
     if (!ancestors.has(id)) occupied.push({ x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY });
   }
-  return placeCanvasBox(size, occupied, preferred, graph.kind === 'sequence');
+  return placeCanvasBox(size, occupied, preferred, graph.kind === 'sequence', minimum);
 }
 
 /** Empty boundaries need their own anchors, clear of nodes and other groups. */
@@ -287,8 +288,9 @@ export function placeMermaidCanvasGroup(
   return placeCanvasBox({ width: 220, height: 120 }, occupied, preferred, false);
 }
 
-function placeCanvasBox(size: Size, occupied: Array<MermaidCanvasPoint & Size>, preferred: MermaidCanvasPoint, sequence: boolean): MermaidCanvasPoint {
-  const origin = { x: Math.max(18, preferred.x), y: sequence ? 58 : Math.max(18, preferred.y) };
+function placeCanvasBox(size: Size, occupied: Array<MermaidCanvasPoint & Size>, preferred: MermaidCanvasPoint, sequence: boolean, minimum: Partial<MermaidCanvasPoint> = {}): MermaidCanvasPoint {
+  const minX = Math.max(18, minimum.x ?? 18), minY = Math.max(18, minimum.y ?? 18);
+  const origin = { x: Math.max(minX, preferred.x), y: sequence ? 58 : Math.max(minY, preferred.y) };
   const free = (p: MermaidCanvasPoint) => occupied.every((other) =>
     p.x + size.width + 24 <= other.x || other.x + other.width + 24 <= p.x
     || (!sequence && (p.y + size.height + 24 <= other.y || other.y + other.height + 24 <= p.y)));
@@ -299,7 +301,7 @@ function placeCanvasBox(size: Size, occupied: Array<MermaidCanvasPoint & Size>, 
       for (let y = -ring; y <= ring; y++) {
         if (Math.max(Math.abs(x), Math.abs(y)) !== ring || (sequence && y !== 0)) continue;
         const point = { x: origin.x + x * (size.width + 32), y: origin.y + y * (size.height + 32) };
-        if (point.x >= 18 && point.y >= 18 && free(point)) return point;
+        if (point.x >= minX && point.y >= (sequence ? 58 : minY) && free(point)) return point;
       }
     }
   }
@@ -828,7 +830,7 @@ export function reconcileMermaidCanvasNodes(graph: MermaidFlowGraph, current: Me
 }
 
 /** Repack only the group trees whose containment changed, keeping other manual positions. */
-export function reconcileMermaidCanvasGroups(previous: MermaidFlowGraph, graph: MermaidFlowGraph, current: MermaidCanvasLayout): MermaidCanvasLayout | null {
+export function reconcileMermaidCanvasGroups(previous: MermaidFlowGraph, graph: MermaidFlowGraph, current: MermaidCanvasLayout, insertionDirection?: MermaidFlowGraph['direction']): MermaidCanvasLayout | null {
   if (previous.kind !== 'flowchart' || graph.kind !== 'flowchart') return null;
   const oldGroups = new Map((previous.data?.groups ?? []).map(group => [group.id, group]));
   const groups = new Map((graph.data?.groups ?? []).map(group => [group.id, group]));
@@ -871,7 +873,9 @@ export function reconcileMermaidCanvasGroups(previous: MermaidFlowGraph, graph: 
   }
   if (!affectedRoots.size && !movedOutside.size) return null;
 
-  const fresh = layoutMermaidGraph(graph);
+  // Connected insertion has an explicit direction, independent of the diagram's
+  // default. Only affected group trees use it; unrelated manual positions stay put.
+  const fresh = layoutMermaidGraph(insertionDirection ? { ...graph, direction: insertionDirection } : graph);
   const freshBounds = mermaidGroupBounds(graph, fresh.positions);
   const oldBounds = mermaidGroupBounds(previous, current.positions);
   const positions = createSafeRecord<MermaidCanvasPoint>();

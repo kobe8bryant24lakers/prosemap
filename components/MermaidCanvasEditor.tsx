@@ -231,6 +231,7 @@ type CanvasNodePreset = {
 };
 type AddNodeOptions = {
   parentId?: string;
+  direction?: QuickAddDirection;
   presetId?: CanvasNodePresetId;
   edgeDirection?: 'from-parent' | 'to-parent';
   editLabel?: boolean;
@@ -763,7 +764,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     recordCanvasHistory();
   }
 
-  function commitGraph(nextGraph: MermaidFlowGraph, recordHistory = true) {
+  function commitGraph(nextGraph: MermaidFlowGraph, recordHistory = true, insertionDirection?: MermaidFlowGraph['direction']) {
     const current = currentGraphRef.current;
     // The parent serializes first; a rejected edit must never enter undo/redo.
     if (!onChange(nextGraph)) return false;
@@ -771,7 +772,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     if (recordHistory) {
       recordCanvasHistory();
     }
-    const groupedLayout = reconcileMermaidCanvasGroups(current, nextGraph, layoutRef.current);
+    const groupedLayout = reconcileMermaidCanvasGroups(current, nextGraph, layoutRef.current, insertionDirection);
     if (groupedLayout) {
       layoutRef.current = groupedLayout;
       setCanvasLayout(groupedLayout);
@@ -1558,7 +1559,10 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       : graph.kind === 'sequence' && graph.nodes.length
         ? { x: Math.max(...graph.nodes.map((other) => (positions[other.id]?.x ?? 0) + nodeSize(other, graph.kind).width)) + 76, y: 58 }
         : parentPosition ? fallback : visibleCenter;
-    const position = placeMermaidCanvasNode(graph, positions, node, preferred);
+    // Collision avoidance must not reverse a right/down quick-add action.
+    const minimum = options?.direction === 'right' ? { x: preferred.x }
+      : options?.direction === 'bottom' ? { y: preferred.y } : {};
+    const position = placeMermaidCanvasNode(graph, positions, node, preferred, minimum);
     setCanvasLayout((current) => {
       const nextPositions = safeCanvasRecord({ ...current.positions, [id]: position });
       return { ...current, positions: nextPositions, ...expandedMermaidCanvasStage(nextGraph, nextPositions, current) };
@@ -1568,7 +1572,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       const nextPositions = { ...positions, [id]: position };
       nextGraph.nodes.sort((a, b) => nextPositions[a.id].x - nextPositions[b.id].x);
     }
-    commitGraph(nextGraph);
+    const insertionDirection = options?.direction === 'right' ? 'LR'
+      : options?.direction === 'bottom' ? 'TB'
+        : options?.direction === 'left' ? 'RL'
+          : options?.direction === 'top' ? 'BT' : undefined;
+    commitGraph(nextGraph, true, insertionDirection);
     setSelection({ kind: 'node', id });
     setEditingNodeId(options?.editLabel === false || options?.presetId === 'state-start' || options?.presetId === 'state-end' ? null : id);
     setEditingEdgeId(null);
@@ -1602,6 +1610,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   ) {
     addNode(quickAddPoint(fromId, direction, presetId), {
       parentId: fromId,
+      direction,
       presetId,
       edgeDirection,
     });

@@ -949,10 +949,18 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     setConnectionIssue(null);
   }, [externalRevision, cancelPointerInteractions, finishViewportPanByPointerId]);
 
-  function applyAutomaticLayout(nextGraph = graph, autoFit = true) {
-    setCanvasLayout(layoutMermaidGraph(nextGraph));
+  function applyAutomaticLayout() {
+    finishPropertyEdit();
+    const nextLayout = layoutMermaidGraph(graph);
+    // Repeating the same arrangement may recenter the view, but it must not
+    // consume an undo step or discard a redo that still applies to the graph.
+    if (JSON.stringify(nextLayout) !== JSON.stringify(layoutRef.current)) {
+      recordCanvasHistory();
+    }
+    layoutRef.current = nextLayout;
     shouldCenterViewport.current = true;
-    if (autoFit) shouldAutoFitViewport.current = true;
+    shouldAutoFitViewport.current = true;
+    setCanvasLayout(nextLayout);
   }
 
   useLayoutEffect(() => {
@@ -2579,7 +2587,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           >
             <Link2 size={15} /> {copy.connect}
           </button>
-          <button type="button" onClick={() => { recordCanvasHistory(); applyAutomaticLayout(); }} title={t("重新排列{0}", copy.nodes)}><RefreshCcw size={14} />  {t("自动排列")}</button>
+          <button type="button" onClick={applyAutomaticLayout} title={t("重新排列{0}", copy.nodes)}><RefreshCcw size={14} />  {t("自动排列")}</button>
         </div>
 
         <div className="canvas-node-library" role="group" aria-label={t("{0}库", copy.node)}>

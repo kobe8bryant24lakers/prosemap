@@ -120,19 +120,23 @@ test('a structural button action after a property edit remains a separate histor
   expect(await draftSource(page)).toBe(classSource);
 });
 
-test('a toolbar action ends the property transaction even when it retains input focus', async ({ page }) => {
+test('a no-op layout ends the property transaction without adding an empty undo step', async ({ page }) => {
   await openSource(page, classSource);
   await node(page, 'A').click();
   const input = page.getByRole('textbox', { name: '类成员 1', exact: true });
   await appendKeys(input);
+  const positions = () => page.locator('.mermaid-canvas-node').evaluateAll(nodes =>
+    nodes.map(node => [(node as HTMLElement).style.left, (node as HTMLElement).style.top]));
+  const beforeLayout = await positions();
   await page.getByRole('button', { name: '自动排列', exact: true }).click();
+  expect(await positions()).toEqual(beforeLayout);
   await expect(input).toBeFocused();
   await appendKeys(input, ['a', 'b', 'c']);
   await canvasUndo(page);
   await expect(input).toHaveValue('+String syntheticIdxyz');
   await undo(page).click();
-  await expect(input).toHaveValue('+String syntheticIdxyz');
-  await undo(page).click();
+  await expect(input).toHaveValue('+String syntheticId');
+  await expect(undo(page)).toBeDisabled();
   expect(await draftSource(page)).toBe(classSource);
 });
 

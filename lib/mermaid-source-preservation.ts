@@ -399,6 +399,9 @@ export function preserveMermaidSource(source: string, before: MermaidVisualGraph
     newAt += added.length;
   }
   for (const edit of edits.sort((a, b) => b.at - a.at)) raw.splice(edit.at, edit.remove, ...edit.insert);
+  // Moving/deleting the last declaration exposes the previous separator as
+  // an EOF newline. Preserve whether the original source had that newline.
+  if (raw.length && !/[\r\n]$/.test(source)) raw[raw.length - 1].eol = '';
   const candidate = raw.map(line => line.text + line.eol).join('');
   try {
     const parsed = parseMermaidVisualSource(candidate);

@@ -1245,8 +1245,17 @@ function serializeGantt(graph: MermaidFlowGraph): string {
   let section = '__unset__';
   // Mermaid has no empty-section reset. Emit ungrouped tasks before any named
   // section so clearing a group cannot silently inherit the preceding group.
-  const tasks = [...graph.nodes.filter((node) => !node.data?.ganttSection?.trim()),
-    ...graph.nodes.filter((node) => node.data?.ganttSection?.trim())];
+  // Section titles span consecutive task rows. Keep each named group together,
+  // preserving first-appearance group order and task order within each group.
+  const sections = new Map<string, MermaidFlowNode[]>();
+  for (const node of graph.nodes) {
+    const name = safeVisualText(node.data?.ganttSection ?? '');
+    const tasks = sections.get(name) ?? [];
+    tasks.push(node);
+    sections.set(name, tasks);
+  }
+  const tasks = [...(sections.get('') ?? []),
+    ...Array.from(sections).filter(([name]) => name).flatMap(([, tasks]) => tasks)];
   for (const node of tasks) {
     if (/[:\r\n]/.test(node.label)) throw new Error('甘特图任务名称不能包含冒号或换行');
     const taskLabel = safeVisualText(node.label) || refs.get(node.id)!;

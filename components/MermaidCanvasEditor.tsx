@@ -2616,7 +2616,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           <button type="button" className="canvas-zoom-value" onClick={() => zoomAroundViewportCenter(1)} aria-label={t("当前缩放 {0}%，点击重置", Math.round(zoom * 100))} title={t("重置为 100%（0 或 ⌘/Ctrl 0）")}>{Math.round(zoom * 100)}%</button>
           <button type="button" onClick={() => zoomAroundViewportCenter(zoomRef.current + 0.1)} aria-label={t("放大画布")} title={t("放大（⌘/Ctrl +）")}><ZoomIn size={15} /></button>
           <button type="button" className="canvas-fit-button" onClick={() => fitContent()} title={t("适配全部内容（F）")}><Maximize2 size={14} />  {t("适配")}</button>
-          {selectedIds.length ? <button type="button" onClick={() => fitContent(MAX_ZOOM, true)} title={t("适配选中对象（Shift F）")}>{t("选区")}</button> : null}
+          <button type="button" disabled={!selectedIds.length} onClick={() => fitContent(MAX_ZOOM, true)} title={t("适配选中对象（Shift F）")}>{t("选区")}</button>
         </div>
       </div>
 
@@ -2628,202 +2628,205 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         </span>
         <span>{t("滚轮平移 · ⌘/Ctrl + 滚轮缩放 · 空格拖动画布")}</span>
       </div>
-      <div className="canvas-context-bar" aria-live="polite" onMouseDown={(event) => { if ((event.target as Element).closest('button')) event.preventDefault(); }}>
-        {connectMode ? (
-          <>
-            <span className="canvas-selection-title"><Link2 size={13} /><b>{connectingNode ? t("起点：{0}", nodeDisplayLabel(connectingNode, graph.kind) || connectingNode.id) : t("添加{0}", copy.edge)}</b></span>
-            <span className="canvas-context-divider" />
-            <span className="canvas-connect-guidance">
-              {connectingNode
-                ? t("点击目标{0}{1}完成{2}；可连续添加", copy.node, graph.kind === 'sequence' ? t("或其生命线") : '', copy.edge)
-                : t("先点击一个{0}作为起点", copy.node)}
+      <div className="canvas-selection-panel">
+        <div className="canvas-context-bar" aria-live="polite" onMouseDown={(event) => { if ((event.target as Element).closest('button')) event.preventDefault(); }}>
+          {connectMode ? (
+            <>
+              <span className="canvas-selection-title"><Link2 size={13} /><b>{connectingNode ? t("起点：{0}", nodeDisplayLabel(connectingNode, graph.kind) || connectingNode.id) : t("添加{0}", copy.edge)}</b></span>
+              <span className="canvas-context-divider" />
+              <span className="canvas-connect-guidance">
+                {connectingNode
+                  ? t("点击目标{0}{1}完成{2}；可连续添加", copy.node, graph.kind === 'sequence' ? t("或其生命线") : '', copy.edge)
+                  : t("先点击一个{0}作为起点", copy.node)}
+              </span>
+              {connectingNode ? <button type="button" onClick={() => { setConnectionIssue(null); setConnectingFrom(null); setSelection(null); }}>{t("重选起点")}</button> : null}
+              <button type="button" onClick={() => { setConnectionIssue(null); setConnectMode(false); setConnectingFrom(null); }}>{t("完成")}</button>
+            </>
+          ) : selectedIds.length > 1 ? (
+            <>
+              <span className="canvas-selection-title"><b>{t("已选择 {0} 个对象", selectedIds.length)}</b></span>
+              <button type="button" onClick={() => arrangeSelection('left')}>{t("左对齐")}</button>
+              <button type="button" onClick={() => arrangeSelection('center')}>{t("水平居中")}</button>
+              <button type="button" onClick={() => arrangeSelection('top')}>{t("顶端对齐")}</button>
+              <button type="button" onClick={() => arrangeSelection('middle')}>{t("垂直居中")}</button>
+              <button type="button" disabled={selectedIds.length < 3} onClick={() => arrangeSelection('horizontal')}>{t("水平分布")}</button>
+              <button type="button" disabled={selectedIds.length < 3} onClick={() => arrangeSelection('vertical')}>{t("垂直分布")}</button>
+              <button type="button" onClick={duplicateSelection} title={t("复制选中对象（⌘/Ctrl D）")}><Copy size={13} />{t("复制")}</button>
+              <button type="button" className="danger" onClick={removeSelection}><Trash2 size={13} />{t("删除")}</button>
+            </>
+          ) : selectedNode ? (
+            <>
+              <span className="canvas-selection-title"><MousePointer2 size={13} /><b>{nodeDisplayLabel(selectedNode, graph.kind) || selectedNode.id}</b></span>
+              {graph.data?.groups?.length ? <label className="canvas-group-membership">{t("所属包 / 边界")} <select aria-label={t("所属包 / 边界")} value={selectedNode.data?.groupId ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { groupId: event.target.value || undefined })}>
+                <option value="">{t("外部")}</option>
+                {graph.data.groups.map((group) => <option key={group.id} value={group.id}>{group.label}</option>)}
+              </select></label> : null}
+              <span className="canvas-context-divider" />
+              {canRenameSelectedNode ? <button type="button" onClick={() => setEditingNodeId(selectedNode.id)}><Pencil size={13} />  {t("改名")}</button> : null}
+              {!(graph.kind === 'state' && selectedNode.data?.stateRole !== 'state') ? <button type="button" onClick={duplicateSelectedNode} title={t("复制（⌘/Ctrl D）")}><Plus size={13} />  {t("复制")}</button> : null}
+              {graph.kind === 'flowchart' ? (
+                <div className="canvas-shape-tools" role="group" aria-label={t("节点形状与快速创建")}>
+                  {SHAPE_OPTIONS.map(({ value, label, icon: Icon }) => (
+                    <button
+                      type="button"
+                      key={value}
+                      className={selectedNode.shape === value ? 'active' : ''}
+                      onClick={() => updateNode(selectedNode.id, { shape: value })}
+                      title={label}
+                      aria-label={label}
+                    >
+                      <Icon size={13} /><span>{label}</span>
+                    </button>
+                  ))}
+                  <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'flow-process')}><ArrowRight size={13} />  {t("下游流程")}</button>
+                  <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'bottom', 'flow-decision')}><Diamond size={13} />  {t("分支判断")}</button>
+                </div>
+              ) : null}
+              {graph.kind === 'sequence' ? (
+                <div className="canvas-semantic-tools" role="group" aria-label={t("参与者类型")}>
+                  <button type="button" className={selectedNode.data?.sequenceType === 'actor' ? 'active' : ''} onClick={() => updateNodeData(selectedNode.id, { sequenceType: 'actor' })}>{t("角色")}</button>
+                  <button type="button" className={selectedNode.data?.sequenceType !== 'actor' ? 'active' : ''} onClick={() => updateNodeData(selectedNode.id, { sequenceType: 'participant' })}>{t("参与者")}</button>
+                  <button type="button" onClick={() => beginConnectionFrom(selectedNode.id)}><Link2 size={13} />  {t("从这里发消息")}</button>
+                  <button type="button" disabled={selectedNodeIndex <= 0} onClick={() => addSequenceMessageToNeighbor(selectedNode.id, -1)}><ArrowLeft size={13} />  {t("发给上一个")}</button>
+                  <button type="button" disabled={selectedNodeIndex < 0 || selectedNodeIndex >= graph.nodes.length - 1} onClick={() => addSequenceMessageToNeighbor(selectedNode.id, 1)}><ArrowRight size={13} />  {t("发给下一个")}</button>
+                  <button type="button" onClick={() => addConnection(selectedNode.id, selectedNode.id)}>{t("自消息")}</button>
+                  <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'sequence-participant')}><Plus size={13} />  {t("新参与者并发送")}</button>
+                </div>
+              ) : null}
+              {graph.kind === 'state' ? (
+                <div className="canvas-semantic-tools" role="group" aria-label={t("状态类型")}>
+                  <button type="button" className={selectedNode.data?.stateRole === 'state' ? 'active' : ''} onClick={() => changeStateRole(selectedNode.id, 'state')}>{t("普通状态")}</button>
+                  <button type="button" className={selectedNode.data?.stateRole === 'start' ? 'active' : ''} disabled={selectedNode.data?.stateRole !== 'start' && (selectedNodeIncoming !== 0 || selectedNodeOutgoing !== 1)} onClick={() => changeStateRole(selectedNode.id, 'start')}>{t("开始")}</button>
+                  <button type="button" className={selectedNode.data?.stateRole === 'end' ? 'active' : ''} disabled={selectedNode.data?.stateRole !== 'end' && (selectedNodeIncoming !== 1 || selectedNodeOutgoing !== 0)} onClick={() => changeStateRole(selectedNode.id, 'end')}>{t("结束")}</button>
+                  {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'state-state')}><ArrowRight size={13} />  {t("下一状态")}</button> : null}
+                  {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'top', 'state-start', 'to-parent')}><Circle size={12} />  {t("添加起点")}</button> : null}
+                  {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'bottom', 'state-end')}><Circle size={12} />  {t("添加终点")}</button> : null}
+                </div>
+              ) : null}
+              {graph.kind === 'mindmap' ? (
+                <div className="canvas-semantic-tools" role="group" aria-label={t("主题结构")}>
+                  <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'mind-topic')}><Plus size={13} />  {t("子主题")}</button>
+                  <button type="button" onClick={() => addMindmapSibling(selectedNode.id)}><ArrowDown size={13} />  {t("同级主题")}</button>
+                </div>
+              ) : null}
+              {graph.kind === 'gantt' ? (
+                <div className="canvas-semantic-tools" role="group" aria-label={t("任务结构")}>
+                  <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'gantt-task')}><ArrowRight size={13} />  {t("后续任务")}</button>
+                  <button type="button" onClick={() => addGanttParallel(selectedNode.id)}><ArrowDown size={13} />  {t("并行任务")}</button>
+                  <button type="button" onClick={() => addGanttParallel(selectedNode.id, 'gantt-milestone')}><Diamond size={12} />  {t("里程碑")}</button>
+                </div>
+              ) : null}
+              {graph.kind === 'class' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'class-class')}><Plus size={13} />  {t("关联类")}</button> : null}
+              {graph.kind === 'er' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'er-entity')}><Plus size={13} />  {t("关联实体")}</button> : null}
+              <button type="button" className="danger" disabled={(graph.kind === 'mindmap' || graph.kind === 'gantt') && graph.nodes.length === 1} onClick={removeSelection}><Trash2 size={13} />  {t("删除")}</button>
+            </>
+          ) : selectedEdge ? (
+            <>
+              <span className="canvas-selection-title"><Link2 size={13} /><b>{selectedEdge.label || t("已选{0}", copy.edge)}</b></span>
+              <span className="canvas-context-divider" />
+              {edgeSupportsLabel ? <button type="button" onClick={() => setEditingEdgeId(selectedEdge.id)}><Pencil size={13} /> {selectedEdge.label ? t("改{0}", graph.kind === 'sequence' ? t("消息") : t("说明")) : t("加{0}", graph.kind === 'sequence' ? t("消息") : t("说明"))}</button> : null}
+              {graph.kind === 'flowchart' ? (
+                <div className="canvas-edge-style-tools" role="group" aria-label={t("连线样式")}>
+                  {EDGE_OPTIONS.map(({ value, label }) => (
+                    <button type="button" key={value} className={selectedEdge.style === value ? 'active' : ''} onClick={() => updateEdge(selectedEdge.id, { style: value })}>{label}</button>
+                  ))}
+                </div>
+              ) : null}
+              {graph.kind === 'sequence' ? (
+                <div className="canvas-semantic-tools" role="group" aria-label={t("消息顺序")}>
+                  <label className="canvas-context-select"><span>{t("类型")}</span><select value={selectedEdge.data?.token ?? '->>'} onChange={(event) => updateEdgeToken(selectedEdge.id, event.target.value)}>{SEQUENCE_MESSAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                  <button type="button" disabled={selectedSequenceIndex <= 0} onClick={() => moveEdge(selectedEdge.id, -1)}><ArrowUp size={13} />  {t("提前")}</button>
+                  <button type="button" disabled={selectedSequenceIndex < 0 || selectedSequenceIndex >= graph.edges.length - 1} onClick={() => moveEdge(selectedEdge.id, 1)}><ArrowDown size={13} />  {t("延后")}</button>
+                </div>
+              ) : null}
+              {canReverseSelectedEdge ? <button type="button" onClick={reverseSelectedEdge}><RefreshCcw size={13} />  {t("反向")}{copy.edge}</button> : null}
+              {canRemoveSelectedEdge ? <button type="button" className="danger" onClick={removeSelection}><Trash2 size={13} /> {graph.kind === 'mindmap' ? t("移到根主题") : t("删除")}</button> : null}
+            </>
+          ) : (
+            <span className="canvas-idle-hint">
+              {connectMode
+                ? connectingFrom ? t("再点一个{0}完成{1}；可连续操作", copy.node, copy.edge) : t("点一个{0}作为{1}起点", copy.node, copy.edge)
+                : graph.kind === 'sequence'
+                  ? t("移入对象生命线显示调整区域 · 左右拖动调宽 · 底部拖动调长 · 从连接点或生命线拖动创建消息")
+                  : t("选择{0}后用方向箭头快速创建 · 右下角端点可连接已有{1} · 双击空白新增", copy.node, copy.node)}
             </span>
-            {connectingNode ? <button type="button" onClick={() => { setConnectionIssue(null); setConnectingFrom(null); setSelection(null); }}>{t("重选起点")}</button> : null}
-            <button type="button" onClick={() => { setConnectionIssue(null); setConnectMode(false); setConnectingFrom(null); }}>{t("完成")}</button>
-          </>
-        ) : selectedIds.length > 1 ? (
-          <>
-            <span className="canvas-selection-title"><b>{t("已选择 {0} 个对象", selectedIds.length)}</b></span>
-            <button type="button" onClick={() => arrangeSelection('left')}>{t("左对齐")}</button>
-            <button type="button" onClick={() => arrangeSelection('center')}>{t("水平居中")}</button>
-            <button type="button" onClick={() => arrangeSelection('top')}>{t("顶端对齐")}</button>
-            <button type="button" onClick={() => arrangeSelection('middle')}>{t("垂直居中")}</button>
-            <button type="button" disabled={selectedIds.length < 3} onClick={() => arrangeSelection('horizontal')}>{t("水平分布")}</button>
-            <button type="button" disabled={selectedIds.length < 3} onClick={() => arrangeSelection('vertical')}>{t("垂直分布")}</button>
-            <button type="button" onClick={duplicateSelection} title={t("复制选中对象（⌘/Ctrl D）")}><Copy size={13} />{t("复制")}</button>
-            <button type="button" className="danger" onClick={removeSelection}><Trash2 size={13} />{t("删除")}</button>
-          </>
-        ) : selectedNode ? (
-          <>
-            <span className="canvas-selection-title"><MousePointer2 size={13} /><b>{nodeDisplayLabel(selectedNode, graph.kind) || selectedNode.id}</b></span>
-            {graph.data?.groups?.length ? <label className="canvas-group-membership">{t("所属包 / 边界")} <select aria-label={t("所属包 / 边界")} value={selectedNode.data?.groupId ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { groupId: event.target.value || undefined })}>
-              <option value="">{t("外部")}</option>
-              {graph.data.groups.map((group) => <option key={group.id} value={group.id}>{group.label}</option>)}
-            </select></label> : null}
-            <span className="canvas-context-divider" />
-            {canRenameSelectedNode ? <button type="button" onClick={() => setEditingNodeId(selectedNode.id)}><Pencil size={13} />  {t("改名")}</button> : null}
-            {!(graph.kind === 'state' && selectedNode.data?.stateRole !== 'state') ? <button type="button" onClick={duplicateSelectedNode} title={t("复制（⌘/Ctrl D）")}><Plus size={13} />  {t("复制")}</button> : null}
-            {graph.kind === 'flowchart' ? (
-              <div className="canvas-shape-tools" role="group" aria-label={t("节点形状与快速创建")}>
-                {SHAPE_OPTIONS.map(({ value, label, icon: Icon }) => (
-                  <button
-                    type="button"
-                    key={value}
-                    className={selectedNode.shape === value ? 'active' : ''}
-                    onClick={() => updateNode(selectedNode.id, { shape: value })}
-                    title={label}
-                    aria-label={label}
-                  >
-                    <Icon size={13} /><span>{label}</span>
-                  </button>
-                ))}
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'flow-process')}><ArrowRight size={13} />  {t("下游流程")}</button>
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'bottom', 'flow-decision')}><Diamond size={13} />  {t("分支判断")}</button>
-              </div>
+          )}
+        </div>
+
+        {selectedNode && (graph.kind === 'class' || graph.kind === 'er') ? (
+          <div className="canvas-semantic-inspector canvas-details-inspector">
+            <span className="canvas-inspector-heading">{graph.kind === 'class' ? t("类成员") : t("实体字段")}</span>
+            <div className="canvas-detail-list">
+              {(selectedNode.data?.details ?? []).map((detail, index) => (
+                <label key={`${selectedNode.id}-detail-editor-${index}`}>
+                  <span>{index + 1}</span>
+                  <input
+                    {...propertyInputEvents}
+                    value={detail}
+                    onChange={(event) => updateNodeDetail(selectedNode.id, index, event.target.value)}
+                    placeholder={graph.kind === 'class' ? t("+String id 或 +save()") : 'string id PK'}
+                    aria-label={`${graph.kind === 'class' ? t("类成员") : t("实体字段")} ${index + 1}`}
+                  />
+                  <button type="button" className="canvas-detail-remove" onClick={() => removeNodeDetail(selectedNode.id, index)} aria-label={t("删除第 {0} 项", index + 1)}><Trash2 size={12} /></button>
+                </label>
+              ))}
+              <button type="button" className="canvas-detail-add" onClick={() => addNodeDetail(selectedNode.id)}><Plus size={12} />  {t("添加")}{graph.kind === 'class' ? t("成员") : t("字段")}</button>
+            </div>
+          </div>
+        ) : null}
+
+        {selectedNode && graph.kind === 'gantt' ? (
+          <div className="canvas-semantic-inspector canvas-gantt-inspector">
+            <label><span>{t("分组")}</span><input {...propertyInputEvents} value={selectedNode.data?.ganttSection ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { ganttSection: event.target.value }, `node:${selectedNode.id}:section`)} placeholder={t("例如：设计")} /></label>
+            <label><span>{t("任务 ID")}</span><GanttInput {...propertyInputEvents} key={`${selectedNode.id}-ref`} revision={graph} value={selectedNode.data?.ref ?? selectedNode.id} onChange={(value) => updateNodeData(selectedNode.id, { ref: value }, `node:${selectedNode.id}:ref`)} placeholder={t("唯一 ID")} /></label>
+            <label><span>{t("开始")}</span><GanttInput {...propertyInputEvents} key={`${selectedNode.id}-start`} revision={graph} disabled={selectedGanttHasDependency} value={selectedGanttStart} onChange={(value) => updateNodeData(selectedNode.id, { ganttStart: value }, `node:${selectedNode.id}:start`)} placeholder={selectedGanttHasDependency ? t("由依赖关系决定") : ganttDateFormat(graph)} /></label>
+            <label><span>{t("工期 / 结束")}</span><GanttInput {...propertyInputEvents} key={`${selectedNode.id}-timing`} revision={graph} value={selectedNode.data?.ganttTiming?.[0] ?? '1d'} onChange={(value) => updateGanttTiming(selectedNode.id, 0, value)} placeholder={t("例如：5d 或 2026-01-10")} /></label>
+            <div className="canvas-gantt-statuses" role="group" aria-label={t("任务状态")}>
+              <span>{t("状态")}</span>
+              {GANTT_STATUS_OPTIONS.map((option) => (
+                <button type="button" key={option.value} aria-pressed={selectedNode.data?.ganttStatuses?.includes(option.value) ?? false} className={selectedNode.data?.ganttStatuses?.includes(option.value) ? 'active' : ''} onClick={() => toggleGanttStatus(selectedNode.id, option.value)}>{option.label}</button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {selectedEdge ? (
+          <div className="canvas-semantic-inspector canvas-edge-inspector">
+            {!selectedEdgeTouchesStatePseudo ? (
+              <>
+                <label>
+                  <span>{graph.kind === 'mindmap' ? t("父主题") : graph.kind === 'gantt' ? t("前置任务") : t("起点")}</span>
+                  <select value={selectedEdge.from} onChange={(event) => retargetEdge(selectedEdge.id, 'from', event.target.value)}>
+                    {graph.nodes.map((node) => <option key={node.id} value={node.id} disabled={!canRetargetEdge(selectedEdge, 'from', node.id)}>{nodeDisplayLabel(node, graph.kind) || node.id}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>{graph.kind === 'mindmap' ? t("子主题") : graph.kind === 'gantt' ? t("后续任务") : t("终点")}</span>
+                  <select value={selectedEdge.to} onChange={(event) => retargetEdge(selectedEdge.id, 'to', event.target.value)}>
+                    {graph.nodes.map((node) => <option key={node.id} value={node.id} disabled={!canRetargetEdge(selectedEdge, 'to', node.id)}>{nodeDisplayLabel(node, graph.kind) || node.id}</option>)}
+                  </select>
+                </label>
+              </>
+            ) : <span className="canvas-inspector-note">{t("开始或结束状态的连接端点由状态语义固定")}</span>}
+            {graph.kind === 'class' && selectedClassRelation ? (
+              <>
+                <label><span>{t("关系类型")}</span><select value={selectedClassRelation.relation} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassRelation(selectedEdge.data?.token, event.target.value))}>{CLASS_RELATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                <label><span>{t("起点多重性")}</span><input {...propertyInputEvents} value={selectedClassRelation.fromMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'from', event.target.value), `edge:${selectedEdge.id}:fromMultiplicity`)} placeholder={t("例如 1")} /></label>
+                <label><span>{t("终点多重性")}</span><input {...propertyInputEvents} value={selectedClassRelation.toMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'to', event.target.value), `edge:${selectedEdge.id}:toMultiplicity`)} placeholder={t("例如 0..*")} /></label>
+              </>
             ) : null}
-            {graph.kind === 'sequence' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label={t("参与者类型")}>
-                <button type="button" className={selectedNode.data?.sequenceType === 'actor' ? 'active' : ''} onClick={() => updateNodeData(selectedNode.id, { sequenceType: 'actor' })}>{t("角色")}</button>
-                <button type="button" className={selectedNode.data?.sequenceType !== 'actor' ? 'active' : ''} onClick={() => updateNodeData(selectedNode.id, { sequenceType: 'participant' })}>{t("参与者")}</button>
-                <button type="button" onClick={() => beginConnectionFrom(selectedNode.id)}><Link2 size={13} />  {t("从这里发消息")}</button>
-                <button type="button" disabled={selectedNodeIndex <= 0} onClick={() => addSequenceMessageToNeighbor(selectedNode.id, -1)}><ArrowLeft size={13} />  {t("发给上一个")}</button>
-                <button type="button" disabled={selectedNodeIndex < 0 || selectedNodeIndex >= graph.nodes.length - 1} onClick={() => addSequenceMessageToNeighbor(selectedNode.id, 1)}><ArrowRight size={13} />  {t("发给下一个")}</button>
-                <button type="button" onClick={() => addConnection(selectedNode.id, selectedNode.id)}>{t("自消息")}</button>
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'sequence-participant')}><Plus size={13} />  {t("新参与者并发送")}</button>
-              </div>
+            {graph.kind === 'er' && selectedErRelation ? (
+              <>
+                <label><span>{t("起点基数")}</span><select value={selectedErRelation.from} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(event.target.value as ErCardinality, selectedErRelation.to, selectedErRelation.identifying))}>{ER_CARDINALITIES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                <label><span>{t("终点基数")}</span><select value={selectedErRelation.to} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(selectedErRelation.from, event.target.value as ErCardinality, selectedErRelation.identifying))}>{ER_CARDINALITIES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                <label><span>{t("关系")}</span><select value={selectedErRelation.identifying ? 'identifying' : 'non-identifying'} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(selectedErRelation.from, selectedErRelation.to, event.target.value === 'identifying'))}><option value="identifying">{t("标识关系")}</option><option value="non-identifying">{t("非标识关系")}</option></select></label>
+              </>
             ) : null}
-            {graph.kind === 'state' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label={t("状态类型")}>
-                <button type="button" className={selectedNode.data?.stateRole === 'state' ? 'active' : ''} onClick={() => changeStateRole(selectedNode.id, 'state')}>{t("普通状态")}</button>
-                <button type="button" className={selectedNode.data?.stateRole === 'start' ? 'active' : ''} disabled={selectedNode.data?.stateRole !== 'start' && (selectedNodeIncoming !== 0 || selectedNodeOutgoing !== 1)} onClick={() => changeStateRole(selectedNode.id, 'start')}>{t("开始")}</button>
-                <button type="button" className={selectedNode.data?.stateRole === 'end' ? 'active' : ''} disabled={selectedNode.data?.stateRole !== 'end' && (selectedNodeIncoming !== 1 || selectedNodeOutgoing !== 0)} onClick={() => changeStateRole(selectedNode.id, 'end')}>{t("结束")}</button>
-                {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'state-state')}><ArrowRight size={13} />  {t("下一状态")}</button> : null}
-                {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'top', 'state-start', 'to-parent')}><Circle size={12} />  {t("添加起点")}</button> : null}
-                {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'bottom', 'state-end')}><Circle size={12} />  {t("添加终点")}</button> : null}
-              </div>
-            ) : null}
-            {graph.kind === 'mindmap' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label={t("主题结构")}>
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'mind-topic')}><Plus size={13} />  {t("子主题")}</button>
-                <button type="button" onClick={() => addMindmapSibling(selectedNode.id)}><ArrowDown size={13} />  {t("同级主题")}</button>
-              </div>
-            ) : null}
-            {graph.kind === 'gantt' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label={t("任务结构")}>
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'gantt-task')}><ArrowRight size={13} />  {t("后续任务")}</button>
-                <button type="button" onClick={() => addGanttParallel(selectedNode.id)}><ArrowDown size={13} />  {t("并行任务")}</button>
-                <button type="button" onClick={() => addGanttParallel(selectedNode.id, 'gantt-milestone')}><Diamond size={12} />  {t("里程碑")}</button>
-              </div>
-            ) : null}
-            {graph.kind === 'class' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'class-class')}><Plus size={13} />  {t("关联类")}</button> : null}
-            {graph.kind === 'er' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'er-entity')}><Plus size={13} />  {t("关联实体")}</button> : null}
-            <button type="button" className="danger" disabled={(graph.kind === 'mindmap' || graph.kind === 'gantt') && graph.nodes.length === 1} onClick={removeSelection}><Trash2 size={13} />  {t("删除")}</button>
-          </>
-        ) : selectedEdge ? (
-          <>
-            <span className="canvas-selection-title"><Link2 size={13} /><b>{selectedEdge.label || t("已选{0}", copy.edge)}</b></span>
-            <span className="canvas-context-divider" />
-            {edgeSupportsLabel ? <button type="button" onClick={() => setEditingEdgeId(selectedEdge.id)}><Pencil size={13} /> {selectedEdge.label ? t("改{0}", graph.kind === 'sequence' ? t("消息") : t("说明")) : t("加{0}", graph.kind === 'sequence' ? t("消息") : t("说明"))}</button> : null}
-            {graph.kind === 'flowchart' ? (
-              <div className="canvas-edge-style-tools" role="group" aria-label={t("连线样式")}>
-                {EDGE_OPTIONS.map(({ value, label }) => (
-                  <button type="button" key={value} className={selectedEdge.style === value ? 'active' : ''} onClick={() => updateEdge(selectedEdge.id, { style: value })}>{label}</button>
-                ))}
-              </div>
-            ) : null}
-            {graph.kind === 'sequence' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label={t("消息顺序")}>
-                <label className="canvas-context-select"><span>{t("类型")}</span><select value={selectedEdge.data?.token ?? '->>'} onChange={(event) => updateEdgeToken(selectedEdge.id, event.target.value)}>{SEQUENCE_MESSAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                <button type="button" disabled={selectedSequenceIndex <= 0} onClick={() => moveEdge(selectedEdge.id, -1)}><ArrowUp size={13} />  {t("提前")}</button>
-                <button type="button" disabled={selectedSequenceIndex < 0 || selectedSequenceIndex >= graph.edges.length - 1} onClick={() => moveEdge(selectedEdge.id, 1)}><ArrowDown size={13} />  {t("延后")}</button>
-              </div>
-            ) : null}
-            {canReverseSelectedEdge ? <button type="button" onClick={reverseSelectedEdge}><RefreshCcw size={13} />  {t("反向")}{copy.edge}</button> : null}
-            {canRemoveSelectedEdge ? <button type="button" className="danger" onClick={removeSelection}><Trash2 size={13} /> {graph.kind === 'mindmap' ? t("移到根主题") : t("删除")}</button> : null}
-          </>
-        ) : (
-          <span className="canvas-idle-hint">
-            {connectMode
-              ? connectingFrom ? t("再点一个{0}完成{1}；可连续操作", copy.node, copy.edge) : t("点一个{0}作为{1}起点", copy.node, copy.edge)
-              : graph.kind === 'sequence'
-                ? t("移入对象生命线显示调整区域 · 左右拖动调宽 · 底部拖动调长 · 从连接点或生命线拖动创建消息")
-                : t("选择{0}后用方向箭头快速创建 · 右下角端点可连接已有{1} · 双击空白新增", copy.node, copy.node)}
-          </span>
-        )}
+            {graph.kind === 'class' ? <span className="canvas-inspector-note">{classRelationLabel(selectedEdge.data?.token)}  {t("· 可直接更换连接两端")}</span> : null}
+          </div>
+        ) : null}
+
       </div>
-
-      {selectedNode && (graph.kind === 'class' || graph.kind === 'er') ? (
-        <div className="canvas-semantic-inspector canvas-details-inspector">
-          <span className="canvas-inspector-heading">{graph.kind === 'class' ? t("类成员") : t("实体字段")}</span>
-          <div className="canvas-detail-list">
-            {(selectedNode.data?.details ?? []).map((detail, index) => (
-              <label key={`${selectedNode.id}-detail-editor-${index}`}>
-                <span>{index + 1}</span>
-                <input
-                  {...propertyInputEvents}
-                  value={detail}
-                  onChange={(event) => updateNodeDetail(selectedNode.id, index, event.target.value)}
-                  placeholder={graph.kind === 'class' ? t("+String id 或 +save()") : 'string id PK'}
-                  aria-label={`${graph.kind === 'class' ? t("类成员") : t("实体字段")} ${index + 1}`}
-                />
-                <button type="button" className="canvas-detail-remove" onClick={() => removeNodeDetail(selectedNode.id, index)} aria-label={t("删除第 {0} 项", index + 1)}><Trash2 size={12} /></button>
-              </label>
-            ))}
-            <button type="button" className="canvas-detail-add" onClick={() => addNodeDetail(selectedNode.id)}><Plus size={12} />  {t("添加")}{graph.kind === 'class' ? t("成员") : t("字段")}</button>
-          </div>
-        </div>
-      ) : null}
-
-      {selectedNode && graph.kind === 'gantt' ? (
-        <div className="canvas-semantic-inspector canvas-gantt-inspector">
-          <label><span>{t("分组")}</span><input {...propertyInputEvents} value={selectedNode.data?.ganttSection ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { ganttSection: event.target.value }, `node:${selectedNode.id}:section`)} placeholder={t("例如：设计")} /></label>
-          <label><span>{t("任务 ID")}</span><GanttInput {...propertyInputEvents} key={`${selectedNode.id}-ref`} revision={graph} value={selectedNode.data?.ref ?? selectedNode.id} onChange={(value) => updateNodeData(selectedNode.id, { ref: value }, `node:${selectedNode.id}:ref`)} placeholder={t("唯一 ID")} /></label>
-          <label><span>{t("开始")}</span><GanttInput {...propertyInputEvents} key={`${selectedNode.id}-start`} revision={graph} disabled={selectedGanttHasDependency} value={selectedGanttStart} onChange={(value) => updateNodeData(selectedNode.id, { ganttStart: value }, `node:${selectedNode.id}:start`)} placeholder={selectedGanttHasDependency ? t("由依赖关系决定") : ganttDateFormat(graph)} /></label>
-          <label><span>{t("工期 / 结束")}</span><GanttInput {...propertyInputEvents} key={`${selectedNode.id}-timing`} revision={graph} value={selectedNode.data?.ganttTiming?.[0] ?? '1d'} onChange={(value) => updateGanttTiming(selectedNode.id, 0, value)} placeholder={t("例如：5d 或 2026-01-10")} /></label>
-          <div className="canvas-gantt-statuses" role="group" aria-label={t("任务状态")}>
-            <span>{t("状态")}</span>
-            {GANTT_STATUS_OPTIONS.map((option) => (
-              <button type="button" key={option.value} aria-pressed={selectedNode.data?.ganttStatuses?.includes(option.value) ?? false} className={selectedNode.data?.ganttStatuses?.includes(option.value) ? 'active' : ''} onClick={() => toggleGanttStatus(selectedNode.id, option.value)}>{option.label}</button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {selectedEdge ? (
-        <div className="canvas-semantic-inspector canvas-edge-inspector">
-          {!selectedEdgeTouchesStatePseudo ? (
-            <>
-              <label>
-                <span>{graph.kind === 'mindmap' ? t("父主题") : graph.kind === 'gantt' ? t("前置任务") : t("起点")}</span>
-                <select value={selectedEdge.from} onChange={(event) => retargetEdge(selectedEdge.id, 'from', event.target.value)}>
-                  {graph.nodes.map((node) => <option key={node.id} value={node.id} disabled={!canRetargetEdge(selectedEdge, 'from', node.id)}>{nodeDisplayLabel(node, graph.kind) || node.id}</option>)}
-                </select>
-              </label>
-              <label>
-                <span>{graph.kind === 'mindmap' ? t("子主题") : graph.kind === 'gantt' ? t("后续任务") : t("终点")}</span>
-                <select value={selectedEdge.to} onChange={(event) => retargetEdge(selectedEdge.id, 'to', event.target.value)}>
-                  {graph.nodes.map((node) => <option key={node.id} value={node.id} disabled={!canRetargetEdge(selectedEdge, 'to', node.id)}>{nodeDisplayLabel(node, graph.kind) || node.id}</option>)}
-                </select>
-              </label>
-            </>
-          ) : <span className="canvas-inspector-note">{t("开始或结束状态的连接端点由状态语义固定")}</span>}
-          {graph.kind === 'class' && selectedClassRelation ? (
-            <>
-              <label><span>{t("关系类型")}</span><select value={selectedClassRelation.relation} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassRelation(selectedEdge.data?.token, event.target.value))}>{CLASS_RELATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label><span>{t("起点多重性")}</span><input {...propertyInputEvents} value={selectedClassRelation.fromMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'from', event.target.value), `edge:${selectedEdge.id}:fromMultiplicity`)} placeholder={t("例如 1")} /></label>
-              <label><span>{t("终点多重性")}</span><input {...propertyInputEvents} value={selectedClassRelation.toMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'to', event.target.value), `edge:${selectedEdge.id}:toMultiplicity`)} placeholder={t("例如 0..*")} /></label>
-            </>
-          ) : null}
-          {graph.kind === 'er' && selectedErRelation ? (
-            <>
-              <label><span>{t("起点基数")}</span><select value={selectedErRelation.from} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(event.target.value as ErCardinality, selectedErRelation.to, selectedErRelation.identifying))}>{ER_CARDINALITIES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label><span>{t("终点基数")}</span><select value={selectedErRelation.to} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(selectedErRelation.from, event.target.value as ErCardinality, selectedErRelation.identifying))}>{ER_CARDINALITIES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label><span>{t("关系")}</span><select value={selectedErRelation.identifying ? 'identifying' : 'non-identifying'} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(selectedErRelation.from, selectedErRelation.to, event.target.value === 'identifying'))}><option value="identifying">{t("标识关系")}</option><option value="non-identifying">{t("非标识关系")}</option></select></label>
-            </>
-          ) : null}
-          {graph.kind === 'class' ? <span className="canvas-inspector-note">{classRelationLabel(selectedEdge.data?.token)}  {t("· 可直接更换连接两端")}</span> : null}
-        </div>
-      ) : null}
 
       {graph.kind === 'sequence' && graph.data?.sequenceItems ? <details className="canvas-groups-panel canvas-sequence-structure">
         <summary>{t("时序控制结构已保留")}</summary>
@@ -3038,7 +3041,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                   ? classRelationLabel(edge.data?.token)
                   : graph.kind === 'er'
                     ? erRelationLabel(edge.data?.token)
-                    : graph.kind === 'gantt' ? t("依赖") : t("添加说明");
+                    : graph.kind === 'gantt' ? t("依赖") : graph.kind === 'mindmap' ? copy.edge : t("添加说明");
               return (
                 <div
                   key={`label-${edge.id}`}

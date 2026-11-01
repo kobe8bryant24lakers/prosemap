@@ -166,7 +166,7 @@
 .canvas-tool-group, .canvas-node-library, .canvas-direction-tools, .canvas-assist-tools, .canvas-style-tools, .canvas-zoom-tools, .canvas-shape-tools, .canvas-edge-style-tools, .canvas-semantic-tools { display: flex; align-items: center; gap: 3px; }
 .canvas-tool-group button, .canvas-direction-tools button, .canvas-assist-tools button, .canvas-style-tools button, .canvas-zoom-tools button, .canvas-context-bar button { height: 30px; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 9px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #586c62; font-size: var(--font-ui); font-weight: 730; white-space: nowrap; }
 .canvas-tool-group button:hover, .canvas-direction-tools button:hover, .canvas-assist-tools button:hover, .canvas-style-tools button:hover, .canvas-zoom-tools button:hover, .canvas-context-bar button:hover { background: #f2f7f4; color: var(--green); }
-.canvas-tool-group button:disabled { opacity: .34; pointer-events: none; }
+.canvas-tool-group button:disabled, .canvas-zoom-tools button:disabled { opacity: .34; pointer-events: none; }
 .canvas-tool-group button.active, .canvas-direction-tools button.active, .canvas-assist-tools button.active, .canvas-style-tools button.active, .canvas-context-bar button.active { border-color: #a9cbb9; background: var(--green-soft); color: var(--green); }
 .canvas-context-bar button:disabled { opacity: .38; pointer-events: none; }
 .canvas-tool-group.primary-tools { padding-right: 9px; border-right: 1px solid var(--line); }
@@ -187,6 +187,11 @@
 .canvas-zoom-tools .canvas-zoom-value { min-width: 47px; border-color: var(--line); background: #f8faf9; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
 .canvas-zoom-tools .canvas-fit-button { min-width: 55px; border-color: #cbd9d1; color: var(--green); }
 
+/* Keep selection controls outside a stable canvas rectangle. Compensating the
+   stage's scroll alone leaves a top-edge label hidden under a new inspector,
+   so the second click can otherwise activate a property control instead. */
+.canvas-selection-panel { height: 96px; flex: none; overflow: auto; overscroll-behavior: contain; background: #f9fbfa; border-bottom: 1px solid #dfe7e2; scrollbar-width: thin; }
+.canvas-selection-panel > .canvas-context-bar:only-child { min-height: 100%; align-content: center; }
 .canvas-context-bar { min-height: 38px; flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 4px 11px; overflow: visible; border-bottom: 1px solid #dfe7e2; background: #f9fbfa; scrollbar-width: thin; }
 .canvas-selection-title { max-width: 180px; flex: none; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; color: var(--green); font-size: var(--font-ui); white-space: nowrap; }
 .canvas-selection-title b { overflow: hidden; text-overflow: ellipsis; }

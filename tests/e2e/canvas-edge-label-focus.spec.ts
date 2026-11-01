@@ -17,7 +17,7 @@ async function center(locator: Locator) {
 }
 
 for (const width of [1440, 900]) for (const item of cases) {
-  for (const mode of ['immediate double click', 'lower double click', 'lower single then double click']) {
+  for (const mode of ['immediate double click', 'lower double click', 'lower single then double click', 'upper double click', 'upper single then double click']) {
     test(`${item.kind} at ${width}px: ${mode} keeps the label editable without source changes`, async ({ page }) => {
       await page.setViewportSize({ width, height: width === 1440 ? 1000 : 650 });
       await launchDocument(page, `# Synthetic edge focus\n\n\`\`\`mermaid\n${item.source}\n\`\`\`\n`, 'synthetic-edge-focus.md');
@@ -28,11 +28,11 @@ for (const width of [1440, 900]) for (const item of cases) {
         const viewport = await page.locator('.canvas-editor-viewport').boundingBox();
         if (!viewport) throw new Error('Missing canvas viewport');
         const before = await center(label);
-        const targetY = viewport.y + viewport.height - 75;
+        const targetY = mode.startsWith('upper') ? viewport.y + 24 : viewport.y + viewport.height - 75;
         await page.mouse.move(viewport.x + viewport.width - 40, viewport.y + viewport.height - 25);
         await page.mouse.wheel(0, before.y - targetY);
         await expect.poll(async () => Math.abs((await center(label)).y - targetY)).toBeLessThan(3);
-        if (mode === 'lower single then double click') {
+        if (mode.endsWith('single then double click')) {
           const anchor = await center(label);
           await label.click();
           await expect(label).toHaveClass(/selected/);
@@ -40,6 +40,9 @@ for (const width of [1440, 900]) for (const item of cases) {
             const after = await center(label);
             return Math.hypot(after.x - anchor.x, after.y - anchor.y);
           }).toBeLessThan(3);
+          const afterViewport = await page.locator('.canvas-editor-viewport').boundingBox();
+          expect(afterViewport).toEqual(viewport);
+          await expect(label).toBeInViewport({ ratio: 0.999 });
         }
       }
       await label.dblclick();

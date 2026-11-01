@@ -27,7 +27,7 @@ export function findAppleIdentity() {
 export function verifyStableSignature(app, { distribution = false } = {}) {
   const requirement = distribution ? developerIdRequirement : keychainSigningRequirement;
   try {
-    run('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--test-requirement', requirement, app]);
+    run('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--test-requirement', `=${requirement}`, app]);
   } catch {
     throw new Error('Keychain builds require an Apple-issued signing identity with a stable team partition. Self-signed and ad-hoc builds are not update-safe; use the separate memory-only development build.');
   }

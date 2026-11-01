@@ -1,0 +1,456 @@
+{
+  "synthetic": true,
+  "description": "Fabricated edge-label entry fixtures derived from built-in templates; no personal data.",
+  "cases": [
+    {
+      "template": "basic-flowchart",
+      "kind": "flowchart",
+      "state": "empty",
+      "edgeId": "edge-1",
+      "initialLabel": "",
+      "source": "flowchart TD\n  Start([\"Start\"])\n  Input[\"Receive request\"]\n  Check{\"Valid?\"}\n  Process[\"Process request\"]\n  Error[\"Return error\"]\n  End([\"End\"])\n  Start --> Input\n  Input --> Check\n  Check -->|Yes| Process\n  Check -->|No| Error\n  Process --> End\n  Error --> End",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "flowchart TD\n  Start([\"Start\"])\n  Input[\"Receive request\"]\n  Check{\"Valid?\"}\n  Process[\"Process request\"]\n  Error[\"Return error\"]\n  End([\"End\"])\n  Start -->|Synthetic_Button| Input\n  Input --> Check\n  Check -->|Yes| Process\n  Check -->|No| Error\n  Process --> End\n  Error --> End"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "flowchart TD\n  Start([\"Start\"])\n  Input[\"Receive request\"]\n  Check{\"Valid?\"}\n  Process[\"Process request\"]\n  Error[\"Return error\"]\n  End([\"End\"])\n  Start -->|Synthetic_Double| Input\n  Input --> Check\n  Check -->|Yes| Process\n  Check -->|No| Error\n  Process --> End\n  Error --> End"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "flowchart TD\n  Start([\"Start\"])\n  Input[\"Receive request\"]\n  Check{\"Valid?\"}\n  Process[\"Process request\"]\n  Error[\"Return error\"]\n  End([\"End\"])\n  Start -->|Synthetic_Enter| Input\n  Input --> Check\n  Check -->|Yes| Process\n  Check -->|No| Error\n  Process --> End\n  Error --> End"
+        }
+      ]
+    },
+    {
+      "template": "basic-flowchart",
+      "kind": "flowchart",
+      "state": "labeled",
+      "edgeId": "edge-1",
+      "initialLabel": "Synthetic_Original",
+      "source": "flowchart TD\n  Start([\"Start\"])\n  Input[\"Receive request\"]\n  Check{\"Valid?\"}\n  Process[\"Process request\"]\n  Error[\"Return error\"]\n  End([\"End\"])\n  Start -->|Synthetic_Original| Input\n  Input --> Check\n  Check -->|Yes| Process\n  Check -->|No| Error\n  Process --> End\n  Error --> End",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "flowchart TD\n  Start([\"Start\"])\n  Input[\"Receive request\"]\n  Check{\"Valid?\"}\n  Process[\"Process request\"]\n  Error[\"Return error\"]\n  End([\"End\"])\n  Start -->|Synthetic_Button| Input\n  Input --> Check\n  Check -->|Yes| Process\n  Check -->|No| Error\n  Process --> End\n  Error --> End"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "flowchart TD\n  Start([\"Start\"])\n  Input[\"Receive request\"]\n  Check{\"Valid?\"}\n  Process[\"Process request\"]\n  Error[\"Return error\"]\n  End([\"End\"])\n  Start -->|Synthetic_Double| Input\n  Input --> Check\n  Check -->|Yes| Process\n  Check -->|No| Error\n  Process --> End\n  Error --> End"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "flowchart TD\n  Start([\"Start\"])\n  Input[\"Receive request\"]\n  Check{\"Valid?\"}\n  Process[\"Process request\"]\n  Error[\"Return error\"]\n  End([\"End\"])\n  Start -->|Synthetic_Enter| Input\n  Input --> Check\n  Check -->|Yes| Process\n  Check -->|No| Error\n  Process --> End\n  Error --> End"
+        }
+      ]
+    },
+    {
+      "template": "four-plus-one",
+      "kind": "flowchart",
+      "state": "empty",
+      "edgeId": "edge-1",
+      "initialLabel": "",
+      "source": "flowchart TB\n  Logical[\"Logical view: domain models and abstractions\"]\n  Development[\"Development view: modules and code organization\"]\n  Scenario([\"Scenarios (+1): key use cases and requirements\"])\n  Process[\"Process view: runtime, concurrency, communication\"]\n  Physical[\"Physical view: deployment and infrastructure\"]\n  Logical --> Scenario\n  Development -->|implements| Scenario\n  Scenario -->|drives| Process\n  Scenario -->|deployed to| Physical",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "flowchart TB\n  Logical[\"Logical view: domain models and abstractions\"]\n  Development[\"Development view: modules and code organization\"]\n  Scenario([\"Scenarios (+1): key use cases and requirements\"])\n  Process[\"Process view: runtime, concurrency, communication\"]\n  Physical[\"Physical view: deployment and infrastructure\"]\n  Logical -->|Synthetic_Button| Scenario\n  Development -->|implements| Scenario\n  Scenario -->|drives| Process\n  Scenario -->|deployed to| Physical"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "flowchart TB\n  Logical[\"Logical view: domain models and abstractions\"]\n  Development[\"Development view: modules and code organization\"]\n  Scenario([\"Scenarios (+1): key use cases and requirements\"])\n  Process[\"Process view: runtime, concurrency, communication\"]\n  Physical[\"Physical view: deployment and infrastructure\"]\n  Logical -->|Synthetic_Double| Scenario\n  Development -->|implements| Scenario\n  Scenario -->|drives| Process\n  Scenario -->|deployed to| Physical"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "flowchart TB\n  Logical[\"Logical view: domain models and abstractions\"]\n  Development[\"Development view: modules and code organization\"]\n  Scenario([\"Scenarios (+1): key use cases and requirements\"])\n  Process[\"Process view: runtime, concurrency, communication\"]\n  Physical[\"Physical view: deployment and infrastructure\"]\n  Logical -->|Synthetic_Enter| Scenario\n  Development -->|implements| Scenario\n  Scenario -->|drives| Process\n  Scenario -->|deployed to| Physical"
+        }
+      ]
+    },
+    {
+      "template": "four-plus-one",
+      "kind": "flowchart",
+      "state": "labeled",
+      "edgeId": "edge-1",
+      "initialLabel": "Synthetic_Original",
+      "source": "flowchart TB\n  Logical[\"Logical view: domain models and abstractions\"]\n  Development[\"Development view: modules and code organization\"]\n  Scenario([\"Scenarios (+1): key use cases and requirements\"])\n  Process[\"Process view: runtime, concurrency, communication\"]\n  Physical[\"Physical view: deployment and infrastructure\"]\n  Logical -->|Synthetic_Original| Scenario\n  Development -->|implements| Scenario\n  Scenario -->|drives| Process\n  Scenario -->|deployed to| Physical",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "flowchart TB\n  Logical[\"Logical view: domain models and abstractions\"]\n  Development[\"Development view: modules and code organization\"]\n  Scenario([\"Scenarios (+1): key use cases and requirements\"])\n  Process[\"Process view: runtime, concurrency, communication\"]\n  Physical[\"Physical view: deployment and infrastructure\"]\n  Logical -->|Synthetic_Button| Scenario\n  Development -->|implements| Scenario\n  Scenario -->|drives| Process\n  Scenario -->|deployed to| Physical"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "flowchart TB\n  Logical[\"Logical view: domain models and abstractions\"]\n  Development[\"Development view: modules and code organization\"]\n  Scenario([\"Scenarios (+1): key use cases and requirements\"])\n  Process[\"Process view: runtime, concurrency, communication\"]\n  Physical[\"Physical view: deployment and infrastructure\"]\n  Logical -->|Synthetic_Double| Scenario\n  Development -->|implements| Scenario\n  Scenario -->|drives| Process\n  Scenario -->|deployed to| Physical"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "flowchart TB\n  Logical[\"Logical view: domain models and abstractions\"]\n  Development[\"Development view: modules and code organization\"]\n  Scenario([\"Scenarios (+1): key use cases and requirements\"])\n  Process[\"Process view: runtime, concurrency, communication\"]\n  Physical[\"Physical view: deployment and infrastructure\"]\n  Logical -->|Synthetic_Enter| Scenario\n  Development -->|implements| Scenario\n  Scenario -->|drives| Process\n  Scenario -->|deployed to| Physical"
+        }
+      ]
+    },
+    {
+      "template": "architecture",
+      "kind": "flowchart",
+      "state": "empty",
+      "edgeId": "edge-1",
+      "initialLabel": "",
+      "source": "flowchart LR\n  Client[\"Client\"]\n  Gateway[\"API gateway\"]\n  Service[\"Business service\"]\n  Database[(\"Database\")]\n  External[\"External service\"]\n  Client --> Gateway\n  Gateway --> Service\n  Service --> Database\n  Service --> External",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "flowchart LR\n  Client[\"Client\"]\n  Gateway[\"API gateway\"]\n  Service[\"Business service\"]\n  Database[(\"Database\")]\n  External[\"External service\"]\n  Client -->|Synthetic_Button| Gateway\n  Gateway --> Service\n  Service --> Database\n  Service --> External"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "flowchart LR\n  Client[\"Client\"]\n  Gateway[\"API gateway\"]\n  Service[\"Business service\"]\n  Database[(\"Database\")]\n  External[\"External service\"]\n  Client -->|Synthetic_Double| Gateway\n  Gateway --> Service\n  Service --> Database\n  Service --> External"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "flowchart LR\n  Client[\"Client\"]\n  Gateway[\"API gateway\"]\n  Service[\"Business service\"]\n  Database[(\"Database\")]\n  External[\"External service\"]\n  Client -->|Synthetic_Enter| Gateway\n  Gateway --> Service\n  Service --> Database\n  Service --> External"
+        }
+      ]
+    },
+    {
+      "template": "architecture",
+      "kind": "flowchart",
+      "state": "labeled",
+      "edgeId": "edge-1",
+      "initialLabel": "Synthetic_Original",
+      "source": "flowchart LR\n  Client[\"Client\"]\n  Gateway[\"API gateway\"]\n  Service[\"Business service\"]\n  Database[(\"Database\")]\n  External[\"External service\"]\n  Client -->|Synthetic_Original| Gateway\n  Gateway --> Service\n  Service --> Database\n  Service --> External",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "flowchart LR\n  Client[\"Client\"]\n  Gateway[\"API gateway\"]\n  Service[\"Business service\"]\n  Database[(\"Database\")]\n  External[\"External service\"]\n  Client -->|Synthetic_Button| Gateway\n  Gateway --> Service\n  Service --> Database\n  Service --> External"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "flowchart LR\n  Client[\"Client\"]\n  Gateway[\"API gateway\"]\n  Service[\"Business service\"]\n  Database[(\"Database\")]\n  External[\"External service\"]\n  Client -->|Synthetic_Double| Gateway\n  Gateway --> Service\n  Service --> Database\n  Service --> External"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "flowchart LR\n  Client[\"Client\"]\n  Gateway[\"API gateway\"]\n  Service[\"Business service\"]\n  Database[(\"Database\")]\n  External[\"External service\"]\n  Client -->|Synthetic_Enter| Gateway\n  Gateway --> Service\n  Service --> Database\n  Service --> External"
+        }
+      ]
+    },
+    {
+      "template": "sequence",
+      "kind": "sequence",
+      "state": "empty",
+      "edgeId": "edge-1",
+      "initialLabel": "",
+      "source": "sequenceDiagram\n  autonumber\n  actor User as User\n  participant App as Client\n  participant API as Server\n  User->>App: \n  App->>API: Send data\n  API-->>App: Return result\n  App-->>User: Show result",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "sequenceDiagram\n  autonumber\n  actor User as User\n  participant App as Client\n  participant API as Server\n  User->>App: Synthetic_Button\n  App->>API: Send data\n  API-->>App: Return result\n  App-->>User: Show result"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "sequenceDiagram\n  autonumber\n  actor User as User\n  participant App as Client\n  participant API as Server\n  User->>App: Synthetic_Double\n  App->>API: Send data\n  API-->>App: Return result\n  App-->>User: Show result"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "sequenceDiagram\n  autonumber\n  actor User as User\n  participant App as Client\n  participant API as Server\n  User->>App: Synthetic_Enter\n  App->>API: Send data\n  API-->>App: Return result\n  App-->>User: Show result"
+        }
+      ]
+    },
+    {
+      "template": "sequence",
+      "kind": "sequence",
+      "state": "labeled",
+      "edgeId": "edge-1",
+      "initialLabel": "Synthetic_Original",
+      "source": "sequenceDiagram\n  autonumber\n  actor User as User\n  participant App as Client\n  participant API as Server\n  User->>App: Synthetic_Original\n  App->>API: Send data\n  API-->>App: Return result\n  App-->>User: Show result",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "sequenceDiagram\n  autonumber\n  actor User as User\n  participant App as Client\n  participant API as Server\n  User->>App: Synthetic_Button\n  App->>API: Send data\n  API-->>App: Return result\n  App-->>User: Show result"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "sequenceDiagram\n  autonumber\n  actor User as User\n  participant App as Client\n  participant API as Server\n  User->>App: Synthetic_Double\n  App->>API: Send data\n  API-->>App: Return result\n  App-->>User: Show result"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "sequenceDiagram\n  autonumber\n  actor User as User\n  participant App as Client\n  participant API as Server\n  User->>App: Synthetic_Enter\n  App->>API: Send data\n  API-->>App: Return result\n  App-->>User: Show result"
+        }
+      ]
+    },
+    {
+      "template": "state",
+      "kind": "state",
+      "state": "empty",
+      "edgeId": "edge-2",
+      "initialLabel": "",
+      "source": "stateDiagram-v2\n  [*] --> Draft\n  Draft --> InReview\n  InReview --> Published: Approve\n  InReview --> Draft: Reject\n  Published --> [*]",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "stateDiagram-v2\n  [*] --> Draft\n  Draft --> InReview: Synthetic_Button\n  InReview --> Published: Approve\n  InReview --> Draft: Reject\n  Published --> [*]"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "stateDiagram-v2\n  [*] --> Draft\n  Draft --> InReview: Synthetic_Double\n  InReview --> Published: Approve\n  InReview --> Draft: Reject\n  Published --> [*]"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "stateDiagram-v2\n  [*] --> Draft\n  Draft --> InReview: Synthetic_Enter\n  InReview --> Published: Approve\n  InReview --> Draft: Reject\n  Published --> [*]"
+        }
+      ]
+    },
+    {
+      "template": "state",
+      "kind": "state",
+      "state": "labeled",
+      "edgeId": "edge-2",
+      "initialLabel": "Synthetic_Original",
+      "source": "stateDiagram-v2\n  [*] --> Draft\n  Draft --> InReview: Synthetic_Original\n  InReview --> Published: Approve\n  InReview --> Draft: Reject\n  Published --> [*]",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "stateDiagram-v2\n  [*] --> Draft\n  Draft --> InReview: Synthetic_Button\n  InReview --> Published: Approve\n  InReview --> Draft: Reject\n  Published --> [*]"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "stateDiagram-v2\n  [*] --> Draft\n  Draft --> InReview: Synthetic_Double\n  InReview --> Published: Approve\n  InReview --> Draft: Reject\n  Published --> [*]"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "stateDiagram-v2\n  [*] --> Draft\n  Draft --> InReview: Synthetic_Enter\n  InReview --> Published: Approve\n  InReview --> Draft: Reject\n  Published --> [*]"
+        }
+      ]
+    },
+    {
+      "template": "class",
+      "kind": "class",
+      "state": "empty",
+      "edgeId": "edge-1",
+      "initialLabel": "",
+      "source": "classDiagram\n  class User {\n    +String id\n    +String name\n    +signIn()\n  }\n  class Order {\n    +String id\n    +create()\n  }\n  User \"1\" --> \"many\" Order",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "classDiagram\n  class User {\n    +String id\n    +String name\n    +signIn()\n  }\n  class Order {\n    +String id\n    +create()\n  }\n  User \"1\" --> \"many\" Order : Synthetic_Button"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "classDiagram\n  class User {\n    +String id\n    +String name\n    +signIn()\n  }\n  class Order {\n    +String id\n    +create()\n  }\n  User \"1\" --> \"many\" Order : Synthetic_Double"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "classDiagram\n  class User {\n    +String id\n    +String name\n    +signIn()\n  }\n  class Order {\n    +String id\n    +create()\n  }\n  User \"1\" --> \"many\" Order : Synthetic_Enter"
+        }
+      ]
+    },
+    {
+      "template": "class",
+      "kind": "class",
+      "state": "labeled",
+      "edgeId": "edge-1",
+      "initialLabel": "Synthetic_Original",
+      "source": "classDiagram\n  class User {\n    +String id\n    +String name\n    +signIn()\n  }\n  class Order {\n    +String id\n    +create()\n  }\n  User \"1\" --> \"many\" Order : Synthetic_Original",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "classDiagram\n  class User {\n    +String id\n    +String name\n    +signIn()\n  }\n  class Order {\n    +String id\n    +create()\n  }\n  User \"1\" --> \"many\" Order : Synthetic_Button"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "classDiagram\n  class User {\n    +String id\n    +String name\n    +signIn()\n  }\n  class Order {\n    +String id\n    +create()\n  }\n  User \"1\" --> \"many\" Order : Synthetic_Double"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "classDiagram\n  class User {\n    +String id\n    +String name\n    +signIn()\n  }\n  class Order {\n    +String id\n    +create()\n  }\n  User \"1\" --> \"many\" Order : Synthetic_Enter"
+        }
+      ]
+    },
+    {
+      "template": "er",
+      "kind": "er",
+      "state": "empty",
+      "edgeId": "edge-1",
+      "initialLabel": "",
+      "source": "erDiagram\n  direction TB\n  USER ||--o{ ORDER : \"\"\n  USER {\n    string id PK\n    string name\n  }\n  ORDER {\n    string id PK\n    string user_id FK\n    decimal amount\n  }",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "erDiagram\n  direction TB\n  USER ||--o{ ORDER : Synthetic_Button\n  USER {\n    string id PK\n    string name\n  }\n  ORDER {\n    string id PK\n    string user_id FK\n    decimal amount\n  }"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "erDiagram\n  direction TB\n  USER ||--o{ ORDER : Synthetic_Double\n  USER {\n    string id PK\n    string name\n  }\n  ORDER {\n    string id PK\n    string user_id FK\n    decimal amount\n  }"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "erDiagram\n  direction TB\n  USER ||--o{ ORDER : Synthetic_Enter\n  USER {\n    string id PK\n    string name\n  }\n  ORDER {\n    string id PK\n    string user_id FK\n    decimal amount\n  }"
+        }
+      ]
+    },
+    {
+      "template": "er",
+      "kind": "er",
+      "state": "labeled",
+      "edgeId": "edge-1",
+      "initialLabel": "Synthetic_Original",
+      "source": "erDiagram\n  direction TB\n  USER ||--o{ ORDER : Synthetic_Original\n  USER {\n    string id PK\n    string name\n  }\n  ORDER {\n    string id PK\n    string user_id FK\n    decimal amount\n  }",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "erDiagram\n  direction TB\n  USER ||--o{ ORDER : Synthetic_Button\n  USER {\n    string id PK\n    string name\n  }\n  ORDER {\n    string id PK\n    string user_id FK\n    decimal amount\n  }"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "erDiagram\n  direction TB\n  USER ||--o{ ORDER : Synthetic_Double\n  USER {\n    string id PK\n    string name\n  }\n  ORDER {\n    string id PK\n    string user_id FK\n    decimal amount\n  }"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "erDiagram\n  direction TB\n  USER ||--o{ ORDER : Synthetic_Enter\n  USER {\n    string id PK\n    string name\n  }\n  ORDER {\n    string id PK\n    string user_id FK\n    decimal amount\n  }"
+        }
+      ]
+    },
+    {
+      "template": "usecase",
+      "kind": "flowchart",
+      "state": "empty",
+      "edgeId": "edge-1",
+      "initialLabel": "",
+      "source": "flowchart LR\n  %% prosemap:usecase\n  User[\"«actor» User\"]\n  Admin[\"«actor» Admin\"]\n  subgraph System[\"Order system\"]\n    Browse([\"Browse products\"])\n    Order([\"Place order\"])\n    Login([\"Authentication\"])\n    Coupon([\"Apply coupon\"])\n    Manage([\"Manage products\"])\n  end\n  User --- Browse\n  User --- Order\n  Admin --- Manage\n  Order -.->|«include»| Login\n  Coupon -.->|«extend»| Order",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "flowchart LR\n  %% prosemap:usecase\n  User[\"«actor» User\"]\n  Admin[\"«actor» Admin\"]\n  subgraph System[\"Order system\"]\n    Browse([\"Browse products\"])\n    Order([\"Place order\"])\n    Login([\"Authentication\"])\n    Coupon([\"Apply coupon\"])\n    Manage([\"Manage products\"])\n  end\n  User ---|Synthetic_Button| Browse\n  User --- Order\n  Admin --- Manage\n  Order -.->|«include»| Login\n  Coupon -.->|«extend»| Order"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "flowchart LR\n  %% prosemap:usecase\n  User[\"«actor» User\"]\n  Admin[\"«actor» Admin\"]\n  subgraph System[\"Order system\"]\n    Browse([\"Browse products\"])\n    Order([\"Place order\"])\n    Login([\"Authentication\"])\n    Coupon([\"Apply coupon\"])\n    Manage([\"Manage products\"])\n  end\n  User ---|Synthetic_Double| Browse\n  User --- Order\n  Admin --- Manage\n  Order -.->|«include»| Login\n  Coupon -.->|«extend»| Order"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "flowchart LR\n  %% prosemap:usecase\n  User[\"«actor» User\"]\n  Admin[\"«actor» Admin\"]\n  subgraph System[\"Order system\"]\n    Browse([\"Browse products\"])\n    Order([\"Place order\"])\n    Login([\"Authentication\"])\n    Coupon([\"Apply coupon\"])\n    Manage([\"Manage products\"])\n  end\n  User ---|Synthetic_Enter| Browse\n  User --- Order\n  Admin --- Manage\n  Order -.->|«include»| Login\n  Coupon -.->|«extend»| Order"
+        }
+      ]
+    },
+    {
+      "template": "usecase",
+      "kind": "flowchart",
+      "state": "labeled",
+      "edgeId": "edge-1",
+      "initialLabel": "Synthetic_Original",
+      "source": "flowchart LR\n  %% prosemap:usecase\n  User[\"«actor» User\"]\n  Admin[\"«actor» Admin\"]\n  subgraph System[\"Order system\"]\n    Browse([\"Browse products\"])\n    Order([\"Place order\"])\n    Login([\"Authentication\"])\n    Coupon([\"Apply coupon\"])\n    Manage([\"Manage products\"])\n  end\n  User ---|Synthetic_Original| Browse\n  User --- Order\n  Admin --- Manage\n  Order -.->|«include»| Login\n  Coupon -.->|«extend»| Order",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "flowchart LR\n  %% prosemap:usecase\n  User[\"«actor» User\"]\n  Admin[\"«actor» Admin\"]\n  subgraph System[\"Order system\"]\n    Browse([\"Browse products\"])\n    Order([\"Place order\"])\n    Login([\"Authentication\"])\n    Coupon([\"Apply coupon\"])\n    Manage([\"Manage products\"])\n  end\n  User ---|Synthetic_Button| Browse\n  User --- Order\n  Admin --- Manage\n  Order -.->|«include»| Login\n  Coupon -.->|«extend»| Order"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "flowchart LR\n  %% prosemap:usecase\n  User[\"«actor» User\"]\n  Admin[\"«actor» Admin\"]\n  subgraph System[\"Order system\"]\n    Browse([\"Browse products\"])\n    Order([\"Place order\"])\n    Login([\"Authentication\"])\n    Coupon([\"Apply coupon\"])\n    Manage([\"Manage products\"])\n  end\n  User ---|Synthetic_Double| Browse\n  User --- Order\n  Admin --- Manage\n  Order -.->|«include»| Login\n  Coupon -.->|«extend»| Order"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "flowchart LR\n  %% prosemap:usecase\n  User[\"«actor» User\"]\n  Admin[\"«actor» Admin\"]\n  subgraph System[\"Order system\"]\n    Browse([\"Browse products\"])\n    Order([\"Place order\"])\n    Login([\"Authentication\"])\n    Coupon([\"Apply coupon\"])\n    Manage([\"Manage products\"])\n  end\n  User ---|Synthetic_Enter| Browse\n  User --- Order\n  Admin --- Manage\n  Order -.->|«include»| Login\n  Coupon -.->|«extend»| Order"
+        }
+      ]
+    },
+    {
+      "template": "package",
+      "kind": "flowchart",
+      "state": "empty",
+      "edgeId": "edge-1",
+      "initialLabel": "",
+      "source": "flowchart TB\n  %% prosemap:package\n  subgraph App[\"Application\"]\n    subgraph Presentation[\"Presentation\"]\n      Pages[\"Pages\"]\n      Controllers[\"Controllers\"]\n    end\n    subgraph Domain[\"Domain\"]\n      Services[\"Domain services\"]\n      Models[\"Domain models\"]\n    end\n    subgraph Infrastructure[\"Infrastructure\"]\n      Repository[\"Repository\"]\n      Gateway[\"External APIs\"]\n    end\n  end\n  Pages --> Controllers\n  Controllers -.->|depends on| Services\n  Services --> Models\n  Services -.->|depends on| Repository\n  Services -.->|depends on| Gateway",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "flowchart TB\n  %% prosemap:package\n  subgraph App[\"Application\"]\n    subgraph Presentation[\"Presentation\"]\n      Pages[\"Pages\"]\n      Controllers[\"Controllers\"]\n    end\n    subgraph Domain[\"Domain\"]\n      Services[\"Domain services\"]\n      Models[\"Domain models\"]\n    end\n    subgraph Infrastructure[\"Infrastructure\"]\n      Repository[\"Repository\"]\n      Gateway[\"External APIs\"]\n    end\n  end\n  Pages -->|Synthetic_Button| Controllers\n  Controllers -.->|depends on| Services\n  Services --> Models\n  Services -.->|depends on| Repository\n  Services -.->|depends on| Gateway"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "flowchart TB\n  %% prosemap:package\n  subgraph App[\"Application\"]\n    subgraph Presentation[\"Presentation\"]\n      Pages[\"Pages\"]\n      Controllers[\"Controllers\"]\n    end\n    subgraph Domain[\"Domain\"]\n      Services[\"Domain services\"]\n      Models[\"Domain models\"]\n    end\n    subgraph Infrastructure[\"Infrastructure\"]\n      Repository[\"Repository\"]\n      Gateway[\"External APIs\"]\n    end\n  end\n  Pages -->|Synthetic_Double| Controllers\n  Controllers -.->|depends on| Services\n  Services --> Models\n  Services -.->|depends on| Repository\n  Services -.->|depends on| Gateway"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "flowchart TB\n  %% prosemap:package\n  subgraph App[\"Application\"]\n    subgraph Presentation[\"Presentation\"]\n      Pages[\"Pages\"]\n      Controllers[\"Controllers\"]\n    end\n    subgraph Domain[\"Domain\"]\n      Services[\"Domain services\"]\n      Models[\"Domain models\"]\n    end\n    subgraph Infrastructure[\"Infrastructure\"]\n      Repository[\"Repository\"]\n      Gateway[\"External APIs\"]\n    end\n  end\n  Pages -->|Synthetic_Enter| Controllers\n  Controllers -.->|depends on| Services\n  Services --> Models\n  Services -.->|depends on| Repository\n  Services -.->|depends on| Gateway"
+        }
+      ]
+    },
+    {
+      "template": "package",
+      "kind": "flowchart",
+      "state": "labeled",
+      "edgeId": "edge-1",
+      "initialLabel": "Synthetic_Original",
+      "source": "flowchart TB\n  %% prosemap:package\n  subgraph App[\"Application\"]\n    subgraph Presentation[\"Presentation\"]\n      Pages[\"Pages\"]\n      Controllers[\"Controllers\"]\n    end\n    subgraph Domain[\"Domain\"]\n      Services[\"Domain services\"]\n      Models[\"Domain models\"]\n    end\n    subgraph Infrastructure[\"Infrastructure\"]\n      Repository[\"Repository\"]\n      Gateway[\"External APIs\"]\n    end\n  end\n  Pages -->|Synthetic_Original| Controllers\n  Controllers -.->|depends on| Services\n  Services --> Models\n  Services -.->|depends on| Repository\n  Services -.->|depends on| Gateway",
+      "edits": [
+        {
+          "mode": "Button",
+          "label": "Synthetic_Button",
+          "source": "flowchart TB\n  %% prosemap:package\n  subgraph App[\"Application\"]\n    subgraph Presentation[\"Presentation\"]\n      Pages[\"Pages\"]\n      Controllers[\"Controllers\"]\n    end\n    subgraph Domain[\"Domain\"]\n      Services[\"Domain services\"]\n      Models[\"Domain models\"]\n    end\n    subgraph Infrastructure[\"Infrastructure\"]\n      Repository[\"Repository\"]\n      Gateway[\"External APIs\"]\n    end\n  end\n  Pages -->|Synthetic_Button| Controllers\n  Controllers -.->|depends on| Services\n  Services --> Models\n  Services -.->|depends on| Repository\n  Services -.->|depends on| Gateway"
+        },
+        {
+          "mode": "Double",
+          "label": "Synthetic_Double",
+          "source": "flowchart TB\n  %% prosemap:package\n  subgraph App[\"Application\"]\n    subgraph Presentation[\"Presentation\"]\n      Pages[\"Pages\"]\n      Controllers[\"Controllers\"]\n    end\n    subgraph Domain[\"Domain\"]\n      Services[\"Domain services\"]\n      Models[\"Domain models\"]\n    end\n    subgraph Infrastructure[\"Infrastructure\"]\n      Repository[\"Repository\"]\n      Gateway[\"External APIs\"]\n    end\n  end\n  Pages -->|Synthetic_Double| Controllers\n  Controllers -.->|depends on| Services\n  Services --> Models\n  Services -.->|depends on| Repository\n  Services -.->|depends on| Gateway"
+        },
+        {
+          "mode": "Enter",
+          "label": "Synthetic_Enter",
+          "source": "flowchart TB\n  %% prosemap:package\n  subgraph App[\"Application\"]\n    subgraph Presentation[\"Presentation\"]\n      Pages[\"Pages\"]\n      Controllers[\"Controllers\"]\n    end\n    subgraph Domain[\"Domain\"]\n      Services[\"Domain services\"]\n      Models[\"Domain models\"]\n    end\n    subgraph Infrastructure[\"Infrastructure\"]\n      Repository[\"Repository\"]\n      Gateway[\"External APIs\"]\n    end\n  end\n  Pages -->|Synthetic_Enter| Controllers\n  Controllers -.->|depends on| Services\n  Services --> Models\n  Services -.->|depends on| Repository\n  Services -.->|depends on| Gateway"
+        }
+      ]
+    }
+  ]
+}

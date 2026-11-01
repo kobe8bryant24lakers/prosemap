@@ -74,6 +74,10 @@ for (const item of [
     await expect(label).toHaveText(item.label, { timeout: 1000 });
     await label.dblclick();
     await expect(label.locator('input')).toHaveCount(0);
+    await expect(page.locator('.canvas-context-bar').getByRole('button', { name: /^(加|改)(说明|消息)$/ })).toHaveCount(0);
+    await expect(page.locator('.mermaid-canvas-editor')).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(label.locator('input')).toHaveCount(0);
     await expect(page.locator('.history-tools button').first()).toBeDisabled();
     expect(await draftSource(page)).toBe(item.source);
   });

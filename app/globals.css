@@ -208,7 +208,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .mermaid-error > span { margin-top: 5px; font-size: var(--font-ui); }
 .mermaid-error code { max-height: 170px; margin-top: 14px; overflow: auto; padding: 12px; border: 1px solid #f0d2cf; background: #fff; color: #774b48; white-space: pre-wrap; }
 
-.mermaid-fullscreen-backdrop { position: fixed; inset: 0; z-index: 80; display: flex; padding: 16px; background: rgb(8 23 16 / 74%); backdrop-filter: blur(7px); animation: modal-in .16s ease-out; }
+.mermaid-fullscreen-backdrop { position: fixed; inset: 0; z-index: 80; display: flex; padding: 16px; background: rgb(8 23 16 / 74%); backdrop-filter: blur(7px); }
 .mermaid-fullscreen-dialog { width: 100%; min-width: 0; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgb(255 255 255 / 62%); border-radius: 17px; background: #fff; box-shadow: 0 28px 90px rgb(0 0 0 / 34%); }
 .mermaid-fullscreen-header { min-height: 50px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 0 11px 0 17px; border-bottom: 1px solid var(--line); background: rgb(251 253 251 / 96%); }
 .mermaid-fullscreen-header > div { min-width: 0; display: flex; align-items: center; gap: 8px; }
@@ -290,8 +290,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .run-button:not(:disabled):hover { background: var(--green-dark); }
 .compose-footnote { margin: 8px 0 0; color: var(--muted-light); font-size: var(--font-caption); text-align: center; line-height: 1.55; }
 
-.modal-backdrop { z-index: 50; position: fixed; inset: 0; display: grid; place-items: center; padding: 22px; background: rgb(12 29 21 / 46%); backdrop-filter: blur(5px); animation: fade-in .14s ease-out; }
-.settings-modal { display: flex; flex-direction: column; width: min(640px, 100%); max-height: min(760px, calc(100dvh - 34px)); overflow: hidden; border: 1px solid rgb(255 255 255 / 55%); border-radius: 17px; background: #fff; box-shadow: var(--shadow-lg); animation: modal-in .18s ease-out; }
+/* Blocking dialogs must be visible even when the native animation timeline stalls. */
+.modal-backdrop { z-index: 50; position: fixed; inset: 0; display: grid; place-items: center; padding: 22px; background: rgb(12 29 21 / 46%); backdrop-filter: blur(5px); }
+.settings-modal { display: flex; flex-direction: column; width: min(640px, 100%); max-height: min(760px, calc(100dvh - 34px)); overflow: hidden; border: 1px solid rgb(255 255 255 / 55%); border-radius: 17px; background: #fff; box-shadow: var(--shadow-lg); }
 .settings-header, .diff-header { position: relative; display: flex; align-items: center; gap: 11px; padding: 18px 19px; border-bottom: 1px solid var(--line); }
 .settings-header { flex: none; }
 .settings-icon, .diff-heading-icon { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--green-soft); color: var(--green); }
@@ -299,8 +300,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .settings-header p, .diff-header p { margin: 4px 0 0; color: var(--muted); font-size: var(--font-caption);  line-height: 1.5;}
 .modal-close { margin-left: auto; flex: none; }
 
-.confirmation-backdrop { z-index: 120; position: fixed; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(12 29 21 / 55%); backdrop-filter: blur(6px); animation: fade-in .12s ease-out; }
-.confirmation-dialog { width: min(430px, 100%); overflow: hidden; border: 1px solid rgb(255 255 255 / 70%); border-radius: 15px; background: #fff; box-shadow: 0 24px 70px rgb(12 29 21 / 28%); animation: modal-in .16s ease-out; }
+.confirmation-backdrop { z-index: 120; position: fixed; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(12 29 21 / 55%); backdrop-filter: blur(6px); }
+.confirmation-dialog { width: min(430px, 100%); overflow: hidden; border: 1px solid rgb(255 255 255 / 70%); border-radius: 15px; background: #fff; box-shadow: 0 24px 70px rgb(12 29 21 / 28%); }
 .confirmation-dialog > header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 11px; padding: 18px 18px 15px; }
 .confirmation-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: #fff3df; color: #ad6a13; }
 .confirmation-dialog h2 { margin: 1px 0 0; color: var(--ink); font-size: 14px; }
@@ -339,7 +340,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .confirm-button { border: 1px solid var(--green); background: var(--green); color: #fff; }
 
 .diff-backdrop { padding: 24px; }
-.diff-modal { width: min(920px, 100%); height: min(720px, calc(100dvh - 48px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgb(255 255 255 / 55%); border-radius: 17px; background: #fff; box-shadow: var(--shadow-lg); animation: modal-in .18s ease-out; }
+.diff-modal { width: min(920px, 100%); height: min(720px, calc(100dvh - 48px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgb(255 255 255 / 55%); border-radius: 17px; background: #fff; box-shadow: var(--shadow-lg); }
 .diff-header { flex: none; padding: 16px 18px; }
 .diff-title-row { display: flex; align-items: center; gap: 9px; }
 .stream-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border-radius: 99px; background: #e7f3ed; color: var(--green); font-size: var(--font-ui); font-weight: 750; }
@@ -378,8 +379,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes blink { 50% { opacity: 0; } }
-@keyframes fade-in { from { opacity: 0; } }
-@keyframes modal-in { from { opacity: 0; transform: translateY(8px) scale(.985); } }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
 
 @media (max-width: 1360px) {

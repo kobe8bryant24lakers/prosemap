@@ -17,7 +17,6 @@
   border-radius: 17px;
   background: #fff;
   box-shadow: var(--shadow-lg);
-  animation: modal-in .18s ease-out;
 }
 
 .workbench-header {

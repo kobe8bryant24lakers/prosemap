@@ -861,6 +861,20 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     }
   }, [releaseInteractionCapture]);
 
+  const finishMarqueeByPointerId = useCallback((pointerId?: number) => {
+    const box = marqueeRef.current;
+    if (!box || (pointerId !== undefined && box.pointerId !== pointerId)) return;
+    marqueeRef.current = null;
+    setMarquee(null);
+    const viewport = viewportRef.current;
+    try {
+      if (viewport?.hasPointerCapture(box.pointerId)) viewport.releasePointerCapture(box.pointerId);
+    } catch {
+      // The WebView may already have released capture outside the viewport.
+    }
+    window.setTimeout(() => { didPanRef.current = false; }, 0);
+  }, []);
+
   const cancelPointerInteractions = useCallback((pointerId?: number) => {
     quickAddPressRef.current = null;
     const gesture = gestureHistoryRef.current;
@@ -878,10 +892,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         onChangeRef.current(gesture.snapshot.graph);
       }
     }
-    if (marqueeRef.current && (pointerId === undefined || marqueeRef.current.pointerId === pointerId)) {
-      marqueeRef.current = null;
-      setMarquee(null);
-    }
+    finishMarqueeByPointerId(pointerId);
     const activeDrag = draggingRef.current;
     if (activeDrag && (pointerId === undefined || activeDrag.pointerId === pointerId)) {
       draggingRef.current = null;
@@ -900,7 +911,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       setConnectionDrag(null);
     }
     releaseInteractionCapture(pointerId);
-  }, [releaseInteractionCapture]);
+  }, [releaseInteractionCapture, finishMarqueeByPointerId]);
 
   const finishViewportPanByPointerId = useCallback((pointerId?: number) => {
     const pan = panStateRef.current;
@@ -1287,6 +1298,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     }
 
     function handlePointerUp(event: PointerEvent) {
+      finishMarqueeByPointerId(event.pointerId);
       finishViewportPanByPointerId(event.pointerId);
       const activeDrag = draggingRef.current;
       if (activeDrag?.pointerId === event.pointerId) {
@@ -2470,6 +2482,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   function handleViewportPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const box = marqueeRef.current;
     if (box && box.pointerId === event.pointerId) {
+      // A lost/retargeted release must not turn a later hover into selection.
+      if ((event.buttons & 1) === 0) {
+        finishMarqueeByPointerId(event.pointerId);
+        return;
+      }
       const end = pointFromEvent(event);
       const moved = Math.hypot(end.x - box.start.x, end.y - box.start.y) * zoom > 3;
       if (moved) {
@@ -2509,12 +2526,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   }
 
   function finishViewportPan(event: ReactPointerEvent<HTMLDivElement>) {
-    if (marqueeRef.current?.pointerId === event.pointerId) {
-      marqueeRef.current = null;
-      setMarquee(null);
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-      window.setTimeout(() => { didPanRef.current = false; }, 0);
-    }
+    finishMarqueeByPointerId(event.pointerId);
     finishViewportPanByPointerId(event.pointerId);
   }
 

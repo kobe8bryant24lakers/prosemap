@@ -131,6 +131,65 @@ function preserveFlowchartNodeEdits(source: string, before: MermaidVisualGraph, 
   } catch { return null; }
 }
 
+/** A label on an inline edge has no standalone canonical line to map. Patch
+ * its parsed label span, leaving endpoint declarations and line endings alone. */
+function preserveFlowchartEdgeLabels(source: string, before: MermaidVisualGraph, after: MermaidVisualGraph, expected: string) {
+  const targets = new Map(after.edges.map(edge => [edge.id, edge]));
+  const changed = before.edges.filter(edge => targets.has(edge.id) && targets.get(edge.id)!.label !== edge.label);
+  if (!changed.length || targets.size !== after.edges.length) return null;
+  const projected = { ...before, edges: before.edges.map(edge => ({ ...edge, label: targets.get(edge.id)?.label ?? edge.label })) };
+  if (serializeMermaidVisualGraph(projected) !== expected) return null;
+
+  type EdgeToken = NonNullable<ReturnType<typeof parseFlowchartEdgeTokens>> & { at: number; line: string };
+  const signature = (edge: MermaidVisualGraph['edges'][number]) => JSON.stringify([edge.from, edge.to, edge.label, edge.style]);
+  const tokens = new Map<string, EdgeToken[]>();
+  let offset = 0;
+  for (const line of sourceLines(source, 'flowchart')) {
+    const token = /^\s*(?:%%|subgraph\b|end\s*$|(?:flowchart|graph)\b)/.test(line.text) ? null : parseFlowchartEdgeTokens(line.text);
+    if (token) {
+      const from = singleFlowchartNode(token.from), to = singleFlowchartNode(token.to);
+      if (!from || !to) return null;
+      const key = JSON.stringify([from.id, to.id, token.label, token.style]);
+      tokens.set(key, [...tokens.get(key) ?? [], { ...token, at: offset, line: line.text }]);
+    }
+    offset += line.text.length + line.eol.length;
+  }
+  const edits: Array<{ at: number; length: number; text: string }> = [];
+  for (const edge of changed) {
+    const occurrences = tokens.get(signature(edge));
+    if (occurrences?.length !== 1) return null;
+    const token = occurrences[0];
+    // Reuse the serializer's validation and text escaping, not another copy.
+    const canonical = serializeMermaidVisualGraph({ ...after, edges: [targets.get(edge.id)!] })
+      .split('\n').map(line => ({ line, token: parseFlowchartEdgeTokens(line) })).find(value => value.token !== null);
+    if (!canonical?.token) return null;
+    const label = canonical.line.slice(canonical.token.labelAt, canonical.token.labelAt + canonical.token.labelLength);
+    let at = token.labelAt, length = token.labelLength, text = label;
+    if (token.labelSyntax === 'none') {
+      text = label ? `|${label}|` : '';
+    } else if (!label && token.labelSyntax === 'pipe') {
+      at--; length += 2;
+    } else if (!label) {
+      at = token.from.length; length = token.toAt - at;
+      const connector = token.line.slice(at, token.toAt);
+      text = connector.match(/^\s*/)![0] + '-->' + connector.match(/\s*$/)![0];
+    } else {
+      const original = token.line.slice(at, at + length), trimmed = original.trim();
+      const quote = /^(["']).*\1$/.exec(trimmed)?.[1] ?? '';
+      text = original.match(/^\s*/)![0] + quote + label + quote + (trimmed ? original.match(/\s*$/)![0] : '');
+    }
+    edits.push({ at: token.at + at, length, text });
+  }
+  let candidate = source;
+  for (const edit of edits.sort((a, b) => b.at - a.at)) {
+    candidate = candidate.slice(0, edit.at) + edit.text + candidate.slice(edit.at + edit.length);
+  }
+  try {
+    const parsed = parseMermaidVisualSource(candidate);
+    return parsed && serializeMermaidVisualGraph(parsed) === expected ? candidate : null;
+  } catch { return null; }
+}
+
 /** Members belong to one declaration, even when their text repeats. Locate
  * that declaration first and map its ordered rows, rather than looking up
  * member text globally or regenerating unrelated declarations. */
@@ -265,6 +324,8 @@ export function preserveMermaidSource(source: string, before: MermaidVisualGraph
   if (before.kind === 'flowchart') {
     const inlineEdit = preserveFlowchartNodeEdits(source, before, after, next);
     if (inlineEdit !== null) return inlineEdit;
+    const edgeLabels = preserveFlowchartEdgeLabels(source, before, after, next);
+    if (edgeLabels !== null) return edgeLabels;
   }
   const memberEdit = preserveMemberEdits(source, before, after, next);
   if (memberEdit !== null) return memberEdit;

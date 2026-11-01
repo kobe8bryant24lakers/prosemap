@@ -386,9 +386,12 @@ export function parseFlowchartEdgeTokens(line: string) {
     const to = line.slice(toAt);
     if (!parseNodeToken(from) || !parseNodeToken(to)) continue;
     const labelledForm = match === labelled;
-    const labelAt = labelledForm ? match[1].length + match[2].length : match[1].length + match[2].indexOf('|') + 1;
+    const hasPipeLabel = !labelledForm && match[4] !== undefined;
+    const labelAt = labelledForm ? match[1].length + match[2].length
+      : match[1].length + (hasPipeLabel ? match[2].indexOf('|') + 1 : match[2].indexOf(match[3]) + match[3].length);
     const labelLength = labelledForm ? match[3].length : match[4]?.length ?? 0;
     return { from, to, fromAt: 0, toAt,
+      labelAt, labelLength, labelSyntax: labelledForm ? 'text' as const : hasPipeLabel ? 'pipe' as const : 'none' as const,
       label: normalizeLabel(line.slice(labelAt, labelAt + labelLength)),
       style: labelledForm ? 'arrow' as const : edgeStyleFromToken(match[3]) };
   }

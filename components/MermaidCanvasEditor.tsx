@@ -93,6 +93,51 @@ type MermaidCanvasEditorProps = {
   onChange: (graph: MermaidFlowGraph) => boolean;
 };
 
+/** Rejected labels remain editable without becoming graph or history state. */
+function InlineLabelInput({ value, revision, active, onStart, onChange, onFinish, label, placeholder }: {
+  value: string;
+  revision: MermaidFlowGraph;
+  active: boolean;
+  onStart: () => void;
+  onChange: (value: string) => boolean;
+  onFinish: (cancel?: boolean, focusCanvas?: boolean) => void;
+  label: string;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState({ value, revision, invalid: false });
+  if (draft.revision !== revision) setDraft({ value, revision, invalid: false });
+  const current = draft.revision === revision ? draft : { value, invalid: false };
+  const started = useRef(false);
+  const wasActive = useRef(active);
+  useLayoutEffect(() => {
+    // Switching editing modes ends this inline session. The source contains
+    // only accepted changes; a hidden rejected draft must not outlive its error.
+    if (wasActive.current && !active) onFinish(false, false);
+    wasActive.current = active;
+  }, [active, onFinish]);
+  return <input autoFocus autoCapitalize="none" autoCorrect="off" spellCheck={false}
+    value={current.value} aria-invalid={current.invalid} aria-label={label} placeholder={placeholder}
+    onPointerDown={(event) => event.stopPropagation()}
+    onClick={(event) => event.stopPropagation()}
+    onFocus={(event) => {
+      if (!started.current) { started.current = true; onStart(); }
+      event.currentTarget.select();
+    }}
+    onChange={(event) => {
+      const nextValue = event.target.value;
+      const accepted = onChange(nextValue);
+      setDraft({ value: nextValue, revision, invalid: !accepted });
+    }}
+    onBlur={() => { if (!current.invalid) onFinish(false, false); }}
+    onKeyDown={(event) => {
+      event.stopPropagation();
+      const action = canvasLabelKeyAction(event.nativeEvent);
+      if (!action) return;
+      event.preventDefault();
+      if (action === 'cancel' || !current.invalid) onFinish(action === 'cancel');
+    }} />;
+}
+
 /** Keep incomplete input editable without adding rejected graphs to source/history. */
 function GanttInput({ value, revision, onChange, onFocus, onBlur, disabled, placeholder }: {
   value: string;
@@ -1770,22 +1815,31 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     editorRef.current?.focus({ preventScroll: true });
   }
 
+  function startInlineLabel() {
+    // A newly opened input owns a fresh transaction. Refocusing the same
+    // rejected draft must keep its existing accepted-edit rollback snapshot.
+    labelEditRef.current = null;
+    onChange(currentGraphRef.current);
+  }
+
   function updateInlineLabel(kind: 'node' | 'edge', id: string, label: string) {
     const current = (kind === 'node' ? graph.nodes : graph.edges).find((item) => item.id === id);
-    if (!current || current.label === label) return;
+    if (!current) return false;
     const key = `${kind}:${id}`;
     const next = kind === 'node'
       ? { ...graph, nodes: graph.nodes.map((node) => node.id === id ? { ...node, label } : node) }
       : { ...graph, edges: graph.edges.map((edge) => edge.id === id ? { ...edge, label } : edge) };
     const firstChange = labelEditRef.current?.key !== key;
-    if (firstChange) {
-      labelEditRef.current = beginCanvasLabelEdit(key,
-        { graph: currentGraphRef.current, layout: layoutRef.current }, undoStackRef.current, redoStackRef.current);
-    }
-    commitGraph(next, firstChange);
+    const edit = firstChange && current.label !== label ? beginCanvasLabelEdit(key,
+      { graph: currentGraphRef.current, layout: layoutRef.current }, undoStackRef.current, redoStackRef.current) : null;
+    // Rejected drafts cannot consume the first accepted undo boundary. Even an
+    // unchanged label is validated so repairing back to it clears the error.
+    const accepted = commitGraph(next, firstChange);
+    if (accepted && edit) labelEditRef.current = edit;
+    return accepted;
   }
 
-  function finishInlineLabel(cancel = false) {
+  function finishInlineLabel(cancel = false, focusCanvas = true) {
     const edit = labelEditRef.current;
     labelEditRef.current = null;
     if (cancel && edit) {
@@ -1798,10 +1852,14 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       setCanvasLayout(restored.snapshot.layout);
       updateHistoryStatus();
       onChange(restored.snapshot.graph);
+    } else if (cancel) {
+      // A session containing only rejected text has no history snapshot, but
+      // Escape must still dismiss its validation error.
+      onChange(currentGraphRef.current);
     }
     setEditingNodeId(null);
     setEditingEdgeId(null);
-    editorRef.current?.focus({ preventScroll: true });
+    if (focusCanvas) editorRef.current?.focus({ preventScroll: true });
   }
 
   function updateNode(id: string, update: Partial<MermaidFlowNode>) {
@@ -2992,24 +3050,15 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                 >
                   {graph.kind === 'sequence' ? <small className="canvas-edge-order">{edgeIndex + 1}</small> : null}
                   {editing ? (
-                    <input
-                      autoFocus
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
+                    <InlineLabelInput
+                      revision={graph}
+                      active={active}
                       value={edge.label}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => event.stopPropagation()}
-                      onChange={(event) => updateInlineLabel('edge', edge.id, event.target.value)}
-                      onFocus={(event) => { labelEditRef.current = null; event.currentTarget.select(); }}
-                      onBlur={() => { labelEditRef.current = null; setEditingEdgeId(null); }}
-                      onKeyDown={(event) => {
-                        event.stopPropagation();
-                        const action = canvasLabelKeyAction(event.nativeEvent);
-                        if (action) { event.preventDefault(); finishInlineLabel(action === 'cancel'); }
-                      }}
+                      onStart={startInlineLabel}
+                      onChange={(value) => updateInlineLabel('edge', edge.id, value)}
+                      onFinish={finishInlineLabel}
                       placeholder={t("{0}说明", copy.edge)}
-                      aria-label={t("{0}说明", copy.edge)}
+                      label={t("{0}说明", copy.edge)}
                     />
                   ) : <span>{edge.label || fallbackLabel}</span>}
                   {graph.kind === 'class' && edge.label ? <small>{classRelationLabel(edge.data?.token)}</small> : null}
@@ -3105,23 +3154,14 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                   ) : null}
                   <div className="canvas-node-content">
                     {editing ? (
-                      <input
-                        autoFocus
-                        autoCapitalize="none"
-                        autoCorrect="off"
-                        spellCheck={false}
+                      <InlineLabelInput
+                        revision={graph}
+                        active={active}
                         value={node.label}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => event.stopPropagation()}
-                        onChange={(event) => updateInlineLabel('node', node.id, event.target.value)}
-                        onFocus={(event) => { labelEditRef.current = null; event.currentTarget.select(); }}
-                        onBlur={() => { labelEditRef.current = null; setEditingNodeId(null); }}
-                        onKeyDown={(event) => {
-                          event.stopPropagation();
-                          const action = canvasLabelKeyAction(event.nativeEvent);
-                          if (action) { event.preventDefault(); finishInlineLabel(action === 'cancel'); }
-                        }}
-                        aria-label={t("{0}名称", copy.node)}
+                        onStart={startInlineLabel}
+                        onChange={(value) => updateInlineLabel('node', node.id, value)}
+                        onFinish={finishInlineLabel}
+                        label={t("{0}名称", copy.node)}
                       />
                     ) : <span className="canvas-node-title">{displayLabel || node.id}</span>}
                     <small className="canvas-node-meta">{nodeMeta(node, graph.kind)}</small>

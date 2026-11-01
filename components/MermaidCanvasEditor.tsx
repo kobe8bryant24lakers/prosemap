@@ -2527,7 +2527,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       tabIndex={0}
       onKeyDown={handleEditorKeyDown}
     >
-      <div className="canvas-editor-toolbar" onMouseDown={(event) => { if ((event.target as Element).closest('button')) event.preventDefault(); }}>
+      <div className="canvas-editor-toolbar" onMouseDown={(event) => {
+        // Let an inline label blur and finish before the clicked tool runs.
+        // Property fields retain focus so their existing toolbar/history flow stays intact.
+        if ((event.target as Element).closest('button') && !editingNodeId && !editingEdgeId) event.preventDefault();
+      }}>
         <div className="canvas-tool-group" role="group" aria-label={t("画布工具")}>
           <button type="button" className={!handTool && !connectMode ? 'active' : ''} aria-pressed={!handTool && !connectMode} title={t("选择工具（V）")} onClick={() => { setHandTool(false); setConnectMode(false); setConnectionIssue(null); }}><MousePointer2 size={14} />{t("选择")}</button>
           <button type="button" className={handTool ? 'active' : ''} aria-pressed={handTool} title={t("平移工具（H），或按住空格拖动")} onClick={() => { setHandTool(true); setConnectMode(false); setConnectionIssue(null); }}><Hand size={14} />{t("平移")}</button>

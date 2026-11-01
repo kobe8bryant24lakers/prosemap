@@ -87,7 +87,16 @@ export function useModalFocus(onEscape: () => void, fallbackFocus?: () => HTMLEl
         if (inert === null) element.removeAttribute('inert');
         else element.setAttribute('inert', inert);
       }
-      const target = opener && opener !== document.body && available(opener) ? opener : callbacksRef.current.fallbackFocus?.();
+      const preferred = opener && opener !== document.body && available(opener) ? opener : callbacksRef.current.fallbackFocus?.();
+      // An inline opener can unmount while a nested confirmation is visible.
+      // Keep focus in the surviving modal instead of falling back to the editor behind it.
+      const remainingDialog = activeDialogs.filter(available).at(-1)
+        ?? Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]'))
+          .filter(available).at(-1);
+      const target = remainingDialog && (!preferred || !remainingDialog.contains(preferred))
+        ? Array.from(remainingDialog.querySelectorAll<HTMLElement>(focusableSelector))
+          .find(element => element.tabIndex >= 0 && available(element)) ?? remainingDialog
+        : preferred;
       if (target && available(target)) target.focus({ preventScroll: true });
     };
   }, []);

@@ -434,7 +434,7 @@ function mermaidInlineWidth(render: MermaidRenderState | null, zoom: number, por
 }
 
 function sanitizeMermaidSvg(svg: string) {
-  return DOMPurify.sanitize(svg, {
+  const clean = DOMPurify.sanitize(svg, {
     USE_PROFILES: { html: true, svg: true, svgFilters: true },
     // Mermaid renders rich node and edge labels inside SVG foreignObject
     // elements. Keep that integration point while DOMPurify continues to
@@ -442,5 +442,20 @@ function sanitizeMermaidSvg(svg: string) {
     ADD_TAGS: ['foreignObject'],
     ADD_ATTR: ['dominant-baseline'],
     HTML_INTEGRATION_POINTS: { foreignobject: true },
+    RETURN_DOM_FRAGMENT: true,
   });
+  // Diagram links are unsupported even before a draft is applied. Keep the
+  // anchor wrapper: Mermaid can place the node's transform on it. Removing
+  // href only on anchors also preserves internal SVG <use> references.
+  for (const anchor of clean.querySelectorAll('a')) {
+    anchor.removeAttribute('href');
+    anchor.removeAttribute('xlink:href');
+    anchor.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
+    anchor.removeAttribute('target');
+    anchor.removeAttribute('tabindex');
+    if (anchor.getAttribute('role') === 'link') anchor.removeAttribute('role');
+  }
+  const container = document.createElement('div');
+  container.append(clean);
+  return container.innerHTML;
 }

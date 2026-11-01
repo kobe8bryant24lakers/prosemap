@@ -174,6 +174,7 @@ export default function MermaidWorkbench({
   const draftRevisionRef = useRef(0);
   const mountedRef = useRef(true);
   const closeRequestPendingRef = useRef(false);
+  const templateRequestPendingRef = useRef(false);
   const configured = Boolean(config.apiKey && config.model);
   const aiRunning = aiStatus.kind === 'running';
   const draftChanged = source !== startingSource;
@@ -341,11 +342,41 @@ export default function MermaidWorkbench({
     setTab(nextTab);
   }
 
-  function selectTemplate(templateId: string) {
+  async function selectTemplate(templateId: string) {
+    if (inactive || interactionSuspended || templateRequestPendingRef.current) return;
     const template = MERMAID_TEMPLATES.find((candidate) => candidate.id === templateId);
     if (!template) return;
+    const nextSource = templateSource(template);
+    if (nextSource === source && !aiRunning && !applyingRef.current) {
+      switchTab('visual');
+      return;
+    }
+    if (draftChanged || aiRunning || applyingRef.current) {
+      const revision = draftRevisionRef.current;
+      templateRequestPendingRef.current = true;
+      try {
+        const confirmed = await onRequestConfirmation({
+          title: t("用模板替换当前草稿？"),
+          message: aiRunning || applyingRef.current
+            ? t("替换会停止正在进行的生成或应用，并丢弃当前草稿、画布布局和历史。文档内容保持不变。")
+            : t("尚未应用的修改将被模板替换，画布布局和历史也会重置。文档内容保持不变。"),
+          confirmLabel: t("替换草稿"),
+          cancelLabel: t("保留草稿"),
+          destructive: true,
+        });
+        if (!confirmed || !mountedRef.current) return;
+        // AI can complete while the confirmation is open. The user confirmed
+        // replacing the earlier draft, not a result that arrived afterwards.
+        if (draftRevisionRef.current !== revision) {
+          setFormError(t("草稿已更新，请重新选择模板。"));
+          return;
+        }
+      } finally {
+        templateRequestPendingRef.current = false;
+      }
+    }
     setCanvasRevision((revision) => revision + 1);
-    updateDraft(templateSource(template), template.id);
+    updateDraft(nextSource, template.id);
     setAiStatus({ kind: 'idle', message: '' });
     setAiReasoning('');
     tabRef.current = 'visual';
@@ -612,7 +643,7 @@ export default function MermaidWorkbench({
                   </div>
                   <div className="workbench-template-grid">
                     {MERMAID_TEMPLATES.map((template) => (
-                      <button key={template.id} type="button" className={selectedTemplateId === template.id ? 'active' : ''} onClick={() => selectTemplate(template.id)}>
+                      <button key={template.id} type="button" className={selectedTemplateId === template.id ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); void selectTemplate(template.id); }}>
                         <span><b>{t(template.name)}</b><i>{t(template.category)}</i></span>
                         <small>{t(template.description)}</small>
                         <em>{t("支持画布直接编辑")}</em>

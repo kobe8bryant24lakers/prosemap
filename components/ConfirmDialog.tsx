@@ -47,7 +47,11 @@ export default function ConfirmDialog({
       className="confirmation-backdrop"
       role="presentation"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel();
+        if (event.target === event.currentTarget) {
+          // Preserve the focus restored when this dialog unmounts.
+          event.preventDefault();
+          onCancel();
+        }
       }}
     >
       <section

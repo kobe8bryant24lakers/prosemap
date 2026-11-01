@@ -482,7 +482,11 @@ export default function MermaidWorkbench({
 
   return (
     <div className={`modal-backdrop mermaid-workbench-backdrop${expanded ? ' is-expanded' : ''}`} role="presentation" onMouseDown={(event) => {
-      if (!inactive && !interactionSuspended && event.target === event.currentTarget) void requestClose();
+      if (!inactive && !interactionSuspended && event.target === event.currentTarget) {
+        // The default mouse focus change runs after a confirmation takes focus.
+        event.preventDefault();
+        void requestClose();
+      }
     }}>
       <section className="mermaid-workbench" role="dialog" aria-modal="true" aria-labelledby="mermaid-workbench-title" inert={inactive || interactionSuspended}>
         <header className="workbench-header">

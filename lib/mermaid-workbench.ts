@@ -445,7 +445,9 @@ export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
     const group = line.match(/^subgraph\s+([A-Za-z_][\w-]*)(?:\s*\[(?:"([^"\n]*)"|([^\]"[\n]+))\])?$/);
     if (group) {
       if (groups.some((entry) => entry.id === group[1]) || nodeMap.has(group[1])) return null;
-      groups.push({ id: group[1], label: group[2] ?? group[3]?.trim() ?? group[1], ...(groupStack.length ? { parentId: groupStack.at(-1) } : {}) });
+      const label = (group[2] ?? group[3]?.trim() ?? group[1])
+        .replace(/#(quot|34|38|124);/gi, (_entity, code: string) => code === '38' ? '&' : code === '124' ? '|' : '"');
+      groups.push({ id: group[1], label, ...(groupStack.length ? { parentId: groupStack.at(-1) } : {}) });
       groupStack.push(group[1]);
       continue;
     }
@@ -490,6 +492,14 @@ function safeLabel(value: string): string {
     .trim();
 }
 
+function safeGroupLabel(value: string): string {
+  if (!value.trim()) throw new Error('包或系统边界的名称不能为空');
+  if (/[;#\r\n]/.test(value)) throw new Error('画布文字不能包含换行、分号或 #');
+  // Mermaid entity codes preserve the title instead of silently replacing
+  // quotes or separators. Decode the same codes when reopening the source.
+  return value.replace(/&/g, '#38;').replace(/"/g, '#quot;').replace(/\|/g, '#124;');
+}
+
 function serializeNode(node: MermaidFlowNode): string {
   const label = `"${safeLabel(node.label) || node.id}"`;
   if (node.shape === 'rounded') return `${node.id}(${label})`;
@@ -523,7 +533,7 @@ export function serializeFlowchart(graph: MermaidFlowGraph): string {
       if (/^[A-Za-z_][\w-]*$/.test(node.id)) nodes.push(`${indent}${serializeNode(node)}`);
     }
     for (const group of groups.filter((entry) => entry.parentId === parentId)) {
-      nodes.push(`${indent}subgraph ${group.id}["${safeLabel(group.label)}"]`);
+      nodes.push(`${indent}subgraph ${group.id}["${safeGroupLabel(group.label)}"]`);
       emitMembers(group.id, `${indent}  `);
       nodes.push(`${indent}end`);
     }

@@ -728,6 +728,7 @@ export const english: Record<string, string> = {
   "按日期展示任务、依赖与里程碑": "Tasks, dependencies, and milestones over time",
   "画布文字不能包含换行、分号或 #": "Canvas text cannot contain newlines, semicolons, or #",
   "包或系统边界的标识不能重复或与节点冲突": "Package and boundary IDs must be unique and distinct from node IDs",
+  "包或系统边界的名称不能为空": "Package or boundary name cannot be empty",
   "包层级包含无效父级或循环": "The package hierarchy contains an invalid parent or a cycle",
   "节点所属包不存在": "The node's package does not exist",
   "{0}不能包含换行、花括号、分号或 #": "{0} cannot contain newlines, braces, semicolons, or #",

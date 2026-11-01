@@ -61,6 +61,7 @@ import {
 import {
   expandedMermaidCanvasStage,
   reconcileMermaidCanvasNodes,
+  reconcileMermaidCanvasGroups,
   graphLayoutSignature,
   graphNodeGeometrySignature,
   layoutMermaidGraph,
@@ -68,6 +69,7 @@ import {
   mermaidCanvasLayoutBounds,
   mermaidCanvasNodeSize,
   placeMermaidCanvasNode,
+  placeMermaidCanvasGroup,
   mermaidGroupBounds,
   mermaidSequenceLifelineHeight,
   mermaidSequenceMessageVisual,
@@ -768,6 +770,13 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     if (JSON.stringify(current) === JSON.stringify(nextGraph)) return true;
     if (recordHistory) {
       recordCanvasHistory();
+    }
+    const groupedLayout = reconcileMermaidCanvasGroups(current, nextGraph, layoutRef.current);
+    if (groupedLayout) {
+      layoutRef.current = groupedLayout;
+      setCanvasLayout(groupedLayout);
+      shouldCenterViewport.current = true;
+      shouldAutoFitViewport.current = true;
     }
     currentGraphRef.current = nextGraph;
     updateHistoryStatus();
@@ -1692,7 +1701,23 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     const groups = graph.data?.groups ?? [];
     let index = groups.length + 1;
     while (groups.some((group) => group.id === `Group${index}`) || graph.nodes.some((node) => node.id === `Group${index}`)) index += 1;
-    commitGraph({ ...graph, data: { ...graph.data, groups: [...groups, { id: `Group${index}`, label: graph.data?.diagramType === 'usecase' ? t("系统边界") : t("新包") }] } });
+    const id = `Group${index}`;
+    const nextGraph = { ...graph, data: { ...graph.data, groups: [...groups, { id, label: graph.data?.diagramType === 'usecase' ? t("系统边界") : t("新包") }] } };
+    const viewport = viewportRef.current;
+    const viewportRect = viewport?.getBoundingClientRect();
+    const stageRect = stageRef.current?.getBoundingClientRect();
+    const preferred = viewport && viewportRect && stageRect
+      ? { x: (viewportRect.left + viewport.clientWidth / 2 - stageRect.left) / zoomRef.current - 110,
+          y: (viewportRect.top + viewport.clientHeight / 2 - stageRect.top) / zoomRef.current - 60 }
+      : { x: 70, y: 70 };
+    const point = placeMermaidCanvasGroup(graph, layoutRef.current.positions, preferred);
+    if (!commitGraph(nextGraph)) return;
+    const nextPositions = safeCanvasRecord({ ...layoutRef.current.positions, [id]: point });
+    const nextLayout = { ...layoutRef.current, positions: nextPositions, ...expandedMermaidCanvasStage(nextGraph, nextPositions, layoutRef.current) };
+    shouldCenterViewport.current = true;
+    shouldAutoFitViewport.current = true;
+    layoutRef.current = nextLayout;
+    setCanvasLayout(nextLayout);
   }
 
   function removeGroup(id: string) {

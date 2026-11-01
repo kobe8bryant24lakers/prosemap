@@ -1,0 +1,105 @@
+{
+  "synthetic": true,
+  "description": "Canonical synthetic variants of all eleven templates. Expected edits replace only the unique marker text; no serializer generates the edit oracle.",
+  "templates": [
+    {
+      "template": "basic-flowchart",
+      "kind": "flowchart",
+      "source": "flowchart TD\n  Start([\"Synthetic_NodeBase\"])\n  Input[\"Receive request\"]\n  Check{\"Valid?\"}\n  Process[\"Process request\"]\n  Error[\"Return error\"]\n  End([\"End\"])\n  Start -->|Synthetic_EdgeBase| Input\n  Input --> Check\n  Check -->|Yes| Process\n  Check -->|No| Error\n  Process --> End\n  Error --> End",
+      "nodeId": "Start",
+      "edgeId": "edge-1",
+      "nodes": 6,
+      "edges": 6
+    },
+    {
+      "template": "four-plus-one",
+      "kind": "flowchart",
+      "source": "flowchart TB\n  Logical[\"Synthetic_NodeBase\"]\n  Development[\"Development view: modules and code organization\"]\n  Scenario([\"Scenarios (+1): key use cases and requirements\"])\n  Process[\"Process view: runtime, concurrency, communication\"]\n  Physical[\"Physical view: deployment and infrastructure\"]\n  Logical -->|Synthetic_EdgeBase| Scenario\n  Development -->|implements| Scenario\n  Scenario -->|drives| Process\n  Scenario -->|deployed to| Physical",
+      "nodeId": "Logical",
+      "edgeId": "edge-1",
+      "nodes": 5,
+      "edges": 4
+    },
+    {
+      "template": "architecture",
+      "kind": "flowchart",
+      "source": "flowchart LR\n  Client[\"Synthetic_NodeBase\"]\n  Gateway[\"API gateway\"]\n  Service[\"Business service\"]\n  Database[(\"Database\")]\n  External[\"External service\"]\n  Client -->|Synthetic_EdgeBase| Gateway\n  Gateway --> Service\n  Service --> Database\n  Service --> External",
+      "nodeId": "Client",
+      "edgeId": "edge-1",
+      "nodes": 5,
+      "edges": 4
+    },
+    {
+      "template": "sequence",
+      "kind": "sequence",
+      "source": "sequenceDiagram\n  autonumber\n  actor User as Synthetic_NodeBase\n  participant App as Client\n  participant API as Server\n  User->>App: Synthetic_EdgeBase\n  App->>API: Send data\n  API-->>App: Return result\n  App-->>User: Show result",
+      "nodeId": "User",
+      "edgeId": "edge-1",
+      "nodes": 3,
+      "edges": 4
+    },
+    {
+      "template": "state",
+      "kind": "state",
+      "source": "stateDiagram-v2\n  state \"Synthetic_NodeBase\" as Draft\n  InReview\n  Published\n  [*] --> Draft\n  Draft --> InReview: Synthetic_EdgeBase\n  InReview --> Published: Approve\n  InReview --> Draft: Reject\n  Published --> [*]",
+      "nodeId": "Draft",
+      "edgeId": "edge-2",
+      "nodes": 5,
+      "edges": 5
+    },
+    {
+      "template": "class",
+      "kind": "class",
+      "source": "classDiagram\n  direction TB\n  class User[\"Synthetic_NodeBase\"] {\n    +String id\n    +String name\n    +signIn()\n  }\n  class Order {\n    +String id\n    +create()\n  }\n  User \"1\" --> \"many\" Order : Synthetic_EdgeBase",
+      "nodeId": "User",
+      "edgeId": "edge-1",
+      "nodes": 2,
+      "edges": 1
+    },
+    {
+      "template": "er",
+      "kind": "er",
+      "source": "erDiagram\n  direction TB\n  USER ||--o{ ORDER : Synthetic_EdgeBase\n  USER[\"Synthetic_NodeBase\"] {\n    string id PK\n    string name\n  }\n  ORDER {\n    string id PK\n    string user_id FK\n    decimal amount\n  }",
+      "nodeId": "USER",
+      "edgeId": "edge-1",
+      "nodes": 2,
+      "edges": 1
+    },
+    {
+      "template": "mindmap",
+      "kind": "mindmap",
+      "source": "mindmap\n  root((\"Synthetic_NodeBase\"))\n    Mind2[\"User value\"]\n      Mind3[\"Core problems\"]\n      Mind4[\"Target audience\"]\n    Mind5[\"Product capabilities\"]\n      Mind6[\"MVP\"]\n      Mind7[\"Future iterations\"]\n    Mind8[\"Delivery plan\"]\n      Mind9[\"Milestones\"]\n      Mind10[\"Risks\"]",
+      "nodeId": "root",
+      "edgeId": null,
+      "nodes": 10,
+      "edges": 9
+    },
+    {
+      "template": "gantt",
+      "kind": "gantt",
+      "source": "gantt\n  title Project plan\n  dateFormat YYYY-MM-DD\n  section Design\n  Synthetic_NodeBase :done, req, 2026-01-01, 3d\n  Solution design :design, after req, 5d\n  section Development\n  Core development :dev, after design, 8d\n  Release :milestone, Task4, after dev, 1d",
+      "nodeId": "req",
+      "edgeId": null,
+      "nodes": 4,
+      "edges": 3
+    },
+    {
+      "template": "usecase",
+      "kind": "flowchart",
+      "source": "flowchart LR\n  %% prosemap:usecase\n  User[\"Synthetic_NodeBase\"]\n  Admin[\"«actor» Admin\"]\n  subgraph System[\"Order system\"]\n    Browse([\"Browse products\"])\n    Order([\"Place order\"])\n    Login([\"Authentication\"])\n    Coupon([\"Apply coupon\"])\n    Manage([\"Manage products\"])\n  end\n  User ---|Synthetic_EdgeBase| Browse\n  User --- Order\n  Admin --- Manage\n  Order -.->|«include»| Login\n  Coupon -.->|«extend»| Order",
+      "nodeId": "User",
+      "edgeId": "edge-1",
+      "nodes": 7,
+      "edges": 5
+    },
+    {
+      "template": "package",
+      "kind": "flowchart",
+      "source": "flowchart TB\n  %% prosemap:package\n  subgraph App[\"Application\"]\n    subgraph Presentation[\"Presentation\"]\n      Pages[\"Synthetic_NodeBase\"]\n      Controllers[\"Controllers\"]\n    end\n    subgraph Domain[\"Domain\"]\n      Services[\"Domain services\"]\n      Models[\"Domain models\"]\n    end\n    subgraph Infrastructure[\"Infrastructure\"]\n      Repository[\"Repository\"]\n      Gateway[\"External APIs\"]\n    end\n  end\n  Pages -->|Synthetic_EdgeBase| Controllers\n  Controllers -.->|depends on| Services\n  Services --> Models\n  Services -.->|depends on| Repository\n  Services -.->|depends on| Gateway",
+      "nodeId": "Pages",
+      "edgeId": "edge-1",
+      "nodes": 6,
+      "edges": 5
+    }
+  ]
+}

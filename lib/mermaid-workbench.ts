@@ -395,12 +395,13 @@ export function parseFlowchartEdgeTokens(line: string) {
   return null;
 }
 
-function parseEdgeLine(line: string): { from: MermaidFlowNode; to: MermaidFlowNode; label: string; style: MermaidEdgeStyle } | null {
+function parseEdgeLine(line: string): { from: MermaidFlowNode; to: MermaidFlowNode; fromDeclared: boolean; toDeclared: boolean; label: string; style: MermaidEdgeStyle } | null {
   const tokens = parseFlowchartEdgeTokens(line);
   if (!tokens) return null;
   const from = parseNodeToken(tokens.from);
   const to = parseNodeToken(tokens.to);
-  return from && to ? { from, to, label: tokens.label, style: tokens.style } : null;
+  return from && to ? { from, to, fromDeclared: tokens.from.trim() !== from.id,
+    toDeclared: tokens.to.trim() !== to.id, label: tokens.label, style: tokens.style } : null;
 }
 
 export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
@@ -417,11 +418,13 @@ export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
   const groupStack: string[] = [];
   let diagramType: 'usecase' | 'package' | undefined;
 
-  const rememberNode = (node: MermaidFlowNode) => {
+  const rememberNode = (node: MermaidFlowNode, declared: boolean) => {
     const previous = nodeMap.get(node.id);
     const groupId = groupStack.at(-1) ?? previous?.data?.groupId;
     if (previous?.data?.groupId && groupId !== previous.data.groupId) return false;
-    if (!previous || node.label !== node.id || previous.label === previous.id) {
+    // A bare ID references an existing declaration. Its text may equal its ID,
+    // so label equality cannot tell us whether a shape was explicitly declared.
+    if (!previous || declared) {
       nodeMap.set(node.id, { ...node, ...(groupId ? { data: { groupId } } : {}) });
     } else if (groupId) previous.data = { ...previous.data, groupId };
     return true;
@@ -454,7 +457,7 @@ export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
     if (/^(?:(?:subgraph|direction|classDef|class|style|linkStyle)(?:\s|$)|end\s*$)/i.test(line) || line.includes(';')) return null;
     const edge = parseEdgeLine(line);
     if (edge) {
-      if (!rememberNode(edge.from) || !rememberNode(edge.to)) return null;
+      if (!rememberNode(edge.from, edge.fromDeclared) || !rememberNode(edge.to, edge.toDeclared)) return null;
       edges.push({
         id: `edge-${edges.length + 1}`,
         from: edge.from.id,
@@ -466,7 +469,7 @@ export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
     }
     const node = parseNodeToken(line);
     if (!node) return null;
-    if (!rememberNode(node)) return null;
+    if (!rememberNode(node, line !== node.id)) return null;
   }
 
   if (groupStack.length || groups.some((group) => nodeMap.has(group.id))) return null;

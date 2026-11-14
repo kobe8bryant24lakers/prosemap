@@ -7,6 +7,7 @@ import type {
 } from './mermaid-workbench.ts';
 
 export type MermaidCanvasPoint = { x: number; y: number };
+export type MermaidCanvasPlacementLimits = { minX?: number; minY?: number; maxX?: number; maxY?: number };
 export type MermaidCanvasNodePositions = Record<string, MermaidCanvasPoint>;
 export type MermaidCanvasAlignmentGuides = { x?: number; y?: number };
 export type MermaidCanvasEdgeRoute = {
@@ -258,7 +259,7 @@ export function placeMermaidCanvasNode(
   positions: MermaidCanvasNodePositions,
   node: MermaidFlowNode,
   preferred: MermaidCanvasPoint,
-  minimum: Partial<MermaidCanvasPoint> = {},
+  limits: MermaidCanvasPlacementLimits = {},
 ): MermaidCanvasPoint {
   const size = mermaidCanvasNodeSize(node, graph.kind);
   const occupied = graph.nodes.filter((other) => other.id !== node.id && positions[other.id]).map((other) => ({
@@ -270,7 +271,7 @@ export function placeMermaidCanvasNode(
   for (const [id, bounds] of Object.entries(mermaidGroupBounds(graph, positions))) {
     if (!ancestors.has(id)) occupied.push({ x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY });
   }
-  return placeCanvasBox(size, occupied, preferred, graph.kind === 'sequence', minimum);
+  return placeCanvasBox(size, occupied, preferred, graph.kind === 'sequence', limits);
 }
 
 /** Empty boundaries need their own anchors, clear of nodes and other groups. */
@@ -288,9 +289,10 @@ export function placeMermaidCanvasGroup(
   return placeCanvasBox({ width: 220, height: 120 }, occupied, preferred, false);
 }
 
-function placeCanvasBox(size: Size, occupied: Array<MermaidCanvasPoint & Size>, preferred: MermaidCanvasPoint, sequence: boolean, minimum: Partial<MermaidCanvasPoint> = {}): MermaidCanvasPoint {
-  const minX = Math.max(18, minimum.x ?? 18), minY = Math.max(18, minimum.y ?? 18);
-  const origin = { x: Math.max(minX, preferred.x), y: sequence ? 58 : Math.max(minY, preferred.y) };
+function placeCanvasBox(size: Size, occupied: Array<MermaidCanvasPoint & Size>, preferred: MermaidCanvasPoint, sequence: boolean, limits: MermaidCanvasPlacementLimits = {}): MermaidCanvasPoint {
+  const minX = Math.max(18, limits.minX ?? 18), minY = Math.max(18, limits.minY ?? 18);
+  const maxX = Math.max(minX, limits.maxX ?? Infinity), maxY = Math.max(minY, limits.maxY ?? Infinity);
+  const origin = { x: Math.min(maxX, Math.max(minX, preferred.x)), y: sequence ? 58 : Math.min(maxY, Math.max(minY, preferred.y)) };
   const free = (p: MermaidCanvasPoint) => occupied.every((other) =>
     p.x + size.width + 24 <= other.x || other.x + other.width + 24 <= p.x
     || (!sequence && (p.y + size.height + 24 <= other.y || other.y + other.height + 24 <= p.y)));
@@ -301,10 +303,13 @@ function placeCanvasBox(size: Size, occupied: Array<MermaidCanvasPoint & Size>, 
       for (let y = -ring; y <= ring; y++) {
         if (Math.max(Math.abs(x), Math.abs(y)) !== ring || (sequence && y !== 0)) continue;
         const point = { x: origin.x + x * (size.width + 32), y: origin.y + y * (size.height + 32) };
-        if (point.x >= minX && point.y >= (sequence ? 58 : minY) && free(point)) return point;
+        if (point.x >= minX && point.x <= maxX && point.y >= (sequence ? 58 : minY) && point.y <= maxY && free(point)) return point;
       }
     }
   }
+  // A leftward insertion has a fixed maximum X; use a free row instead of
+  // reversing direction when the bounded search area is occupied.
+  if (Number.isFinite(maxX) && !sequence) return { x: origin.x, y: Math.max(origin.y, ...occupied.map(other => other.y + other.height + 32)) };
   return { x: Math.max(origin.x, ...occupied.map((other) => other.x + other.width + 32)), y: origin.y };
 }
 

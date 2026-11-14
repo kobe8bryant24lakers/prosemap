@@ -26,6 +26,7 @@ export type Proposal = {
   modified: string;
   reasoning: string;
   sourceDocument: string;
+  documentRevision: number;
   from: number;
   to: number;
   status: 'streaming' | 'ready' | 'error';

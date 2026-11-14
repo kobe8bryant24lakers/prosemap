@@ -72,28 +72,30 @@ for (const size of [{ width: 1440, height: 900 }, { width: 900, height: 600 }]) 
     await page.getByRole('button', { name: '设置', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await expect.poll(() => dialog.evaluate(element => element.getAnimations().filter(animation => animation.playState === 'running').length)).toBe(0);
-    const seen = new Set<string>();
-    for (let index = 0; index < 20; index++) {
-      await page.keyboard.press('Tab');
-      const field = await dialog.evaluate(element => {
-        const active = document.activeElement as HTMLElement | null;
-        if (!active?.matches('#profile-name, #base-url, #model-name, #api-key')) return null;
-        const rect = active.getBoundingClientRect();
-        const footer = element.querySelector('.settings-footer')!.getBoundingClientRect();
-        const header = element.querySelector('.settings-header')!.getBoundingClientRect();
-        return { id: active.id, top: rect.top, bottom: rect.bottom, headerBottom: header.bottom, footerTop: footer.top };
-      });
-      if (field) {
-        seen.add(field.id);
-        await expect.poll(() => dialog.evaluate((element, id) => {
-          const rect = element.querySelector(`#${id}`)!.getBoundingClientRect();
+    for (const key of ['Tab', 'Shift+Tab']) {
+      const seen = new Set<string>();
+      for (let index = 0; index < 20; index++) {
+        await page.keyboard.press(key);
+        const field = await dialog.evaluate(element => {
+          const active = document.activeElement as HTMLElement | null;
+          if (!active?.matches('#profile-name, #base-url, #model-name, #api-key')) return null;
+          const rect = active.getBoundingClientRect();
           const footer = element.querySelector('.settings-footer')!.getBoundingClientRect();
           const header = element.querySelector('.settings-header')!.getBoundingClientRect();
-          return rect.top >= header.bottom - 1 && rect.bottom <= footer.top + 1;
-        }, field.id), { message: `${field.id} stays visible between the header and footer` }).toBe(true);
+          return { id: active.id, top: rect.top, bottom: rect.bottom, headerBottom: header.bottom, footerTop: footer.top };
+        });
+        if (field) {
+          seen.add(field.id);
+          await expect.poll(() => dialog.evaluate((element, id) => {
+            const rect = element.querySelector(`#${id}`)!.getBoundingClientRect();
+            const footer = element.querySelector('.settings-footer')!.getBoundingClientRect();
+            const header = element.querySelector('.settings-header')!.getBoundingClientRect();
+            return rect.top >= header.bottom - 1 && rect.bottom <= footer.top + 1;
+          }, field.id), { message: `${field.id} stays visible between the header and footer` }).toBe(true);
+        }
       }
+      expect([...seen].sort(), `${key} reaches every profile field`).toEqual(['api-key', 'base-url', 'model-name', 'profile-name']);
     }
-    expect([...seen].sort()).toEqual(['api-key', 'base-url', 'model-name', 'profile-name']);
     await expect(dialog.getByRole('button', { name: '取消', exact: true })).toBeInViewport();
     await expect(dialog.getByRole('button', { name: '安全保存', exact: true })).toBeInViewport();
   });

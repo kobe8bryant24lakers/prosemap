@@ -1,0 +1,207 @@
+{
+  "synthetic": true,
+  "description": "Manually authored independent expected Mermaid sources for eleven template persistence. Canvas-only geometry is intentionally not a serialized semantic field.",
+  "templates": [
+    {
+      "template": "basic-flowchart",
+      "kind": "flowchart",
+      "before": "flowchart TD\n  Start([\"Synthetic_NodeBase\"])\n  Input[\"Receive request\"]\n  Check{\"Valid?\"}\n  Process[\"Process request\"]\n  Error[\"Return error\"]\n  End([\"End\"])\n  Start -->|Synthetic_EdgeBase| Input\n  Input --> Check\n  Check -->|Yes| Process\n  Check -->|No| Error\n  Process --> End\n  Error --> End",
+      "after": "flowchart RL\n  %% SYNTHETIC semantic persistence\n  subgraph SYNTHETIC_Outer[\"SYNTHETIC 外层 🧭\"]\n    SYNTHETIC_N0((\"SYNTHETIC 长中文标签与英文 Navigation preservation 🧭 稳定保存与恢复\"))\n    subgraph SYNTHETIC_Inner[\"SYNTHETIC 内层\"]\n      SYNTHETIC_N1[(\"SYNTHETIC 数据\")]\n      SYNTHETIC_N2{\"SYNTHETIC 决策\"}\n    end\n  end\n  SYNTHETIC_N3([\"SYNTHETIC 起止\"])\n  SYNTHETIC_N4(\"SYNTHETIC 圆角\")\n  SYNTHETIC_N5[\"SYNTHETIC 矩形\"]\n  SYNTHETIC_N0 -.->|SYNTHETIC 虚线 🧭| SYNTHETIC_N1\n  SYNTHETIC_N1 ==>|SYNTHETIC 粗线| SYNTHETIC_N2\n  SYNTHETIC_N2 ---|SYNTHETIC 无箭头| SYNTHETIC_N3\n  SYNTHETIC_N3 -->|SYNTHETIC 返回| SYNTHETIC_N4\n  SYNTHETIC_N4 --> SYNTHETIC_N5",
+      "persistentFields": [
+        "direction",
+        "node.id",
+        "node.label",
+        "node.shape",
+        "edge.from",
+        "edge.to",
+        "edge.label",
+        "edge.style",
+        "group.id",
+        "group.label",
+        "group.parentId",
+        "node.groupId",
+        "comments"
+      ]
+    },
+    {
+      "template": "four-plus-one",
+      "kind": "flowchart",
+      "before": "flowchart TB\n  Logical[\"Synthetic_NodeBase\"]\n  Development[\"Development view: modules and code organization\"]\n  Scenario([\"Scenarios (+1): key use cases and requirements\"])\n  Process[\"Process view: runtime, concurrency, communication\"]\n  Physical[\"Physical view: deployment and infrastructure\"]\n  Logical -->|Synthetic_EdgeBase| Scenario\n  Development -->|implements| Scenario\n  Scenario -->|drives| Process\n  Scenario -->|deployed to| Physical",
+      "after": "flowchart RL\n  %% SYNTHETIC semantic persistence\n  subgraph SYNTHETIC_Outer[\"SYNTHETIC 外层 🧭\"]\n    SYNTHETIC_N0((\"SYNTHETIC 长中文标签与英文 Navigation preservation 🧭 稳定保存与恢复\"))\n    subgraph SYNTHETIC_Inner[\"SYNTHETIC 内层\"]\n      SYNTHETIC_N1[(\"SYNTHETIC 数据\")]\n      SYNTHETIC_N2{\"SYNTHETIC 决策\"}\n    end\n  end\n  SYNTHETIC_N3([\"SYNTHETIC 起止\"])\n  SYNTHETIC_N4(\"SYNTHETIC 圆角\")\n  SYNTHETIC_N5[\"SYNTHETIC 矩形\"]\n  SYNTHETIC_N0 -.->|SYNTHETIC 虚线 🧭| SYNTHETIC_N1\n  SYNTHETIC_N1 ==>|SYNTHETIC 粗线| SYNTHETIC_N2\n  SYNTHETIC_N2 ---|SYNTHETIC 无箭头| SYNTHETIC_N3\n  SYNTHETIC_N3 -->|SYNTHETIC 返回| SYNTHETIC_N4\n  SYNTHETIC_N4 --> SYNTHETIC_N5",
+      "persistentFields": [
+        "direction",
+        "node.id",
+        "node.label",
+        "node.shape",
+        "edge.from",
+        "edge.to",
+        "edge.label",
+        "edge.style",
+        "group.id",
+        "group.label",
+        "group.parentId",
+        "node.groupId",
+        "comments"
+      ]
+    },
+    {
+      "template": "architecture",
+      "kind": "flowchart",
+      "before": "flowchart LR\n  Client[\"Synthetic_NodeBase\"]\n  Gateway[\"API gateway\"]\n  Service[\"Business service\"]\n  Database[(\"Database\")]\n  External[\"External service\"]\n  Client -->|Synthetic_EdgeBase| Gateway\n  Gateway --> Service\n  Service --> Database\n  Service --> External",
+      "after": "flowchart RL\n  %% SYNTHETIC semantic persistence\n  subgraph SYNTHETIC_Outer[\"SYNTHETIC 外层 🧭\"]\n    SYNTHETIC_N0((\"SYNTHETIC 长中文标签与英文 Navigation preservation 🧭 稳定保存与恢复\"))\n    subgraph SYNTHETIC_Inner[\"SYNTHETIC 内层\"]\n      SYNTHETIC_N1[(\"SYNTHETIC 数据\")]\n      SYNTHETIC_N2{\"SYNTHETIC 决策\"}\n    end\n  end\n  SYNTHETIC_N3([\"SYNTHETIC 起止\"])\n  SYNTHETIC_N4(\"SYNTHETIC 圆角\")\n  SYNTHETIC_N5[\"SYNTHETIC 矩形\"]\n  SYNTHETIC_N0 -.->|SYNTHETIC 虚线 🧭| SYNTHETIC_N1\n  SYNTHETIC_N1 ==>|SYNTHETIC 粗线| SYNTHETIC_N2\n  SYNTHETIC_N2 ---|SYNTHETIC 无箭头| SYNTHETIC_N3\n  SYNTHETIC_N3 -->|SYNTHETIC 返回| SYNTHETIC_N4\n  SYNTHETIC_N4 --> SYNTHETIC_N5",
+      "persistentFields": [
+        "direction",
+        "node.id",
+        "node.label",
+        "node.shape",
+        "edge.from",
+        "edge.to",
+        "edge.label",
+        "edge.style",
+        "group.id",
+        "group.label",
+        "group.parentId",
+        "node.groupId",
+        "comments"
+      ]
+    },
+    {
+      "template": "sequence",
+      "kind": "sequence",
+      "before": "sequenceDiagram\n  autonumber\n  actor User as Synthetic_NodeBase\n  participant App as Client\n  participant API as Server\n  User->>App: Synthetic_EdgeBase\n  App->>API: Send data\n  API-->>App: Return result\n  App-->>User: Show result",
+      "after": "sequenceDiagram\n  %% SYNTHETIC semantic persistence\n  participant SYNTHETIC_A as SYNTHETIC 长中文标签与英文 Navigation preservation 🧭 稳定保存与恢复\n  actor SYNTHETIC_B as SYNTHETIC 服务 🧭\n  participant SYNTHETIC_C as SYNTHETIC 接收者\n  SYNTHETIC_A->>+SYNTHETIC_B: SYNTHETIC 请求 🧭\n  SYNTHETIC_B--)SYNTHETIC_C: SYNTHETIC 异步\n  SYNTHETIC_C--xSYNTHETIC_B: SYNTHETIC 失败\n  SYNTHETIC_B-->>-SYNTHETIC_A: SYNTHETIC 返回",
+      "persistentFields": [
+        "node.id/ref",
+        "node.label",
+        "node.sequenceType",
+        "edge.from/to",
+        "edge.label",
+        "edge.token/style",
+        "edge.activation",
+        "autonumber",
+        "sequence ordering",
+        "comments"
+      ]
+    },
+    {
+      "template": "state",
+      "kind": "state",
+      "before": "stateDiagram-v2\n  state \"Synthetic_NodeBase\" as Draft\n  InReview\n  Published\n  [*] --> Draft\n  Draft --> InReview: Synthetic_EdgeBase\n  InReview --> Published: Approve\n  InReview --> Draft: Reject\n  Published --> [*]",
+      "after": "stateDiagram-v2\n  direction LR\n  %% SYNTHETIC semantic persistence\n  state \"SYNTHETIC 长中文标签与英文 Navigation preservation 🧭 稳定保存与恢复\" as SYNTHETIC_Ready\n  state \"SYNTHETIC 执行 🧭\" as SYNTHETIC_Running\n  state \"SYNTHETIC 完成\" as SYNTHETIC_Done\n  [*] --> SYNTHETIC_Ready\n  SYNTHETIC_Ready --> SYNTHETIC_Running: SYNTHETIC 开始\n  SYNTHETIC_Running --> SYNTHETIC_Ready: SYNTHETIC 重试\n  SYNTHETIC_Running --> SYNTHETIC_Done: SYNTHETIC 完成 🧭\n  SYNTHETIC_Done --> [*]",
+      "persistentFields": [
+        "direction",
+        "node.id/ref",
+        "node.label",
+        "stateRole start/end/state",
+        "edge.from/to",
+        "edge.label",
+        "comments"
+      ]
+    },
+    {
+      "template": "class",
+      "kind": "class",
+      "before": "classDiagram\n  direction TB\n  class User[\"Synthetic_NodeBase\"] {\n    +String id\n    +String name\n    +signIn()\n  }\n  class Order {\n    +String id\n    +create()\n  }\n  User \"1\" --> \"many\" Order : Synthetic_EdgeBase",
+      "after": "classDiagram\n  direction LR\n  %% SYNTHETIC semantic persistence\n  class SYNTHETIC_Service[\"SYNTHETIC 长中文标签与英文 Navigation preservation 🧭 稳定保存与恢复\"] {\n    -String syntheticToken\n    +int syntheticCount\n    +execute() bool\n  }\n  class SYNTHETIC_Result[\"SYNTHETIC 结果 🧭\"] {\n    +String syntheticId\n    +complete() void\n  }\n  SYNTHETIC_Service \"many\" ..> \"1\" SYNTHETIC_Result : SYNTHETIC 产生 🧭",
+      "persistentFields": [
+        "direction",
+        "node.id/ref",
+        "node.label",
+        "class.details visibility/type/name/method",
+        "edge.from/to",
+        "edge.label",
+        "edge.token/style/cardinality",
+        "comments"
+      ]
+    },
+    {
+      "template": "er",
+      "kind": "er",
+      "before": "erDiagram\n  direction TB\n  USER ||--o{ ORDER : Synthetic_EdgeBase\n  USER[\"Synthetic_NodeBase\"] {\n    string id PK\n    string name\n  }\n  ORDER {\n    string id PK\n    string user_id FK\n    decimal amount\n  }",
+      "after": "erDiagram\n  direction LR\n  %% SYNTHETIC semantic persistence\n  SYNTHETIC_OWNER[\"SYNTHETIC 长中文标签与英文 Navigation preservation 🧭 稳定保存与恢复\"] {\n    string synthetic_id PK\n    string synthetic_name UK\n  }\n  SYNTHETIC_ITEM[\"SYNTHETIC 记录 🧭\"] {\n    string synthetic_id PK\n    string synthetic_owner FK\n    int synthetic_amount\n  }\n  SYNTHETIC_ITEM }o..o| SYNTHETIC_OWNER : SYNTHETIC 归属",
+      "persistentFields": [
+        "direction",
+        "node.id/ref",
+        "node.label",
+        "er.details type/name/key",
+        "edge.from/to",
+        "edge.label",
+        "edge.token/style/cardinality",
+        "comments"
+      ]
+    },
+    {
+      "template": "mindmap",
+      "kind": "mindmap",
+      "before": "mindmap\n  root((\"Synthetic_NodeBase\"))\n    Mind2[\"User value\"]\n      Mind3[\"Core problems\"]\n      Mind4[\"Target audience\"]\n    Mind5[\"Product capabilities\"]\n      Mind6[\"MVP\"]\n      Mind7[\"Future iterations\"]\n    Mind8[\"Delivery plan\"]\n      Mind9[\"Milestones\"]\n      Mind10[\"Risks\"]",
+      "after": "mindmap\n  %% SYNTHETIC semantic persistence\n  SYNTHETIC_root((\"SYNTHETIC 长中文标签与英文 Navigation preservation 🧭 稳定保存与恢复\"))\n    SYNTHETIC_branch[\"SYNTHETIC 分支 🧭\"]\n      SYNTHETIC_leaf[\"SYNTHETIC 叶子\"]\n        SYNTHETIC_deep[\"SYNTHETIC 深层\"]\n    SYNTHETIC_sibling[\"SYNTHETIC 同级\"]",
+      "persistentFields": [
+        "node.id",
+        "node.label",
+        "mindRoot",
+        "parent-child hierarchy",
+        "node count",
+        "comments"
+      ]
+    },
+    {
+      "template": "gantt",
+      "kind": "gantt",
+      "before": "gantt\n  title Project plan\n  dateFormat YYYY-MM-DD\n  section Design\n  Synthetic_NodeBase :done, req, 2026-01-01, 3d\n  Solution design :design, after req, 5d\n  section Development\n  Core development :dev, after design, 8d\n  Release :milestone, Task4, after dev, 1d",
+      "after": "gantt\n  title SYNTHETIC 语义保存 🧭\n  dateFormat YYYY-MM-DD\n  %% SYNTHETIC semantic persistence\n  section SYNTHETIC 准备\n  SYNTHETIC 长中文标签与英文 Navigation preservation 🧭 稳定保存与恢复 :active, crit, SYNTHETIC_plan, 2026-11-12, 4d\n  SYNTHETIC 实施 🧭 :done, SYNTHETIC_build, after SYNTHETIC_plan, 7d\n  section SYNTHETIC 发布\n  SYNTHETIC 验证 :crit, SYNTHETIC_verify, after SYNTHETIC_build, 2d\n  SYNTHETIC 发布 :milestone, SYNTHETIC_release, after SYNTHETIC_verify, 0d",
+      "persistentFields": [
+        "directives title/dateFormat",
+        "node.id/ref",
+        "node.label",
+        "ganttSection",
+        "ganttStatuses",
+        "ganttStart",
+        "ganttTiming",
+        "dependencies",
+        "comments"
+      ]
+    },
+    {
+      "template": "usecase",
+      "kind": "flowchart",
+      "before": "flowchart LR\n  %% prosemap:usecase\n  User[\"Synthetic_NodeBase\"]\n  Admin[\"«actor» Admin\"]\n  subgraph System[\"Order system\"]\n    Browse([\"Browse products\"])\n    Order([\"Place order\"])\n    Login([\"Authentication\"])\n    Coupon([\"Apply coupon\"])\n    Manage([\"Manage products\"])\n  end\n  User ---|Synthetic_EdgeBase| Browse\n  User --- Order\n  Admin --- Manage\n  Order -.->|«include»| Login\n  Coupon -.->|«extend»| Order",
+      "after": "flowchart RL\n  %% prosemap:usecase\n  %% SYNTHETIC semantic persistence\n  subgraph SYNTHETIC_Outer[\"SYNTHETIC 外层 🧭\"]\n    SYNTHETIC_N0((\"SYNTHETIC 长中文标签与英文 Navigation preservation 🧭 稳定保存与恢复\"))\n    subgraph SYNTHETIC_Inner[\"SYNTHETIC 内层\"]\n      SYNTHETIC_N1[(\"SYNTHETIC 数据\")]\n      SYNTHETIC_N2{\"SYNTHETIC 决策\"}\n    end\n  end\n  SYNTHETIC_N3([\"SYNTHETIC 起止\"])\n  SYNTHETIC_N4(\"SYNTHETIC 圆角\")\n  SYNTHETIC_N5[\"SYNTHETIC 矩形\"]\n  SYNTHETIC_N0 -.->|SYNTHETIC 虚线 🧭| SYNTHETIC_N1\n  SYNTHETIC_N1 ==>|SYNTHETIC 粗线| SYNTHETIC_N2\n  SYNTHETIC_N2 ---|SYNTHETIC 无箭头| SYNTHETIC_N3\n  SYNTHETIC_N3 -->|SYNTHETIC 返回| SYNTHETIC_N4\n  SYNTHETIC_N4 --> SYNTHETIC_N5",
+      "persistentFields": [
+        "direction",
+        "node.id",
+        "node.label",
+        "node.shape",
+        "edge.from",
+        "edge.to",
+        "edge.label",
+        "edge.style",
+        "group.id",
+        "group.label",
+        "group.parentId",
+        "node.groupId",
+        "comments"
+      ]
+    },
+    {
+      "template": "package",
+      "kind": "flowchart",
+      "before": "flowchart TB\n  %% prosemap:package\n  subgraph App[\"Application\"]\n    subgraph Presentation[\"Presentation\"]\n      Pages[\"Synthetic_NodeBase\"]\n      Controllers[\"Controllers\"]\n    end\n    subgraph Domain[\"Domain\"]\n      Services[\"Domain services\"]\n      Models[\"Domain models\"]\n    end\n    subgraph Infrastructure[\"Infrastructure\"]\n      Repository[\"Repository\"]\n      Gateway[\"External APIs\"]\n    end\n  end\n  Pages -->|Synthetic_EdgeBase| Controllers\n  Controllers -.->|depends on| Services\n  Services --> Models\n  Services -.->|depends on| Repository\n  Services -.->|depends on| Gateway",
+      "after": "flowchart RL\n  %% prosemap:package\n  %% SYNTHETIC semantic persistence\n  subgraph SYNTHETIC_Outer[\"SYNTHETIC 外层 🧭\"]\n    SYNTHETIC_N0((\"SYNTHETIC 长中文标签与英文 Navigation preservation 🧭 稳定保存与恢复\"))\n    subgraph SYNTHETIC_Inner[\"SYNTHETIC 内层\"]\n      SYNTHETIC_N1[(\"SYNTHETIC 数据\")]\n      SYNTHETIC_N2{\"SYNTHETIC 决策\"}\n    end\n  end\n  SYNTHETIC_N3([\"SYNTHETIC 起止\"])\n  SYNTHETIC_N4(\"SYNTHETIC 圆角\")\n  SYNTHETIC_N5[\"SYNTHETIC 矩形\"]\n  SYNTHETIC_N0 -.->|SYNTHETIC 虚线 🧭| SYNTHETIC_N1\n  SYNTHETIC_N1 ==>|SYNTHETIC 粗线| SYNTHETIC_N2\n  SYNTHETIC_N2 ---|SYNTHETIC 无箭头| SYNTHETIC_N3\n  SYNTHETIC_N3 -->|SYNTHETIC 返回| SYNTHETIC_N4\n  SYNTHETIC_N4 --> SYNTHETIC_N5",
+      "persistentFields": [
+        "direction",
+        "node.id",
+        "node.label",
+        "node.shape",
+        "edge.from",
+        "edge.to",
+        "edge.label",
+        "edge.style",
+        "group.id",
+        "group.label",
+        "group.parentId",
+        "node.groupId",
+        "comments"
+      ]
+    }
+  ]
+}

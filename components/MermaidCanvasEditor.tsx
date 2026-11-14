@@ -92,7 +92,7 @@ type MermaidCanvasEditorProps = {
   suspended?: boolean;
   externalRevision?: number;
   graph: MermaidFlowGraph;
-  onChange: (graph: MermaidFlowGraph) => boolean;
+  onChange: (graph: MermaidFlowGraph, editBase?: MermaidFlowGraph) => boolean;
 };
 
 /** Rejected labels remain editable without becoming graph or history state. */
@@ -124,6 +124,18 @@ function InlineLabelInput({ value, revision, active, onStart, onChange, onFinish
     onFocus={(event) => {
       if (!started.current) { started.current = true; onStart(); }
       event.currentTarget.select();
+    }}
+    onPaste={(event) => {
+      const pasted = event.clipboardData.getData('text/plain');
+      if (!/[\r\n]/.test(pasted)) return;
+      // Single-line inputs normalize pasted line breaks before onChange. Send
+      // the unmodified text through validation and keep the accepted label.
+      event.preventDefault();
+      const input = event.currentTarget;
+      const nextValue = current.value.slice(0, input.selectionStart ?? 0)
+        + pasted + current.value.slice(input.selectionEnd ?? current.value.length);
+      const accepted = onChange(nextValue);
+      setDraft({ value: current.value, revision, invalid: !accepted });
     }}
     onChange={(event) => {
       const nextValue = event.target.value;
@@ -698,7 +710,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   const shouldCenterViewport = useRef(true);
   const shouldAutoFitViewport = useRef(true);
   const initialViewportRef = useRef(true);
-  const lastNodePointerAt = useRef(0);
+  const blankClickCountRef = useRef(0);
+  const pointerStartedOnObject = useRef(false);
   const zoomRef = useRef(zoom);
   const spacePressedRef = useRef(false);
   const panStateRef = useRef<PanState | null>(null);
@@ -764,10 +777,10 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     recordCanvasHistory();
   }
 
-  function commitGraph(nextGraph: MermaidFlowGraph, recordHistory = true, insertionDirection?: MermaidFlowGraph['direction']) {
+  function commitGraph(nextGraph: MermaidFlowGraph, recordHistory = true, insertionDirection?: MermaidFlowGraph['direction'], editBase?: MermaidFlowGraph) {
     const current = currentGraphRef.current;
     // The parent serializes first; a rejected edit must never enter undo/redo.
-    if (!onChange(nextGraph)) return false;
+    if (!onChange(nextGraph, editBase)) return false;
     if (JSON.stringify(current) === JSON.stringify(nextGraph)) return true;
     if (recordHistory) {
       recordCanvasHistory();
@@ -792,7 +805,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       key, snapshot: { graph: currentGraphRef.current, layout: layoutRef.current },
       undo: [...undoStackRef.current], redo: [...redoStackRef.current],
     } : null;
-    const accepted = commitGraph(nextGraph, firstChange);
+    const accepted = commitGraph(nextGraph, firstChange, undefined, propertyEditRef.current?.snapshot.graph);
     // Rejected drafts and unchanged values do not consume the first boundary.
     if (accepted && edit) propertyEditRef.current = edit;
     return accepted;
@@ -1225,7 +1238,6 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           draggingRef.current = movedDrag;
           setDragging(movedDrag);
         }
-        lastNodePointerAt.current = event.timeStamp;
         const node = graph.nodes.find((candidate) => candidate.id === activeDrag.id);
         if (node) {
           const desired = { x: point.x - activeDrag.offsetX, y: point.y - activeDrag.offsetY };
@@ -1288,7 +1300,6 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         const nextResize = { ...activeResize, moved: true };
         resizingRef.current = nextResize;
         if (!activeResize.moved) setResizing(nextResize);
-        lastNodePointerAt.current = event.timeStamp;
         setCanvasLayout((current) => ({
           ...current,
           positions: safeCanvasRecord({ ...current.positions, [activeResize.id]: resized.position }),
@@ -1517,6 +1528,10 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   }
 
   function addNode(point?: Point, options?: AddNodeOptions) {
+    // A quick-arrow press captures the parent's screen anchor. Creating a new
+    // object deliberately reveals that object; restoring the parent anchor
+    // afterwards would undo the reveal scroll.
+    selectionAnchorRef.current = null;
     const prefix = graph.kind === 'sequence' ? 'Participant'
       : graph.kind === 'state' ? 'State'
         : graph.kind === 'class' ? 'Class'
@@ -1555,16 +1570,26 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       ? { x: (viewportRect.left + viewport.clientWidth / 2 - stageRect.left) / zoom - size.width / 2,
           y: (viewportRect.top + viewport.clientHeight / 2 - stageRect.top) / zoom - size.height / 2 }
       : fallback;
-    const preferred = point ? { x: point.x - size.width / 2, y: point.y - size.height / 2 }
+    const desired = point ? { x: point.x - size.width / 2, y: point.y - size.height / 2 }
       : graph.kind === 'sequence' && graph.nodes.length
         ? { x: Math.max(...graph.nodes.map((other) => (positions[other.id]?.x ?? 0) + nodeSize(other, graph.kind).width)) + 76, y: 58 }
         : parentPosition ? fallback : visibleCenter;
-    // Collision avoidance must not reverse a right/down quick-add action.
-    const minimum = options?.direction === 'right' ? { x: preferred.x }
-      : options?.direction === 'bottom' ? { y: preferred.y } : {};
-    const position = placeMermaidCanvasNode(graph, positions, node, preferred, minimum);
+    // Make room at the stage's leading edges before applying a directional
+    // placement limit. Translate the whole scene so existing relative positions
+    // are preserved, and keep the original layout in the undo snapshot.
+    const offset = {
+      x: options?.direction === 'left' ? Math.max(0, 18 - desired.x) : 0,
+      y: options?.direction === 'top' ? Math.max(0, 18 - desired.y) : 0,
+    };
+    const preferred = { x: desired.x + offset.x, y: desired.y + offset.y };
+    const shifted = (source: NodePositions) => safeCanvasRecord(Object.fromEntries(Object.entries(source).map(([key, p]) => [key, { x: p.x + offset.x, y: p.y + offset.y }])));
+    const limits = options?.direction === 'right' ? { minX: preferred.x }
+      : options?.direction === 'bottom' ? { minY: preferred.y }
+        : options?.direction === 'left' ? { maxX: preferred.x }
+          : options?.direction === 'top' ? { maxY: preferred.y } : {};
+    const position = placeMermaidCanvasNode(graph, shifted(positions), node, preferred, limits);
     setCanvasLayout((current) => {
-      const nextPositions = safeCanvasRecord({ ...current.positions, [id]: position });
+      const nextPositions = safeCanvasRecord({ ...shifted(current.positions), [id]: position });
       return { ...current, positions: nextPositions, ...expandedMermaidCanvasStage(nextGraph, nextPositions, current) };
     });
     revealNodeRef.current = id;
@@ -2099,10 +2124,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   function handleNodePointerDown(event: ReactPointerEvent<HTMLDivElement>, node: MermaidFlowNode) {
     if (event.button !== 0 || editingNodeId === node.id || connectMode || handTool || spacePressedRef.current) return;
     event.stopPropagation();
-    // Selecting rich nodes (class, ER and Gantt) reveals an inspector and can
-    // resize the viewport between pointer-down and click. Remember the press so
-    // a retargeted click on the shifted canvas cannot immediately clear it.
-    lastNodePointerAt.current = event.timeStamp;
+    // Keep the pressed object under the pointer when its inspector appears.
     editorRef.current?.focus({ preventScroll: true });
     const stageRect = stageRef.current?.getBoundingClientRect();
     if (stageRect) selectionAnchorRef.current = { left: stageRect.left, top: stageRect.top };
@@ -2180,7 +2202,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
 
   function handleCanvasDoubleClick(event: ReactMouseEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement;
-    if (event.timeStamp - lastNodePointerAt.current < 750
+    const independentBlankPair = blankClickCountRef.current === 2;
+    blankClickCountRef.current = 0;
+    if (!independentBlankPair
       || handTool || spacePressedRef.current || target.closest('[data-mermaid-node-id], [data-mermaid-edge-id], .canvas-edge-label')) return;
     addNode(pointFromEvent(event));
   }
@@ -2196,9 +2220,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       return;
     }
     if (event.metaKey || event.ctrlKey) {
-      if (!isControl && event.key.toLowerCase() === 'a' && supportsMultiSelect) {
+      if (!isControl && event.key.toLowerCase() === 'a') {
         event.preventDefault();
-        selectNodes(graph.nodes.map((node) => node.id));
+        if (supportsMultiSelect) selectNodes(graph.nodes.map((node) => node.id));
         return;
       }
       if (!isControl && event.key.toLowerCase() === 'z') {
@@ -2402,6 +2426,10 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     const viewport = viewportRef.current;
     const stage = stageRef.current;
     if (!viewport || !stage) return;
+    // At a zoom limit, preserve the existing scroll position. Reapplying an
+    // unchanged anchor can accumulate rounding of fractional layout offsets.
+    // Explicit fit/reset still uses setZoomWithTarget to reposition the view.
+    if (Math.abs(clampZoom(nextZoom) - zoom) <= 0.0005) return;
     const viewportRect = viewport.getBoundingClientRect();
     const stageRect = stage.getBoundingClientRect();
     const viewportX = Math.max(0, Math.min(viewport.clientWidth, clientX - viewportRect.left));
@@ -2451,7 +2479,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     if (!id || !positions[id]) return;
     revealNodeRef.current = null;
     const viewport = viewportRef.current;
-    const element = stageRef.current?.querySelector<HTMLElement>(`[data-mermaid-node-id="${CSS.escape(id)}"]`);
+    // Sequence lifeline hit targets share this ID but have zero width.
+    // Reveal the full participant card rather than only its center line.
+    const element = stageRef.current?.querySelector<HTMLElement>(`.mermaid-canvas-node[data-mermaid-node-id="${CSS.escape(id)}"]`);
     if (!viewport || !element) return;
     const rect = element.getBoundingClientRect();
     const view = viewport.getBoundingClientRect();
@@ -2914,12 +2944,10 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         className={`canvas-editor-viewport${connectMode ? ' connect-mode' : ''}${(spacePressed || handTool) && !panning ? ' pan-ready' : ''}${supportsMultiSelect && !handTool ? ' selection-mode' : ''}${panning ? ' is-panning' : ''}`}
         onPointerDownCapture={(event) => {
           quickAddPressRef.current = null;
-          if (!(event.target as Element).closest('[data-mermaid-node-id], [data-mermaid-edge-id]')) return;
+          pointerStartedOnObject.current = !!(event.target as Element).closest('[data-mermaid-node-id], [data-mermaid-edge-id]');
+          if (!pointerStartedOnObject.current) return;
           const rect = stageRef.current?.getBoundingClientRect();
           if (rect) selectionAnchorRef.current = { left: rect.left, top: rect.top };
-          // Edge inspectors can wrap just like node inspectors. Keep the
-          // second click on its original target and never create on blank.
-          lastNodePointerAt.current = event.timeStamp;
         }}
         ref={viewportRef}
         onPointerDown={handleViewportPointerDown}
@@ -2928,13 +2956,21 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         onPointerCancel={finishViewportPan}
         onLostPointerCapture={finishViewportPan}
         onClickCapture={(event) => {
+          const blank = !pointerStartedOnObject.current && !didPanRef.current
+            && !(event.target as Element).closest('[data-mermaid-node-id], [data-mermaid-edge-id], .canvas-edge-label, button, input, textarea, select');
+          // Require two independent blank clicks. A retargeted object/drag
+          // release must not create, but a new blank pair needs no cooldown.
+          blankClickCountRef.current = event.detail === 1 ? (blank ? 1 : 0)
+            : event.detail === 2 && blankClickCountRef.current === 1 && blank ? 2 : 0;
           if (!didPanRef.current) return;
           event.preventDefault();
           event.stopPropagation();
         }}
         onClick={(event) => {
           const target = event.target as HTMLElement;
-          if (event.timeStamp - lastNodePointerAt.current < 750
+          // Ignore a click retargeted from an object, but let a new blank
+          // pointer gesture clear selection immediately after an object click.
+          if (pointerStartedOnObject.current
             || target.closest('[data-mermaid-node-id], [data-mermaid-edge-id], .canvas-edge-label')) return;
           setSelection(null);
           setEditingNodeId(null);
@@ -3029,7 +3065,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                     : classMarkers ? classMarkerUrl(classMarkers[1]) : erRelation ? erMarkerUrl(erRelation.to) : markerEnd ? `url(#${markerId})` : undefined;
                   const markerShapeKey = sequenceVisual
                     ? `${sequenceVisual.startMarker}:${sequenceVisual.endMarker}`
-                    : classMarkers ? classMarkers.join(':') : erRelation ? `er:${erRelation.from}:${erRelation.to}` : undefined;
+                    : classMarkers ? classMarkers.join(':') : erRelation ? `er:${erRelation.from}:${erRelation.to}`
+                      : graph.kind === 'flowchart' ? `flow:${markerEnd ? 'arrow' : 'none'}` : undefined;
                   return (
                     <g key={edge.id} className={`canvas-edge kind-${graph.kind} ${edge.style}${tokenDashed ? ' token-dashed' : ''}${selected ? ' selected' : ''}`} data-mermaid-edge-id={edge.id}>
                       {/* WebKit can retain stale marker paint after an attribute change.
@@ -3159,6 +3196,13 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                   onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                   onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
                   onClick={(event) => handleNodeClick(event, node)}
+                  onContextMenu={(event) => {
+                    // macOS also opens a native menu after Control-click selection.
+                    const textOrControl = (event.target as Element).closest('input, textarea, select, button, a, [contenteditable="true"]');
+                    if (supportsMultiSelect && event.ctrlKey && !handTool && !spacePressedRef.current && !connectMode && !textOrControl) {
+                      event.preventDefault();
+                    }
+                  }}
                   onDoubleClick={(event) => {
                     event.stopPropagation();
                     if (connectMode) return;

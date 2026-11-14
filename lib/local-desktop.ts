@@ -85,7 +85,17 @@ export async function readLaunchTarget(): Promise<LaunchTarget> {
   return desktopInvoke<LaunchTarget>('read_launch_target');
 }
 
-export async function listenLocalOpened(onTarget: (target: Exclude<LaunchTarget, null>) => void) {
+export async function listenLocalOpened(
+  onTarget: (target: Exclude<LaunchTarget, null>) => void,
+  onError: (message: string) => void,
+) {
   const { listen } = await import('@tauri-apps/api/event');
-  return listen<Exclude<LaunchTarget, null>>('local-opened', (event) => onTarget(event.payload));
+  const stopErrors = await listen<string>('local-open-error', event => onError(event.payload));
+  try {
+    const stopOpened = await listen<Exclude<LaunchTarget, null>>('local-opened', event => onTarget(event.payload));
+    return () => { stopOpened(); stopErrors(); };
+  } catch (reason) {
+    stopErrors();
+    throw reason;
+  }
 }

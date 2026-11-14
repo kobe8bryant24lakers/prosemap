@@ -18,6 +18,7 @@ import { createMermaidTarget, type MermaidTarget } from '@/lib/editor';
 import { compactJsonPreviewIndentation, previewLineBreaks } from '@/lib/markdown-preview';
 import { relativeFileLinks } from '@/lib/relative-file-links';
 import MermaidDiagram from './MermaidDiagram';
+import { previewSourceLines } from '@/lib/preview-source-lines';
 
 type MarkdownPreviewProps = {
   markdown: string;
@@ -33,15 +34,16 @@ const PreviewImg = ({ src, alt, title }: ImgHTMLAttributes<HTMLImageElement>) =>
 const PreviewContext = createContext<MarkdownPreviewProps>({ markdown: '' });
 
 const PreviewPre: Components['pre'] = ({ children, node }) => {
+  const sourceLine = node?.properties.dataSourceLine;
   const code = node?.children.find((child) => child.type === 'element' && child.tagName === 'code');
   if (code?.type === 'element') {
     const language = /language-([^\s]+)/.exec(String(code.properties.className ?? ''))?.[1]?.toLowerCase() ?? '';
     if (language !== 'mermaid') {
       const source = code.children.map((child) => child.type === 'text' ? child.value : '').join('').replace(/\n$/, '');
-      return <CodeBlock source={language === 'json' ? compactJsonPreviewIndentation(source) : source} language={language} />;
+      return <div data-source-line={sourceLine}><CodeBlock source={language === 'json' ? compactJsonPreviewIndentation(source) : source} language={language} /></div>;
     }
   }
-  return <pre>{children}</pre>;
+  return <pre data-source-line={sourceLine}>{children}</pre>;
 };
 
 const PreviewCode: Components['code'] = ({ className, children, node, ...props }) => {
@@ -132,7 +134,7 @@ function MarkdownPreview({ markdown, documentPath, onEditMermaid }: MarkdownPrev
 
   return (
     <PreviewContext.Provider value={context}><article className="markdown-body">
-      <>{linkError && <div className="preview-link-error" role="alert">{uiMessage(linkError)}</div>}<ReactMarkdown remarkPlugins={[remarkGfm, relativeFileLinks, previewLineBreaks]} rehypePlugins={[rehypeRaw, previewHtmlSanitize, previewHeadingIds]} components={components}>{markdown}</ReactMarkdown></>
+      <>{linkError && <div className="preview-link-error" role="alert">{uiMessage(linkError)}</div>}<ReactMarkdown remarkPlugins={[remarkGfm, relativeFileLinks, previewLineBreaks]} rehypePlugins={[rehypeRaw, previewHtmlSanitize, previewHeadingIds, previewSourceLines]} components={components}>{markdown}</ReactMarkdown></>
     </article></PreviewContext.Provider>
   );
 }

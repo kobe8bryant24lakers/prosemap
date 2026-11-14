@@ -216,8 +216,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .mermaid-fullscreen-header small { overflow: hidden; color: var(--muted-light); font-size: var(--font-caption); text-overflow: ellipsis; white-space: nowrap;  line-height: 1.5;}
 .mermaid-fullscreen-actions { flex: none; display: flex; align-items: center; gap: 3px; }
 .mermaid-fullscreen-actions button { width: 31px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--muted); }
-.mermaid-fullscreen-actions button:hover { background: var(--green-soft); color: var(--green); }
+.mermaid-fullscreen-actions button:not(:disabled):hover { background: var(--green-soft); color: var(--green); }
+.mermaid-fullscreen-actions button:disabled { opacity: .45; cursor: default; }
 .mermaid-fullscreen-actions .diagram-zoom-value { width: 48px; font-size: var(--font-ui); font-weight: 750; }
+.mermaid-fullscreen-actions .mermaid-fullscreen-overview { width: auto; display: flex; gap: 5px; padding-inline: 8px; white-space: nowrap; font-size: var(--font-ui); }
 .mermaid-fullscreen-actions .mermaid-fullscreen-close { margin-left: 5px; border-left: 1px solid var(--line); border-radius: 0 7px 7px 0; }
 .mermaid-fullscreen-stage { min-height: 0; flex: 1; overflow: clip; overscroll-behavior: contain; touch-action: none; user-select: none; cursor: grab; padding: clamp(22px, 4vw, 58px); background-color: #f5f8f6; background-image: radial-gradient(#cbd8d1 0.7px, transparent 0.7px); background-size: 15px 15px; }
 .mermaid-fullscreen-stage.is-panning { cursor: grabbing; }
@@ -358,7 +360,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .reasoning-content pre { margin: 0; color: #50645a; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.65 "SFMono-Regular", Consolas, monospace; }
 .reasoning-content p { margin: 0; color: var(--muted-light); font-size: var(--font-ui); }
 .diff-content { min-height: 0; flex: 1; overflow: auto; background: #f7f9f7; }
-.diff-content pre { min-height: 100%; margin: 0; padding: 15px 0 32px; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.7 "SFMono-Regular", Consolas, monospace; }
+.diff-content pre { width: max-content; min-width: 100%; min-height: 100%; margin: 0; padding: 15px 0 32px; white-space: pre; overflow-wrap: normal; font: 13px/1.7 "SFMono-Regular", Consolas, monospace; }
 .diff-line { min-height: 20px; display: grid; grid-template-columns: 28px 1fr; padding: 1px 16px 1px 0; color: #49584f; }
 .diff-line > i { padding-right: 7px; color: var(--muted-light); font-style: normal; text-align: right; user-select: none; }
 .diff-line code { font: inherit; }

@@ -5,7 +5,7 @@ import { useLocale } from '@/lib/use-locale';
 
 import DOMPurify from 'dompurify';
 import { Check, Copy, Maximize2, PencilRuler, X, ZoomIn, ZoomOut } from 'lucide-react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   MERMAID_FULLSCREEN_MAX_ZOOM,
@@ -13,6 +13,7 @@ import {
   MERMAID_PREVIEW_MAX_ZOOM,
   MERMAID_PREVIEW_MIN_ZOOM,
   mermaidFullscreenZoomFromWheel,
+  mermaidFullscreenZoomLimits,
   zoomMermaidViewport,
 } from '@/lib/mermaid-preview';
 import { renderMermaid } from '@/lib/mermaid-runtime';
@@ -52,6 +53,10 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   const [zoom, setZoom] = useState(1);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [fullscreenZoom, setFullscreenZoom] = useState(1);
+  const [fullscreenOverview, setFullscreenOverview] = useState(false);
+  const fullscreenOverviewRef = useRef(false);
+  const [fullscreenLimits, setFullscreenLimits] = useState({ min: MERMAID_FULLSCREEN_MIN_ZOOM, max: MERMAID_FULLSCREEN_MAX_ZOOM });
+  const fullscreenLimitsRef = useRef(fullscreenLimits);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const panRef = useRef(pan);
   const dragRef = useRef<{ id: number; x: number; y: number } | null>(null);
@@ -157,20 +162,13 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
         'textarea:not([disabled])',
         '[tabindex]:not([tabindex="-1"])',
       ].join(','))).filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true');
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const activeElement = document.activeElement;
-
-      if (!first || !last) {
-        event.preventDefault();
-        dialog.focus({ preventScroll: true });
-      } else if (event.shiftKey && (activeElement === first || !dialog.contains(activeElement))) {
-        event.preventDefault();
-        last.focus({ preventScroll: true });
-      } else if (!event.shiftKey && (activeElement === last || !dialog.contains(activeElement))) {
-        event.preventDefault();
-        first.focus({ preventScroll: true });
-      }
+      // Traverse explicitly: native/WebKit Tab preferences can skip buttons
+      // even when they are valid controls in this modal.
+      event.preventDefault();
+      const index = focusable.indexOf(document.activeElement as HTMLElement);
+      const nextIndex = index < 0 ? (event.shiftKey ? focusable.length - 1 : 0)
+        : (index + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length;
+      (focusable[nextIndex] ?? dialog).focus({ preventScroll: true });
     }
 
     window.addEventListener('keydown', handleKeyDown, true);
@@ -184,6 +182,52 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
     };
   }, [fullscreenOpen]);
 
+  useLayoutEffect(() => {
+    const stage = fullscreenStageRef.current;
+    const inner = stage?.querySelector('.mermaid-fullscreen-stage-inner');
+    if (!fullscreenOpen || !fullscreenSvg || !stage || !inner) return;
+    let active = true;
+    const measure = () => {
+      if (!active) return;
+      // React may replace the SVG inside dangerouslySetInnerHTML on a render.
+      // Resolve the live node for each callback instead of measuring a detached
+      // SVG retained from the first layout effect.
+      const svg = stage.querySelector<SVGSVGElement>('.mermaid-fullscreen-svg > svg');
+      if (!svg) return;
+      const size = minimumRenderedFontSize(svg);
+      const renderedZoom = Number.parseFloat(svg.parentElement!.style.width) / 100;
+      const limits = mermaidFullscreenZoomLimits(size / renderedZoom);
+      fullscreenLimitsRef.current = limits;
+      setFullscreenLimits(previous => previous.min === limits.min && previous.max === limits.max ? previous : limits);
+      if (fullscreenOverviewRef.current) {
+        // Overview explicitly allows smaller text and keeps the whole diagram
+        // centered when the viewport or rendered source changes.
+        if (fullscreenZoomRef.current !== 1) {
+          fullscreenZoomRef.current = 1;
+          setFullscreenZoom(1);
+        }
+        if (panRef.current.x || panRef.current.y) {
+          panRef.current = { x: 0, y: 0 };
+          setPan(panRef.current);
+        }
+        return;
+      }
+      const nextZoom = Math.max(limits.min, Math.min(limits.max, fullscreenZoomRef.current));
+      if (nextZoom === fullscreenZoomRef.current) return;
+      panRef.current = zoomMermaidViewport(panRef.current, fullscreenZoomRef.current, nextZoom, { x: 0, y: 0 });
+      setPan(panRef.current);
+      fullscreenZoomRef.current = nextZoom;
+      setFullscreenZoom(nextZoom);
+    };
+    // Measure the rendered SVG before paint, then remeasure the available
+    // viewport (not the zoomed SVG) when the window changes size.
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(inner);
+    void document.fonts.ready.then(measure);
+    return () => { active = false; observer.disconnect(); };
+  }, [fullscreenOpen, fullscreenSvg]);
+
   useEffect(() => {
     const stage = fullscreenStageRef.current;
     if (!fullscreenOpen || !stage || !fullscreenSvg) return;
@@ -191,13 +235,20 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
 
     function handleWheel(event: WheelEvent) {
       event.preventDefault();
+      if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return;
+      // A zoom-out gesture in overview must not jump inward to the readable
+      // floor. Zooming in returns to the normal readable range.
+      if (fullscreenOverviewRef.current && event.deltaY > 0 && fullscreenZoomRef.current <= fullscreenLimitsRef.current.min) return;
       const nextZoom = mermaidFullscreenZoomFromWheel(
         fullscreenZoomRef.current,
         event.deltaY,
         event.deltaMode,
         activeStage.clientHeight,
+        fullscreenLimitsRef.current,
       );
       if (nextZoom === fullscreenZoomRef.current) return;
+      fullscreenOverviewRef.current = false;
+      setFullscreenOverview(false);
 
       const bounds = activeStage.getBoundingClientRect();
       const nextPan = zoomMermaidViewport(panRef.current, fullscreenZoomRef.current, nextZoom, {
@@ -231,6 +282,11 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   }
 
   function openFullscreen() {
+    fullscreenOverviewRef.current = false;
+    setFullscreenOverview(false);
+    const limits = { min: MERMAID_FULLSCREEN_MIN_ZOOM, max: MERMAID_FULLSCREEN_MAX_ZOOM };
+    fullscreenLimitsRef.current = limits;
+    setFullscreenLimits(limits);
     fullscreenZoomRef.current = 1;
     setFullscreenZoom(1);
     panRef.current = { x: 0, y: 0 };
@@ -242,9 +298,11 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   }
 
   function changeFullscreenZoom(delta: number) {
+    fullscreenOverviewRef.current = false;
+    setFullscreenOverview(false);
     const nextZoom = Math.max(
-      MERMAID_FULLSCREEN_MIN_ZOOM,
-      Math.min(MERMAID_FULLSCREEN_MAX_ZOOM, fullscreenZoomRef.current + delta),
+      fullscreenLimitsRef.current.min,
+      Math.min(fullscreenLimitsRef.current.max, fullscreenZoomRef.current + delta),
     );
     panRef.current = zoomMermaidViewport(panRef.current, fullscreenZoomRef.current, nextZoom, { x: 0, y: 0 });
     setPan(panRef.current);
@@ -253,6 +311,18 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   }
 
   function resetFullscreenZoom() {
+    fullscreenOverviewRef.current = false;
+    setFullscreenOverview(false);
+    const fitZoom = Math.max(1, fullscreenLimitsRef.current.min);
+    fullscreenZoomRef.current = fitZoom;
+    setFullscreenZoom(fitZoom);
+    panRef.current = { x: 0, y: 0 };
+    setPan(panRef.current);
+  }
+
+  function showFullscreenOverview() {
+    fullscreenOverviewRef.current = true;
+    setFullscreenOverview(true);
     fullscreenZoomRef.current = 1;
     setFullscreenZoom(1);
     panRef.current = { x: 0, y: 0 };
@@ -329,17 +399,22 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
               <div>
                 <span className="live-dot" />
                 <strong id={fullscreenTitleId}>{t("Mermaid 单图查看")}</strong>
-                <small>{t("鼠标滚轮缩放 · 拖动画布平移 · 点击百分比复位")}</small>
+                <small aria-live="polite">{t(fullscreenOverview
+                  ? "总览中：文字可能变小 · 放大或点击百分比返回可读视图"
+                  : "滚轮缩放保留可读字号 · 拖动平移 · 点击百分比复位")}</small>
               </div>
               <div className="mermaid-fullscreen-actions">
-                <button type="button" onClick={() => changeFullscreenZoom(-0.15)} disabled={!fullscreenSvg} aria-label={t("缩小全屏图表")} title={t("缩小")}>
+                <button type="button" onClick={() => changeFullscreenZoom(-0.15)} disabled={!fullscreenSvg || fullscreenZoom <= fullscreenLimits.min + 1e-6} aria-label={t("缩小全屏图表")} title={t(fullscreenZoom <= fullscreenLimits.min + 1e-6 ? "已达到最小可读字号" : "缩小")}>
                   <ZoomOut size={16} />
                 </button>
-                <button type="button" className="diagram-zoom-value" onClick={resetFullscreenZoom} disabled={!fullscreenSvg} aria-label={t("重置全屏图表为适配视图，当前 {0}%", Math.round(fullscreenZoom * 100))} title={t("适配窗口")}>
+                <button type="button" className="diagram-zoom-value" onClick={resetFullscreenZoom} disabled={!fullscreenSvg} aria-label={t("重置全屏图表，当前 {0}%", Math.round(fullscreenZoom * 100))} title={t("居中并恢复可读缩放")}>
                   {Math.round(fullscreenZoom * 100)}%
                 </button>
-                <button type="button" onClick={() => changeFullscreenZoom(0.15)} disabled={!fullscreenSvg} aria-label={t("放大全屏图表")} title={t("放大")}>
+                <button type="button" onClick={() => changeFullscreenZoom(0.15)} disabled={!fullscreenSvg || fullscreenZoom >= fullscreenLimits.max - 1e-6} aria-label={t("放大全屏图表")} title={t("放大")}>
                   <ZoomIn size={16} />
+                </button>
+                <button type="button" className="mermaid-fullscreen-overview" onClick={showFullscreenOverview} disabled={!fullscreenSvg} title={t("完整显示图表，文字可能变小")}>
+                  <Maximize2 size={14} /><span>{t("一屏总览")}</span>
                 </button>
                 <button ref={fullscreenCloseRef} type="button" className="mermaid-fullscreen-close" onClick={() => setFullscreenOpen(false)} aria-label={t("关闭全屏图表")} title={t("关闭（Esc）")}>
                   <X size={18} />
@@ -401,6 +476,26 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
       ) : null}
     </>
   );
+}
+
+function minimumRenderedFontSize(svg: SVGSVGElement) {
+  let smallest = Infinity;
+  for (const label of svg.querySelectorAll<SVGGraphicsElement>('text, foreignObject')) {
+    const elements: Element[] = [label, ...label.querySelectorAll('*')];
+    for (const element of elements) {
+      // Use actual text runs, including styled tspans and HTML labels, rather
+      // than a parent font size that may be overridden by its children.
+      if (![...element.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent?.trim())) continue;
+      const style = getComputedStyle(element);
+      const bounds = element.getBoundingClientRect();
+      if (style.display === 'none' || style.visibility !== 'visible' || style.opacity === '0' || !bounds.width || !bounds.height) continue;
+      const matrix = element instanceof SVGGraphicsElement ? element.getScreenCTM() : label.getScreenCTM();
+      if (!matrix) continue;
+      const size = Number.parseFloat(style.fontSize) * Math.min(Math.hypot(matrix.a, matrix.b), Math.hypot(matrix.c, matrix.d));
+      if (Number.isFinite(size) && size > 0) smallest = Math.min(smallest, size);
+    }
+  }
+  return smallest;
 }
 
 function readMermaidSvgDimensions(svg: string) {

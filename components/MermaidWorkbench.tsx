@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { templateSource } from '@/lib/localized-content';
 import { t, uiMessage } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
+import { useModalFocus } from '@/lib/use-modal-focus';
 
 import {
   Bot,
@@ -240,6 +241,13 @@ export default function MermaidWorkbench({
     }
   }, [aiRunning, discardAndClose, hasPendingChanges, inactive, interactionSuspended, onRequestConfirmation]);
 
+  // Keep canvas autofocus and let its inline editors consume Escape before closing.
+  const dialogRef = useModalFocus(
+    () => { void requestClose(); },
+    () => document.querySelector<HTMLElement>('.cm-content'),
+    { captureEscape: false, preserveInitialFocus: true },
+  );
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (inactive || interactionSuspended || event.key !== 'Escape' || event.defaultPrevented) return;
@@ -383,9 +391,9 @@ export default function MermaidWorkbench({
     setTab('visual');
   }
 
-  function commitGraph(next: MermaidVisualGraph) {
+  function commitGraph(next: MermaidVisualGraph, editBase?: MermaidVisualGraph) {
     try {
-      const nextSource = sourceHistory.commit(source, canvasGraph, next);
+      const nextSource = sourceHistory.commit(source, canvasGraph, next, editBase);
       canvasSourceRef.current = nextSource;
       invalidateActiveAiForDraftChange();
       invalidatePendingApplyForDraftChange();
@@ -519,7 +527,7 @@ export default function MermaidWorkbench({
         void requestClose();
       }
     }}>
-      <section className="mermaid-workbench" role="dialog" aria-modal="true" aria-labelledby="mermaid-workbench-title" inert={inactive || interactionSuspended}>
+      <section ref={dialogRef} className="mermaid-workbench" role="dialog" aria-modal="true" aria-labelledby="mermaid-workbench-title" tabIndex={-1} inert={inactive || interactionSuspended}>
         <header className="workbench-header">
           <span className="workbench-heading-icon"><Workflow size={20} /></span>
           <div>

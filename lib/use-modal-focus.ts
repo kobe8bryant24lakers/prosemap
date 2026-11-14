@@ -13,15 +13,19 @@ function available(element: HTMLElement) {
 }
 
 /** Own focus only while this is the top dialog; preserve each ancestor's siblings. */
-export function useModalFocus(onEscape: () => void, fallbackFocus?: () => HTMLElement | null) {
+export function useModalFocus(
+  onEscape: () => void,
+  fallbackFocus?: () => HTMLElement | null,
+  { captureEscape = true, preserveInitialFocus = false }: { captureEscape?: boolean; preserveInitialFocus?: boolean } = {},
+) {
   const dialogRef = useRef<HTMLElement>(null);
   // Capture before the opening render can make an underlying workbench inert.
   const openerRef = useRef<HTMLElement | null>(typeof document !== 'undefined' && document.activeElement instanceof HTMLElement ? document.activeElement : null);
-  const callbacksRef = useRef({ onEscape, fallbackFocus });
+  const callbacksRef = useRef({ onEscape, fallbackFocus, captureEscape, preserveInitialFocus });
 
   useEffect(() => {
-    callbacksRef.current = { onEscape, fallbackFocus };
-  }, [onEscape, fallbackFocus]);
+    callbacksRef.current = { onEscape, fallbackFocus, captureEscape, preserveInitialFocus };
+  }, [onEscape, fallbackFocus, captureEscape, preserveInitialFocus]);
 
   useEffect(() => {
     const mountedDialog = dialogRef.current;
@@ -45,31 +49,34 @@ export function useModalFocus(onEscape: () => void, fallbackFocus?: () => HTMLEl
     const controls = () => Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector))
       .filter(element => element.tabIndex >= 0 && available(element));
     const focusFirst = () => (controls()[0] ?? dialog).focus({ preventScroll: true });
-    focusFirst();
+    const initialFocus = document.activeElement;
+    if (!callbacksRef.current.preserveInitialFocus
+      || !(initialFocus instanceof HTMLElement)
+      || !dialog.contains(initialFocus)
+      || !available(initialFocus)) focusFirst();
 
     function handleKeydown(event: KeyboardEvent) {
       if (!ownsFocus() || event.defaultPrevented) return;
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && callbacksRef.current.captureEscape) {
         event.preventDefault();
         event.stopImmediatePropagation();
         callbacksRef.current.onEscape();
         return;
       }
-      if (event.key !== 'Tab') return;
+    }
+
+    // WebKit can skip buttons in its native tab order. Move through the dialog's
+    // controls explicitly, after editors have had a chance to consume Tab.
+    function handleTab(event: KeyboardEvent) {
+      if (!ownsFocus() || event.defaultPrevented || event.key !== 'Tab') return;
       const focusable = controls();
-      const first = focusable[0];
-      const last = focusable.at(-1);
-      const active = document.activeElement;
-      if (!first || !last) {
-        event.preventDefault();
-        dialog.focus({ preventScroll: true });
-      } else if (event.shiftKey && (active === first || !focusable.includes(active as HTMLElement))) {
-        event.preventDefault();
-        last.focus({ preventScroll: true });
-      } else if (!event.shiftKey && (active === last || !focusable.includes(active as HTMLElement))) {
-        event.preventDefault();
-        first.focus({ preventScroll: true });
-      }
+      const index = focusable.indexOf(document.activeElement as HTMLElement);
+      const next = index < 0
+        ? event.shiftKey ? focusable.at(-1) : focusable[0]
+        : focusable[(index + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length];
+      event.preventDefault();
+      // Tab navigation must reveal offscreen controls inside scrollable dialogs.
+      (next ?? dialog).focus();
     }
 
     function handleFocus(event: FocusEvent) {
@@ -77,9 +84,11 @@ export function useModalFocus(onEscape: () => void, fallbackFocus?: () => HTMLEl
     }
 
     window.addEventListener('keydown', handleKeydown, true);
+    window.addEventListener('keydown', handleTab);
     document.addEventListener('focusin', handleFocus);
     return () => {
       window.removeEventListener('keydown', handleKeydown, true);
+      window.removeEventListener('keydown', handleTab);
       document.removeEventListener('focusin', handleFocus);
       const index = activeDialogs.lastIndexOf(dialog);
       if (index !== -1) activeDialogs.splice(index, 1);

@@ -62,7 +62,7 @@ import ModelSwitcher from '@/components/ModelSwitcher';
 import ModelLoadDialog from '@/components/ModelLoadDialog';
 import { parseMermaid } from '@/lib/mermaid-runtime';
 import { UML_AI_GUIDANCE } from '@/lib/mermaid-workbench';
-import { synchronizedScrollTop } from '@/lib/scroll-sync';
+import { anchoredScrollTop } from '@/lib/scroll-sync';
 import { clipboardImageFiles, imageMarkdown, MAX_PASTED_IMAGE_BYTES } from '@/lib/image-paste';
 import {
   ACTION_LABELS,
@@ -233,6 +233,7 @@ export default function Home() {
   const workbenchOpenSnapshotRef = useRef<EditorSnapshot | null>(null);
   const previewScrollRef = useRef<HTMLDivElement>(null);
   const syncPreviewFromEditorRef = useRef<(() => void) | null>(null);
+  const previewReadingLineRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const proposalIdRef = useRef(0);
@@ -285,9 +286,12 @@ export default function Home() {
       view.focus();
       showToast('success', t("{0} 代码已格式化，可撤销", block.language.toUpperCase()));
     } catch (error) {
+      if (view.state.doc !== document || editorRef.current?.view !== view) {
+        showToast('info', t("文档已变化，请重新格式化")); return;
+      }
       showToast('error', error instanceof UnsupportedCodeLanguageError
         ? t("暂不支持 {0} 自动格式化；仍可使用缩进和语法高亮。", error.language)
-        : error instanceof Error ? t("格式化失败：{0}", error.message) : t("格式化失败，请检查代码语法"));
+        : error instanceof Error ? t("格式化失败：{0}", error.message.split(/\r?\n/, 1)[0]) : t("格式化失败，请检查代码语法"));
     }
   }, [showToast]);
   const editorExtensions = useMemo(() => [...baseEditorExtensions, documentLineEndings(rawDocument), EditorView.domEventHandlers({
@@ -705,7 +709,10 @@ export default function Home() {
             setFileExplorerOpen(true);
             showToast('success', t("已打开文件夹 {0}", target.workspace.name));
           }
+        }, (message) => {
+          if (active) showToast('error', uiMessage(message));
         });
+        if (!active) { unlisten(); return; }
         const target = await readLaunchTarget();
         if (!active || !target) return;
         if (target.kind === 'file') {
@@ -715,7 +722,7 @@ export default function Home() {
           setFileExplorerOpen(true);
         }
       } catch (reason) {
-        if (active) showToast('error', reason instanceof Error ? reason.message : t("无法读取启动文件"));
+        if (active) showToast('error', uiMessage(typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("无法读取启动文件")));
       }
     })();
     return () => { active = false; unlisten?.(); };
@@ -811,17 +818,35 @@ export default function Home() {
 
     function flushSync() {
       animationFrame = null;
-      const request = pendingSync;
+      let request = pendingSync;
       pendingSync = null;
       if (!request || !isVisibleScroller(request.source) || !isVisibleScroller(request.target)) return;
 
-      const nextTop = synchronizedScrollTop(
-        request.source.scrollTop,
-        request.source.scrollHeight,
-        request.source.clientHeight,
-        request.target.scrollHeight,
-        request.target.clientHeight,
-      );
+      if (!editorView || !editorScroller || !previewScroller) return;
+      if (previewReadingLineRef.current !== null) {
+        const origin = previewScroller.scrollTop - previewScroller.getBoundingClientRect().top;
+        const anchors = Array.from(previewScroller.querySelectorAll<HTMLElement>('[data-source-line]')).map(element => ({
+          source: Number(element.dataset.sourceLine) - 1,
+          target: origin + element.getBoundingClientRect().top,
+        }));
+        previewScroller.scrollTop = anchoredScrollTop(previewReadingLineRef.current, editorView.state.doc.lines - 1,
+          previewScroller.scrollHeight - previewScroller.clientHeight, anchors);
+        previewReadingLineRef.current = null;
+        request = { source: previewScroller, target: editorScroller };
+      }
+      const editorOrigin = editorView.documentTop - editorScroller.getBoundingClientRect().top + editorScroller.scrollTop;
+      const previewOrigin = previewScroller.scrollTop - previewScroller.getBoundingClientRect().top;
+      const fromEditor = request.source === editorScroller;
+      const anchors = Array.from(previewScroller.querySelectorAll<HTMLElement>('[data-source-line]')).flatMap(element => {
+        const line = Number(element.dataset.sourceLine);
+        if (!Number.isInteger(line) || line < 1 || line > editorView.state.doc.lines) return [];
+        const editorTop = editorOrigin + editorView.lineBlockAt(editorView.state.doc.line(line).from).top;
+        const previewTop = previewOrigin + element.getBoundingClientRect().top;
+        return [{ source: fromEditor ? editorTop : previewTop, target: fromEditor ? previewTop : editorTop }];
+      });
+      const nextTop = anchoredScrollTop(request.source.scrollTop,
+        request.source.scrollHeight - request.source.clientHeight,
+        request.target.scrollHeight - request.target.clientHeight, anchors);
       if (Math.abs(request.target.scrollTop - nextTop) <= 1) return;
 
       suppressedScroll = { element: request.target, expectedTop: nextTop };
@@ -853,10 +878,15 @@ export default function Home() {
     previewScroller.addEventListener('scroll', handlePreviewScroll, { passive: true });
     syncPreviewFromEditorRef.current = syncPreviewFromEditor;
     syncPreviewFromEditor();
+    // Images and Mermaid render asynchronously, independently of previewContent.
+    const resizeObserver = new ResizeObserver(syncPreviewFromEditor);
+    const article = previewScroller.querySelector('article');
+    if (article) resizeObserver.observe(article);
 
     return () => {
       editorScroller.removeEventListener('scroll', handleEditorScroll);
       previewScroller.removeEventListener('scroll', handlePreviewScroll);
+      resizeObserver.disconnect();
       if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
       if (syncPreviewFromEditorRef.current === syncPreviewFromEditor) {
         syncPreviewFromEditorRef.current = null;
@@ -869,6 +899,22 @@ export default function Home() {
     const animationFrame = window.requestAnimationFrame(() => syncPreviewFromEditorRef.current?.());
     return () => window.cancelAnimationFrame(animationFrame);
   }, [previewContent, viewMode]);
+
+  function changeViewMode(nextMode: ViewMode) {
+    const preview = previewScrollRef.current;
+    if (viewMode === 'preview' && nextMode === 'split' && preview && editorView) {
+      const origin = preview.scrollTop - preview.getBoundingClientRect().top;
+      const anchors = Array.from(preview.querySelectorAll<HTMLElement>('[data-source-line]')).map(element => ({
+        source: origin + element.getBoundingClientRect().top,
+        target: Number(element.dataset.sourceLine) - 1,
+      }));
+      previewReadingLineRef.current = anchoredScrollTop(preview.scrollTop, preview.scrollHeight - preview.clientHeight,
+        editorView.state.doc.lines - 1, anchors);
+    } else {
+      previewReadingLineRef.current = null;
+    }
+    setViewMode(nextMode);
+  }
 
   function readEditorSnapshot(): EditorSnapshot {
     const view = editorRef.current?.view;
@@ -975,8 +1021,9 @@ export default function Home() {
   }
 
   async function openWorkspaceFile(entry: LocalFileEntry) {
-    if (entry.path === localPath) return;
     const requestId = ++documentOpenRequestRef.current;
+    // Reselecting the current file still supersedes an earlier pending open.
+    if (entry.path === localPath) return;
     try {
       const document = await readLocalMarkdown(entry.path);
       await commitDocumentReplacement(requestId, document);
@@ -1105,6 +1152,7 @@ export default function Home() {
       modified: '',
       reasoning: '',
       sourceDocument: content,
+      documentRevision: documentRevisionRef.current,
       from: target.from,
       to: target.to,
       status: 'streaming',
@@ -1174,7 +1222,7 @@ export default function Home() {
 
   function acceptProposal() {
     if (!proposal || proposal.status !== 'ready') return;
-    if (content !== proposal.sourceDocument) {
+    if (content !== proposal.sourceDocument || documentRevisionRef.current !== proposal.documentRevision) {
       setProposal(null);
       showToast('error', t("文档已发生变化，请重新生成建议"));
       return;
@@ -1225,9 +1273,9 @@ export default function Home() {
       </header>
 
       <div className="view-controls" role="group" aria-label={t("编辑器视图")}>
-        <button type="button" aria-pressed={viewMode === 'editor'} className={viewMode === 'editor' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setViewMode('editor'); }}><PenLine size={14} />  {t("纯编辑")}</button>
-        <button type="button" aria-pressed={viewMode === 'preview'} className={viewMode === 'preview' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setViewMode('preview'); }}><Eye size={14} />  {t("纯预览")}</button>
-        <button type="button" aria-pressed={viewMode === 'split'} className={viewMode === 'split' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setViewMode('split'); }}><PanelLeft size={14} /> {t("左编辑右预览")}</button>
+        <button type="button" aria-pressed={viewMode === 'editor'} className={viewMode === 'editor' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('editor'); }}><PenLine size={14} />  {t("纯编辑")}</button>
+        <button type="button" aria-pressed={viewMode === 'preview'} className={viewMode === 'preview' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('preview'); }}><Eye size={14} />  {t("纯预览")}</button>
+        <button type="button" aria-pressed={viewMode === 'split'} className={viewMode === 'split' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('split'); }}><PanelLeft size={14} /> {t("左编辑右预览")}</button>
         {localPath && <button type="button" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); void reloadDocument(); }} title={t("重新读取磁盘文件；未保存的修改会先确认")}><RefreshCw size={14} /> {t("重新载入")}</button>}
       </div>
 

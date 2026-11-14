@@ -378,7 +378,8 @@
 .canvas-style-handdrawn .canvas-node-details, .canvas-style-handdrawn .canvas-node-gantt-meta { border-top-style: dashed; }
 .canvas-style-handdrawn .canvas-node-details > span { border-bottom-style: dashed; }
 
-.canvas-empty-action { position: absolute; left: 50%; top: 48%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 22px 34px; transform: translate(-50%, -50%); border: 1px dashed #9dbbac; border-radius: 14px; background: rgb(255 255 255 / 76%); color: var(--green); }
+/* Keep the empty-state action above the SVG edge hit layer. */
+.canvas-empty-action { position: absolute; z-index: 2; left: 50%; top: 48%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 22px 34px; transform: translate(-50%, -50%); border: 1px dashed #9dbbac; border-radius: 14px; background: rgb(255 255 255 / 76%); color: var(--green); }
 .canvas-empty-action strong { font-size: var(--font-caption);  line-height: 1.5;}
 .canvas-empty-action span { color: var(--muted); font-size: var(--font-caption);  line-height: 1.5;}
 .canvas-editor-status { min-height: 27px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 11px; border-top: 1px solid var(--line); background: #fff; color: var(--muted-light); font-size: var(--font-caption);  line-height: 1.5;}

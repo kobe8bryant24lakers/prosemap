@@ -105,10 +105,12 @@ test('constrained insertion avoids occupied space without reversing the requeste
   const original = JSON.stringify(positions), node = { id: 'Added', label: 'SYNTHETIC added', shape: 'rectangle' };
   const preferred = { x: 500, y: 500 };
   // This boundary exceeds the local search radius and exercises the fallback too.
-  for (const minimum of [{ x: preferred.x }, { y: preferred.y }]) {
-    const point = placeMermaidCanvasNode(graph, positions, node, preferred, minimum);
-    if (minimum.x !== undefined) assert.ok(point.x >= minimum.x);
-    if (minimum.y !== undefined) assert.ok(point.y >= minimum.y);
+  for (const limits of [{ minX: preferred.x }, { minY: preferred.y }, { maxX: preferred.x }, { maxY: preferred.y }]) {
+    const point = placeMermaidCanvasNode(graph, positions, node, preferred, limits);
+    if (limits.minX !== undefined) assert.ok(point.x >= limits.minX);
+    if (limits.minY !== undefined) assert.ok(point.y >= limits.minY);
+    if (limits.maxX !== undefined) assert.ok(point.x <= limits.maxX);
+    if (limits.maxY !== undefined) assert.ok(point.y <= limits.maxY);
     assertContainment({ ...graph, nodes: [...graph.nodes, node] }, { ...positions, Added: point });
   }
   assert.equal(JSON.stringify(positions), original);

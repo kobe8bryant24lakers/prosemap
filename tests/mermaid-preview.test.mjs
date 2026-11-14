@@ -5,6 +5,7 @@ import {
   MERMAID_FULLSCREEN_MAX_ZOOM,
   MERMAID_FULLSCREEN_MIN_ZOOM,
   mermaidFullscreenZoomFromWheel,
+  mermaidFullscreenZoomLimits,
   zoomMermaidViewport,
 } from '../lib/mermaid-preview.ts';
 
@@ -35,4 +36,29 @@ test('fullscreen wheel zoom normalizes line and page deltas', () => {
   assert.ok(mermaidFullscreenZoomFromWheel(1, 1, 1) < 1);
   assert.ok(mermaidFullscreenZoomFromWheel(1, -1, 2, 600) > 1);
   assert.ok(mermaidFullscreenZoomFromWheel(1, 1, 2, 600) < 1);
+});
+
+test('fullscreen limits retain readable text for measured small labels', () => {
+  assert.deepEqual(mermaidFullscreenZoomLimits(8.963975694), { min: 1.34, max: 3 });
+  assert.deepEqual(mermaidFullscreenZoomLimits(12.414323129), { min: .97, max: 3 });
+  assert.deepEqual(mermaidFullscreenZoomLimits(32), { min: .5, max: 3 });
+  assert.deepEqual(mermaidFullscreenZoomLimits(2), { min: 6, max: 6 });
+  for (const size of [2, 5.2, 8.963975694, 12.414323129, 16, 24, 32]) {
+    assert.ok(size * mermaidFullscreenZoomLimits(size).min >= 12);
+  }
+});
+
+test('diagrams without measurable labels keep ordinary zoom limits', () => {
+  for (const size of [Infinity, NaN, 0, -1]) {
+    assert.deepEqual(mermaidFullscreenZoomLimits(size), { min: .5, max: 3 });
+  }
+});
+
+test('wheel deltas cannot bypass the readable lower bound', () => {
+  const limits = { min: 1.34, max: 3 };
+  for (const mode of [0, 1, 2]) {
+    assert.equal(mermaidFullscreenZoomFromWheel(1.34, 10000, mode, 600, limits), 1.34);
+    assert.equal(mermaidFullscreenZoomFromWheel(3, -10000, mode, 600, limits), 3);
+    assert.ok(mermaidFullscreenZoomFromWheel(1.5, 1, mode, 600, limits) >= 1.34);
+  }
 });

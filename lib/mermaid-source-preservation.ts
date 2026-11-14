@@ -23,6 +23,12 @@ function replaceLine(original: string, before: string, after: string) {
 
 type SourceLine = { text: string; eol: string; key: string };
 
+function memberBlockPattern(kind: MermaidVisualGraph['kind']) {
+  return kind === 'class'
+    ? /^class\s+([\p{L}\p{N}_-]+)(?:\["[^"]*"\])?\s*\{$/u
+    : /^([\p{L}\p{N}_-]+)(?:\["[^"]*"\])?\s*\{$/u;
+}
+
 function sourceLines(source: string, kind: MermaidVisualGraph['kind']): SourceLine[] {
   const lines: SourceLine[] = [];
   const groups: string[] = [];
@@ -32,7 +38,7 @@ function sourceLines(source: string, kind: MermaidVisualGraph['kind']): SourceLi
     const text = match[1];
     const trimmed = text.trim();
     if (kind === 'class' || kind === 'er') {
-      const declaration = /^(?:class\s+)?([\w-]+)\s*\{/.exec(trimmed);
+      const declaration = memberBlockPattern(kind).exec(trimmed);
       if (declaration) owner = declaration[1];
     }
     if (kind === 'flowchart') {
@@ -209,9 +215,7 @@ function preserveMemberEdits(source: string, before: MermaidVisualGraph, after: 
   if (serializeMermaidVisualGraph(projected) !== expected) return null;
 
   const raw = sourceLines(source, before.kind);
-  const blockPattern = before.kind === 'class'
-    ? /^class\s+([\p{L}\p{N}_-]+)(?:\["[^"]*"\])?\s*\{$/u
-    : /^([\p{L}\p{N}_-]+)(?:\["[^"]*"\])?\s*\{$/u;
+  const blockPattern = memberBlockPattern(before.kind);
   const edits: Array<{ at: number; remove: number; insert: SourceLine[] }> = [];
   for (const node of changed) {
     const ref = node.data?.ref ?? node.id;
@@ -436,12 +440,17 @@ export class MermaidSourceHistory {
     this.spellings.set(key, source);
     if (this.spellings.size > 160) this.spellings.delete(this.spellings.keys().next().value!);
   }
-  commit(source: string, before: MermaidVisualGraph | null, after: MermaidVisualGraph) {
+  commit(source: string, before: MermaidVisualGraph | null, after: MermaidVisualGraph, editBase?: MermaidVisualGraph) {
     this.remember(before, source);
+    // A text replacement may temporarily empty a field. Patch the complete
+    // edit against its starting source so that the intermediate deletion does
+    // not move surrounding comments when the replacement is typed.
+    const baseSource = editBase && this.sources.get(editBase);
     // A copy followed by deleting that copy also returns to an earlier model,
     // even though it is a new graph object rather than an undo snapshot.
     const next = this.sources.get(after) ?? this.spellings.get(serializeMermaidVisualGraph(after))
-      ?? (before ? preserveMermaidSource(source, before, after) : serializeMermaidVisualGraph(after));
+      ?? (baseSource !== undefined && editBase ? preserveMermaidSource(baseSource, editBase, after)
+        : before ? preserveMermaidSource(source, before, after) : serializeMermaidVisualGraph(after));
     this.remember(after, next);
     return next;
   }

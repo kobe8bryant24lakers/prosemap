@@ -250,3 +250,28 @@ test('an empty group-name transaction restores routed edges and stage bounds wit
   await redo(page).click();
   await expect(input).toHaveValue(`${original}r`);
 });
+
+for (const kind of ['class', 'er']) {
+  test(`${kind}: replacing the last member keeps comments on both sides through one transaction`, async ({ page }) => {
+    const source = [kind === 'class' ? 'classDiagram' : 'erDiagram',
+      `  ${kind === 'class' ? 'class ' : ''}SYNTHETIC_A["Synthetic entity"] {`,
+      '    string id', '    %% SYNTHETIC before last field', '    string old_value',
+      '    %% SYNTHETIC after last field', '  }'].join('\n');
+    await openSource(page, source);
+    await node(page, 'SYNTHETIC_A').click();
+    const input = page.getByRole('textbox', { name: kind === 'class' ? '类成员 2' : '实体字段 2', exact: true });
+    await input.press(`${mod}+a`);
+    await input.press('Backspace');
+    await expect(input).toHaveValue('');
+    await input.pressSequentially('string new_value');
+    await expect(input).toHaveValue('string new_value');
+    expect(await draftSource(page)).toBe(source.replace('old_value', 'new_value'));
+    await showCanvas(page);
+    await undo(page).click();
+    expect(await draftSource(page)).toBe(source);
+    await showCanvas(page);
+    await expect(undo(page)).toBeDisabled();
+    await redo(page).click();
+    expect(await draftSource(page)).toBe(source.replace('old_value', 'new_value'));
+  });
+}

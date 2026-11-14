@@ -58,6 +58,20 @@ test('stored notices retranslate in both directions, preserving interpolation or
   setLocale('en');
 });
 
+test('save recovery notices preserve the exact path when translated in both directions', () => {
+  const path = '/SYNTHETIC/中文 {0} recovery.md';
+  const chinese = `保存期间文件状态发生变化。替换前的版本已保留到：${path}。当前编辑仍保留，请检查恢复副本后重新载入或另存为。`;
+  const english = `The file changed during saving. The version replaced was preserved at: ${path}. Your edits are retained. Check the recovery copy, then reload or save as a new file.`;
+  try {
+    setLocale('en');
+    assert.equal(uiMessage(chinese), english);
+    setLocale('zh-CN');
+    assert.equal(uiMessage(english), chinese);
+  } finally {
+    setLocale('en');
+  }
+});
+
 test('every translated UI template preserves all placeholders', () => {
   const slots = (text) => [...text.matchAll(/\{\d+\}/g)].map((m) => m[0]).sort();
   for (const [zh, en] of Object.entries(english)) assert.deepEqual(slots(en), slots(zh), zh);

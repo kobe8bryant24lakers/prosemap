@@ -5,7 +5,9 @@ mod links;
 mod secure_config;
 
 use ai::AiState;
-use files::{launch_target_from_args, launch_target_from_path, FileAccessState};
+#[cfg(target_os = "macos")]
+use files::launch_target_from_paths;
+use files::{launch_target_from_args, FileAccessState};
 #[cfg(target_os = "macos")]
 use tauri::Emitter;
 use tauri::Manager;
@@ -62,19 +64,26 @@ fn handle_run_event(app_handle: &tauri::AppHandle, event: tauri::RunEvent) {
 
     #[cfg(target_os = "macos")]
     if let tauri::RunEvent::Opened { urls } = event {
-        let target = urls
-            .iter()
-            .filter_map(|url| url.to_file_path().ok())
-            .find_map(|path| launch_target_from_path(&path).ok());
-        if let Some(target) = target {
-            app_handle
-                .state::<FileAccessState>()
-                .set_launch_target(target.clone());
-            let _ = app_handle.emit("local-opened", target);
-            if let Some(window) = app_handle.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
+        let paths = urls.iter().filter_map(|url| url.to_file_path().ok());
+        match launch_target_from_paths(paths) {
+            Ok(Some(target)) => {
+                app_handle
+                    .state::<FileAccessState>()
+                    .set_launch_target(target.clone());
+                let _ = app_handle.emit("local-opened", target);
             }
+            Err(reason) => {
+                // Startup can deliver this before the webview has listeners.
+                app_handle
+                    .state::<FileAccessState>()
+                    .set_launch_error(reason.clone());
+                let _ = app_handle.emit("local-open-error", reason);
+            }
+            Ok(None) => return,
+        }
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
         }
     }
 }

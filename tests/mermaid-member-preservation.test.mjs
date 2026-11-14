@@ -80,3 +80,37 @@ test('split class member declarations are not guessed by the unique-block optimi
   const result = preserveMermaidSource(source, before, after);
   assert.equal(serializeMermaidVisualGraph(requireGraph(result)), serializeMermaidVisualGraph(after));
 });
+
+for (const kind of ['class', 'er']) for (const eol of ['\n', '\r\n', '\r']) {
+  test(`${kind} ${JSON.stringify(eol)}: clearing and replacing a field in one edit retains its comment boundary`, () => {
+    const source = [kind === 'class' ? 'classDiagram' : 'erDiagram',
+      `  ${kind === 'class' ? 'class ' : ''}SYNTHETIC_A["Synthetic entity"] {`,
+      '    string id', '    %% SYNTHETIC before last field', '    string old_value',
+      '    %% SYNTHETIC after last field', '  }', ''].join(eol);
+    const before = requireGraph(source);
+    const empty = withDetails(before, 'SYNTHETIC_A', ['string id', '']);
+    const changed = withDetails(before, 'SYNTHETIC_A', ['string id', 'string new_value']);
+    const history = new MermaidSourceHistory();
+    history.reset(before, source);
+    const cleared = history.commit(source, before, empty);
+    const actual = history.commit(cleared, empty, changed, before);
+    assert.equal(actual, source.replace('string old_value', 'string new_value'));
+    assert.equal(history.commit(actual, changed, before), source, 'undo');
+    assert.equal(history.commit(source, before, changed), actual, 'redo');
+    // Starting another transaction must use the new field value as its base.
+    const again = withDetails(changed, 'SYNTHETIC_A', ['string id', 'string final_value']);
+    const clearedAgain = history.commit(actual, changed, empty);
+    assert.equal(history.commit(clearedAgain, empty, again, changed), source.replace('string old_value', 'string final_value'));
+  });
+}
+
+test('a stale property edit base cannot restore source from before an explicit import', () => {
+  const oldSource = 'erDiagram\n A {\n  string old_field\n }';
+  const importedSource = 'erDiagram\n  %% SYNTHETIC imported formatting\n    A {\n      string current_field\n    }';
+  const oldGraph = requireGraph(oldSource), imported = requireGraph(importedSource);
+  const changed = withDetails(imported, 'A', ['string new_field']);
+  const history = new MermaidSourceHistory();
+  history.reset(oldGraph, oldSource);
+  history.reset(imported, importedSource);
+  assert.equal(history.commit(importedSource, imported, changed, oldGraph), importedSource.replace('current_field', 'new_field'));
+});

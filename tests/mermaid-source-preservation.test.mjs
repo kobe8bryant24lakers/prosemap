@@ -5,6 +5,39 @@ import { parseMermaidVisualSource, serializeMermaidVisualGraph } from '../lib/me
 import { MermaidSourceHistory, preserveMermaidSource } from '../lib/mermaid-source-preservation.ts';
 
 const manifest = JSON.parse(readFileSync(new URL('./fixtures/manifest.json', import.meta.url), 'utf8'));
+
+for (const kind of ['class', 'er']) {
+  for (const ending of ['LF', 'CRLF', 'CR', 'mixed']) {
+    for (const removedId of ['Original', '副本_2']) {
+      test(`${kind}: reopened aliased blocks with repeated members preserve ${ending} bytes when deleting ${removedId}`, () => {
+        const keyword = kind === 'class' ? 'class ' : '';
+        const member = kind === 'class' ? '+String id' : 'string id PK';
+        const lines = ['', kind === 'class' ? 'classDiagram' : 'erDiagram',
+          '   %% SYNTHETIC header stays here', '   direction TB',
+          `   ${keyword}Original["SYNTHETIC original"] {`, `      ${member}`, '   }',
+          '   %% SYNTHETIC between declarations',
+          `   ${keyword}副本_2["SYNTHETIC original copy"] {`, `      ${member}`, '   }',
+          '   %% SYNTHETIC tail stays here', '', ''];
+        const endings = ending === 'mixed' ? ['\r\n', '\r', '\n']
+          : [ending === 'LF' ? '\n' : ending === 'CRLF' ? '\r\n' : '\r'];
+        const rawLines = lines.map((line, index) => line + (index === lines.length - 1 ? '' : endings[index % endings.length]));
+        const source = rawLines.join('');
+        // Parsing starts a fresh graph, as reopening a saved diagram does;
+        // no MermaidSourceHistory snapshot can restore the old spelling.
+        const before = parseMermaidVisualSource(source);
+        assert.ok(before);
+        assert.equal(before.nodes.length, 2);
+        const after = { ...before, nodes: before.nodes.filter(node => node.id !== removedId) };
+        const start = removedId === 'Original' ? 4 : 8;
+        const expected = rawLines.filter((_line, index) => index < start || index >= start + 3).join('');
+        const actual = preserveMermaidSource(source, before, after);
+        assertGraph(actual, after);
+        assert.equal(actual, expected, 'only the selected declaration block may be removed');
+      });
+    }
+  }
+}
+
 for (const entry of manifest.files.filter(f => f.category === 'editable-diagram')) {
   test(`${entry.template}: rename preserves all unrelated source and history restores exact bytes`, () => {
     const markdown = readFileSync(new URL(`./fixtures/${entry.path}`, import.meta.url), 'utf8');

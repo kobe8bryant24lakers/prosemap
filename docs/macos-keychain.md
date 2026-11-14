@@ -23,7 +23,7 @@ The earlier local self-signed identity is not used for normal Keychain builds. A
 
 Configure `APPLE_SIGNING_IDENTITY` with a **Developer ID Application** identity. CI imports its certificate through Tauri's `APPLE_CERTIFICATE` and `APPLE_CERTIFICATE_PASSWORD` secrets. Never commit these values or signing material. The workflow fails without the required identity and the built signature must satisfy the Developer ID certificate requirement. See [Tauri's macOS signing guide](https://tauri.app/distribute/sign/macos/).
 
-Developer ID signing, notarization, certificate rotation and cross-update access need verification in the release environment. The tests below do not substitute for notarization. All v0.11.1 work remains local until the complete acceptance and publication requirements are satisfied.
+Developer ID signing, notarization, certificate rotation and cross-update access need verification in the release environment. The tests below do not substitute for notarization. The user authorized a v0.11.1 preview release on 2026-11-14 with the remaining acceptance gaps disclosed. That authorization does not waive the Apple signing requirement for a production macOS package.
 
 ## Development without Keychain
 

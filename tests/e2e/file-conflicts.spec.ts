@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { launchDocument, mod, savedSource } from './helpers';
+import { fixture, launchDocument, mod, savedSource } from './helpers';
 
 const original = '# 原文\n\n磁盘基线🧭\n';
 const external = '# 外部新内容\n\n另一编辑器的修改🧪\n';
@@ -40,6 +40,62 @@ async function waitForSave(page: Page) {
 async function releaseSave(page: Page) {
   await page.evaluate(() => (window as any).__saveAcceptance.release());
   await expect.poll(() => page.evaluate(() => (window as any).__saveAcceptance.completed)).toBe(1);
+}
+
+for (const saveAs of [false, true]) {
+  test(`large document ${saveAs ? 'Save As' : 'Save'} pending: new input and applied diagram remain dirty`, async ({ page }, info) => {
+    const baseline = '# SYNTHETIC_SAVE_INFLIGHT\n\n' + fixture('long-document-600-sections.md');
+    const before = '\nSYNTHETIC_BEFORE_SAVE\n';
+    const during = '\nSYNTHETIC_DURING_SAVE\n';
+    const graph = 'flowchart LR\n  A["SYNTHETIC_PENDING_SAVE"] --> B["SYNTHETIC_NEW_GRAPH"]';
+    await launchDocument(page, baseline, 'SYNTHETIC_large_save.md');
+    await pauseNextSave(page);
+    await page.locator('.cm-content').click();
+    await page.keyboard.press(`${mod}+End`);
+    const inputStart = await page.locator('.cm-content').evaluate(el => {
+      const view = (el as any).cmTile.root.view;
+      return { length: view.state.doc.length, selection: view.state.selection.toJSON() };
+    });
+    await info.attach('input-start-position', { body: JSON.stringify(inputStart), contentType: 'application/json' });
+    await page.keyboard.press('Enter');
+    await page.keyboard.insertText(before.trim());
+    await page.keyboard.press('Enter');
+    const observedBefore = await page.locator('.cm-content').evaluate(el => {
+      const view = (el as any).cmTile.root.view;
+      return { text: view.state.doc.toString(), selection: view.state.selection.toJSON() };
+    });
+    await info.attach('before-save-input', { body: JSON.stringify({ expectedTail: (baseline + before).slice(-100), actualTail: observedBefore.text.slice(-100), selection: observedBefore.selection, expectedLength: (baseline + before).length, actualLength: observedBefore.text.length }), contentType: 'application/json' });
+    expect(observedBefore.text).toBe(baseline + before);
+    if (saveAs) await page.getByRole('textbox', { name: '文档名称', exact: true }).fill('SYNTHETIC_large_copy');
+    await page.getByRole('button', { name: saveAs ? '另存为' : '保存', exact: true }).click();
+    await waitForSave(page);
+    await page.locator('.cm-content').focus();
+    await page.keyboard.press(`${mod}+End`);
+    await page.keyboard.press('Enter');
+    await page.keyboard.insertText(during.trim());
+    await page.keyboard.press('Enter');
+    await page.getByRole('button', { name: 'Mermaid 可视化画布', exact: true }).click();
+    await page.locator('.workbench-tabs').getByRole('button', { name: '源码', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Mermaid 源码编辑器', exact: true }).fill(graph);
+    await page.getByRole('button', { name: '应用到文档', exact: true }).click();
+    await expect(page.locator('.mermaid-workbench')).toHaveCount(0);
+    await expect(page.locator('.preview-pane .mermaid-svg svg')).toContainText('SYNTHETIC_NEW_GRAPH');
+    await page.keyboard.press(`${mod}+s`);
+    await page.getByRole('button', { name: '另存为', exact: true }).click();
+    expect(await page.evaluate(() => (window as any).__saveAcceptance.requests.length)).toBe(1);
+    await releaseSave(page);
+    const destination = saveAs ? '/acceptance/SYNTHETIC_large_copy.md' : '/acceptance/SYNTHETIC_large_save.md';
+    expect(await page.evaluate(path => (window as any).__acceptance.disk[path], destination)).toBe(baseline + before);
+    await expect(page.locator('.saved-state')).toContainText('未保存');
+    const expected = baseline + before + during + '```mermaid\n' + graph + '\n```\n';
+    expect(await savedSource(page)).toBe(expected);
+    const request = await page.evaluate(() => (window as any).__saveAcceptance.requests[1]);
+    expect(request.path).toBe(destination);
+    expect(request.expectedContent).toBe(baseline + before);
+    if (saveAs) expect(await page.evaluate(() => (window as any).__acceptance.disk['/acceptance/SYNTHETIC_large_save.md'])).toBe(baseline);
+    await expect(page.locator('.saved-state')).toContainText('已保存到本地');
+    await info.attach('save-transaction', { body: JSON.stringify({ saveAs, firstSnapshotLength: (baseline + before).length, finalLength: expected.length, path: request.path }), contentType: 'application/json' });
+  });
 }
 
 test('external modification blocks save, preserves both versions, and Save As recovers local edits', async ({ page }) => {
@@ -234,3 +290,48 @@ test('canceling Save As preserves edits and original file association, then retr
   expect(await page.evaluate(() => (window as any).__acceptance.disk['/acceptance/取消后副本.md'])).toBe(original + '取消前重试副本');
   expect(await diskContent(page)).toBe(original + '取消前');
 });
+
+for (const locale of ['zh-CN', 'en'] as const) {
+  test(`${locale}: a recovery copy notice keeps edits dirty and Save As preserves both versions`, async ({ page }) => {
+    const recoveryPath = '/acceptance/SYNTHETIC 中文 {0} recovery.md';
+    const recoveryNotice = `保存期间文件状态发生变化。替换前的版本已保留到：${recoveryPath}。当前编辑仍保留，请检查恢复副本后重新载入或另存为。`;
+    const expectedNotice = locale === 'en'
+      ? `The file changed during saving. The version replaced was preserved at: ${recoveryPath}. Your edits are retained. Check the recovery copy, then reload or save as a new file.`
+      : recoveryNotice;
+    await launchDocument(page, original);
+    if (locale === 'en') await page.getByRole('combobox', { name: '界面语言', exact: true }).selectOption('en');
+    await appendText(page, 'SYNTHETIC local edit');
+    // Model the native post-commit recovery result. Real filesystem exchange
+    // and concurrent external writers are covered by the Rust tests.
+    await page.evaluate(({ recoveryPath, recoveryNotice, external }) => {
+      const w = window as any;
+      const invoke = w.__TAURI_INTERNALS__.invoke;
+      let firstSave = true;
+      w.__TAURI_INTERNALS__.invoke = async (command: string, args: any) => {
+        if (command === 'save_local_markdown' && firstSave) {
+          firstSave = false;
+          w.__acceptance.disk[args.path] = args.content;
+          w.__acceptance.disk[recoveryPath] = external;
+          throw recoveryNotice;
+        }
+        return invoke(command, args);
+      };
+    }, { recoveryPath, recoveryNotice, external });
+    const save = page.getByRole('button', { name: locale === 'en' ? 'Save' : '保存', exact: true });
+    await save.click();
+    await expect(page.locator('.toast')).toHaveText(expectedNotice);
+    await expect(page.locator('.saved-state')).toContainText(locale === 'en' ? 'Unsaved' : '未保存');
+    expect(await diskContent(page)).toBe(original + 'SYNTHETIC local edit');
+    // A failed commit must not advance the editor's disk baseline. A normal
+    // retry still conflicts, while Save As can preserve the latest local edit.
+    await save.click();
+    await expect(page.locator('.toast')).toContainText(locale === 'en' ? 'changed outside' : '文件已被外部修改');
+    await appendText(page, 'SYNTHETIC later edit');
+    await page.getByRole('textbox', { name: locale === 'en' ? 'Document name' : '文档名称', exact: true }).fill('SYNTHETIC_recovered_local');
+    await page.getByRole('button', { name: locale === 'en' ? 'Save as' : '另存为', exact: true }).click();
+    await expect(page.locator('.saved-state')).toContainText(locale === 'en' ? 'Saved locally' : '已保存到本地');
+    expect(await page.evaluate(() => (window as any).__acceptance.disk['/acceptance/SYNTHETIC_recovered_local.md'])).toBe(original + 'SYNTHETIC local editSYNTHETIC later edit');
+    expect(await page.evaluate(path => (window as any).__acceptance.disk[path], recoveryPath)).toBe(external);
+    expect(await diskContent(page)).toBe(original + 'SYNTHETIC local edit');
+  });
+}

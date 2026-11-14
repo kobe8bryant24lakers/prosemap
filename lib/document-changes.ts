@@ -2,9 +2,46 @@ import { diffChars } from 'diff';
 
 export type DocumentChange = { from: number; to: number; insert: string };
 
+type DiffPart = { value: string; added?: boolean; removed?: boolean };
+
+// A short diagram can exhaust Myers's wall-clock budget on a busy WebKit
+// runner. Finish those small comparisons with a bounded exact LCS, preserving
+// equal characters rather than replacing the entire range. At most one million
+// cells (about 2 MB) are visited; larger comparisons still fail closed.
+function boundedSmallDiff(previous: string, replacement: string): DiffPart[] | null {
+  if (previous.length + replacement.length > 4096) return null;
+  const oldText = Array.from(previous), newText = Array.from(replacement);
+  const width = newText.length + 1;
+  const cells = (oldText.length + 1) * width;
+  if (cells > 1_000_000) return null;
+  const lengths = new Uint16Array(cells);
+  for (let old = oldText.length - 1; old >= 0; old--) {
+    for (let next = newText.length - 1; next >= 0; next--) {
+      const at = old * width + next;
+      lengths[at] = oldText[old] === newText[next]
+        ? lengths[at + width + 1] + 1
+        : Math.max(lengths[at + width], lengths[at + 1]);
+    }
+  }
+  const parts: DiffPart[] = [];
+  let old = 0, next = 0;
+  while (old < oldText.length || next < newText.length) {
+    if (old < oldText.length && next < newText.length && oldText[old] === newText[next]) {
+      parts.push({ value: oldText[old++] });
+      next++;
+    } else if (old < oldText.length && (next === newText.length
+      || lengths[(old + 1) * width + next] >= lengths[old * width + next + 1])) {
+      parts.push({ value: oldText[old++], removed: true });
+    } else {
+      parts.push({ value: newText[next++], added: true });
+    }
+  }
+  return parts;
+}
+
 /** Plan changes in the original document's UTF-16 coordinates. Keeping equal
  * spans outside the transaction preserves their original line-ending metadata.
- * A timed-out comparison is a failure, never permission to overwrite the range. */
+ * An incomplete comparison is a failure, never permission to overwrite the range. */
 export function minimalDocumentChanges(previous: string, replacement: string, from: number): DocumentChange[] | null {
   if (!Number.isSafeInteger(from) || from < 0 || !Number.isSafeInteger(from + previous.length)) return null;
   if (previous === replacement) return [];
@@ -28,7 +65,7 @@ export function minimalDocumentChanges(previous: string, replacement: string, fr
     }
   }
 
-  const parts = diffChars(previous, replacement, { timeout: 80 });
+  const parts = diffChars(previous, replacement, { timeout: 80 }) ?? boundedSmallDiff(previous, replacement);
   if (!parts) return null;
   const changes: DocumentChange[] = [];
   let position = from;

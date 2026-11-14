@@ -62,7 +62,7 @@ for (const oldFails of [false, true]) for (const latestFails of [false, true]) {
     const current = latestFails ? 'SYNTHETIC_LATEST_INVALID' : latest;
     await editor.fill(current);
     const validation = page.locator('.workbench-ai-validation');
-    await expect(validation).toHaveClass(new RegExp(latestFails ? 'error' : 'valid'));
+    await expect(validation).toHaveClass(latestFails ? /\berror\b/ : /\bvalid\b/);
     const message = await validation.textContent();
     await release(page);
     await expect(validation).toHaveText(message!);

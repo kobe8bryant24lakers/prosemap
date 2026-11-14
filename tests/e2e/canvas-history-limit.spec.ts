@@ -4,6 +4,9 @@ import { draftSource, launchDocument, openDiagram, showCanvas } from './helpers'
 
 for (const item of fixtures.templates) {
   test(`${item.template}: 85 position changes retain exactly the newest 80 undo steps`, async ({ page }) => {
+    // This exercises 245 sequential input actions plus every history boundary.
+    // Linux WebKit needs more than the default minute for the complete traversal.
+    test.setTimeout(180_000);
     await launchDocument(page, `# SYNTHETIC canvas history limit\n\n\`\`\`mermaid\n${item.source}\n\`\`\`\n`);
     await openDiagram(page);
     const parent = page.locator(`.mermaid-canvas-node[data-mermaid-node-id="${item.nodeId}"]`);

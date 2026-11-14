@@ -259,7 +259,7 @@ test('manual AI draft editing recovers from syntax errors and keeps the last fas
   await source.fill('flowchart LR\n A[temporary broken');
   const last = generated.replace('SYNTHETIC generated', 'SYNTHETIC 最终中文🧭');
   await source.fill(last);
-  await expect(workbench.locator('.workbench-ai-validation')).toHaveClass(/valid/);
+  await expect(workbench.locator('.workbench-ai-validation')).toHaveClass(/\bvalid\b/);
   await expect(source).toHaveValue(last);
   await expect(workbench.locator('.workbench-ai-editor-heading')).toContainText('3 行');
   await workbench.getByRole('button', { name: '返回预览', exact: true }).click();

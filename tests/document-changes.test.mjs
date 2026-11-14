@@ -4,6 +4,7 @@ import { EditorState } from '@codemirror/state';
 import { history, isolateHistory, undo, redo } from '@codemirror/commands';
 import { minimalDocumentChanges } from '../lib/document-changes.ts';
 import { documentLineEndings, normalizeDocumentText, serializeDocument } from '../lib/document-line-endings.ts';
+import semanticFixtures from './fixtures/synthetic-semantic-persistence.json' with { type: 'json' };
 
 function harness(raw) {
   let state = EditorState.create({ doc: normalizeDocumentText(raw), extensions: [history(), documentLineEndings(raw)] });
@@ -106,10 +107,35 @@ test('invalid offsets refuse an edit plan', () => {
   }
 });
 
-test('diff timeout returns null with no whole-range replacement fallback', (t) => {
-  let reads = 0;
-  t.mock.method(Date, 'now', () => reads++ === 0 ? 1000 : 1081);
-  assert.equal(minimalDocumentChanges('old\nkeep\nlast', 'NEW\nkeep\nTAIL', 6), null);
+test('large diff timeout returns null with no whole-range replacement fallback', (t) => {
+  let clock = 1000;
+  t.mock.method(Date, 'now', () => clock += 81);
+  assert.equal(minimalDocumentChanges('old\nkeep\nlast'.repeat(200), 'NEW\nkeep\nTAIL'.repeat(200), 6), null);
+  assert.equal(minimalDocumentChanges('a'.repeat(1000), 'b'.repeat(1000), 6), null);
+});
+
+test('small exact fallback preserves mixed line endings and history after the fast diff times out', (t) => {
+  let clock = 1000;
+  t.mock.method(Date, 'now', () => clock += 81);
+  const original = 'old🧭\r\nkeep\nlast😀\rtail';
+  const changed = 'NEW🧠\r\nkeep\nTAIL😃\rtail';
+  const h = harness(original);
+  h.apply(normalizeDocumentText(changed));
+  assert.equal(h.raw(), changed);
+  h.undo(); assert.equal(h.raw(), original);
+  h.redo(); assert.equal(h.raw(), changed);
+});
+
+test('all synthetic semantic replacements complete exactly even when the fast diff times out', (t) => {
+  let clock = 1000;
+  t.mock.method(Date, 'now', () => clock += 81);
+  for (const item of semanticFixtures.templates) {
+    const h = harness(`SYNTHETIC prefix🧭\n${item.before}\nSYNTHETIC suffix`);
+    const from = h.text().indexOf(item.before);
+    h.apply(item.after, from, from + item.before.length);
+    assert.equal(h.text(), `SYNTHETIC prefix🧭\n${item.after}\nSYNTHETIC suffix`, item.template);
+    h.undo(); assert.equal(h.text(), `SYNTHETIC prefix🧭\n${item.before}\nSYNTHETIC suffix`);
+  }
 });
 
 test('the bounded diff still completes when its clock remains at the 80 ms limit', (t) => {

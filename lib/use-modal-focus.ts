@@ -75,8 +75,12 @@ export function useModalFocus(
         ? event.shiftKey ? focusable.at(-1) : focusable[0]
         : focusable[(index + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length];
       event.preventDefault();
-      // Tab navigation must reveal offscreen controls inside scrollable dialogs.
-      (next ?? dialog).focus();
+      // WebKit's native focus scroll can reveal only an input's caret, leaving
+      // its border and text clipped by a fixed dialog footer. Reveal the whole
+      // control after focusing without that browser-specific scroll.
+      const target = next ?? dialog;
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
 
     function handleFocus(event: FocusEvent) {

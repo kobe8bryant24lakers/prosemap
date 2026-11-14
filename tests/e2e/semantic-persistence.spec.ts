@@ -34,3 +34,29 @@ for (const item of cases) {
     await reopened.close();
   });
 }
+
+for (const template of ['four-plus-one', 'package']) {
+  test(`${template}: apply and undo survive an expired fast diff budget`, async ({ page }) => {
+    // Expire only the fast comparison's budget. The real exact fallback,
+    // CodeMirror transaction, save boundary and undo history remain unchanged.
+    await page.route(/\/lib\/document-changes\.ts(?:\?.*)?$/, async route => {
+      const response = await route.fetch(), body = await response.text();
+      expect(body).toContain('timeout: 80');
+      await route.fulfill({ response, body: body.replace('timeout: 80', 'timeout: -1') });
+    });
+    const item = cases.find(item => item.template === template)!;
+    const original = documentFor(item.before);
+    await launchDocument(page, original);
+    await openDiagram(page);
+    await draftSource(page);
+    await page.getByRole('textbox', { name: 'Mermaid 源码编辑器', exact: true }).fill(item.after);
+    await showCanvas(page);
+    await page.getByRole('button', { name: '应用到文档', exact: true }).click();
+    await expect(page.locator('.mermaid-workbench')).toHaveCount(0);
+    expect(await savedSource(page)).toBe(documentFor(item.after));
+    await page.getByRole('button', { name: '撤销', exact: true }).click();
+    expect(await savedSource(page)).toBe(original);
+    await page.getByRole('button', { name: '重做', exact: true }).click();
+    expect(await savedSource(page)).toBe(documentFor(item.after));
+  });
+}

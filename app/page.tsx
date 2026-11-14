@@ -294,7 +294,17 @@ export default function Home() {
         : error instanceof Error ? t("格式化失败：{0}", error.message.split(/\r?\n/, 1)[0]) : t("格式化失败，请检查代码语法"));
     }
   }, [showToast]);
-  const editorExtensions = useMemo(() => [...baseEditorExtensions, documentLineEndings(rawDocument), EditorView.domEventHandlers({
+  const editorExtensions = useMemo(() => [...baseEditorExtensions, documentLineEndings(rawDocument), Prec.high(EditorView.domEventHandlers({
+    keydown(event, view) {
+      if (!view.hasFocus || event.altKey || !event.shiftKey || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'm') return false;
+      // A shifted lowercase key can otherwise match CodeMirror's unshifted
+      // Ctrl-m tab-focus command before its Mod-Shift-m binding is considered.
+      event.preventDefault();
+      setAssistantAction('mermaid');
+      setAssistantOpen(true);
+      return true;
+    },
+  })), EditorView.domEventHandlers({
     paste(event, view) {
       if (!event.clipboardData) return false;
       const files = clipboardImageFiles(event.clipboardData);
@@ -308,15 +318,7 @@ export default function Home() {
     'match case': '区分大小写', 'regexp': '正则表达式', 'by word': '全词匹配',
     'replace': '替换', 'replace all': '全部替换', 'close': '关闭查找',
     'current match': '当前匹配', 'on line': '所在行', 'No matches': '没有匹配项',
-  } : {}), Prec.high(keymap.of([
-    { key: 'Mod-Shift-m', run: (view) => {
-      // Override the default Diagnostics binding only in the document editor.
-      if (!view.hasFocus) return false;
-      setAssistantAction('mermaid');
-      setAssistantOpen(true);
-      return true;
-    } },
-  ])), keymap.of([
+  } : {}), keymap.of([
     { key: 'Mod-Shift-f', run: () => { void formatCurrentCodeBlock(); return true; } },
   ])], [formatCurrentCodeBlock, locale, rawDocument]);
 

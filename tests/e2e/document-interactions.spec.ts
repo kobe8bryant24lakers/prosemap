@@ -152,7 +152,14 @@ test('8406-line document: scroll to end, edit, switch views, save and undo', asy
   expect(await savedSource(page)).toBe(original + '\n末尾验收_8406🧭');
   await page.getByRole('button', { name: '左编辑右预览', exact: true }).click();
   await page.getByRole('button', { name: '撤销', exact: true }).click();
-  expect(await savedSource(page)).toBe(original + '\n');
+  const afterUndo = await savedSource(page);
+  // Browser typing/composition can group the newline and text into one edit.
+  // Either valid grouping must restore the complete document within two undos.
+  if (afterUndo !== original) {
+    expect(afterUndo).toBe(original + '\n');
+    await page.getByRole('button', { name: '撤销', exact: true }).click();
+    expect(await savedSource(page)).toBe(original);
+  }
   await page.getByRole('button', { name: '撤销', exact: true }).click();
   expect(await savedSource(page)).toBe(original);
   await testInfo.attach('elapsed-ms', { body: String(Date.now() - start), contentType: 'text/plain' });

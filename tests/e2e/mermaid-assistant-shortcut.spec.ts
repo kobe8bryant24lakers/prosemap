@@ -4,6 +4,26 @@ import { launchDocument, mod, savedSource } from './helpers';
 const source = 'Synthetic before\n\n```mermaid\nflowchart TD\n  A[Synthetic start] --> B[Synthetic end]\n```\n\nSynthetic after\n';
 const shortcut = `${mod}+Shift+m`;
 
+test('non-Mac editor dispatch handles lowercase and uppercase shifted Mermaid keys', async ({ page }) => {
+  // Isolate CodeMirror's platform-specific bindings, including on a macOS host.
+  await page.addInitScript(() => Object.defineProperty(navigator, 'platform', { value: 'Linux x86_64' }));
+  await launchDocument(page, 'SYNTHETIC shifted shortcut\n');
+  const editor = page.locator('.cm-content');
+  for (const key of ['m', 'M']) {
+    await editor.focus();
+    await page.keyboard.press(`Control+Shift+${key}`);
+    const panel = page.locator('.assistant-panel');
+    await expect(panel.locator('.compose-context')).toContainText('将在光标位置创建新图');
+    await expect(page.locator('.cm-panel-lint')).toHaveCount(0);
+    await panel.getByRole('button', { name: '关闭 AI 助手', exact: true }).click();
+  }
+  // Ctrl+Shift+M must not toggle Ctrl+M's tab-focus mode as a side effect.
+  await editor.focus();
+  await page.keyboard.press('Tab');
+  await expect(editor).toBeFocused();
+  expect(await savedSource(page)).toBe('  SYNTHETIC shifted shortcut\n');
+});
+
 test('Mermaid shortcut in ordinary Markdown opens creation without Diagnostics or a document edit', async ({ page }) => {
   await launchDocument(page, source, 'synthetic-mermaid-shortcut.md');
   await page.locator('.cm-content').focus();

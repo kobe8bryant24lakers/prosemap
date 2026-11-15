@@ -1,5 +1,6 @@
 import { isDesktopRuntime } from './ai-client';
 import type { AiContextDocument } from './ai-context';
+import { validatePastedImage } from './image-paste';
 
 export type LocalDocument = {
   path: string;
@@ -17,6 +18,7 @@ export type LocalWorkspace = {
   root: string;
   name: string;
   files: LocalFileEntry[];
+  scanLimits?: { fileCount: number | null; depth: number | null };
 };
 
 export type LaunchTarget =
@@ -24,8 +26,9 @@ export type LaunchTarget =
   | { kind: 'folder'; workspace: LocalWorkspace }
   | null;
 
-async function desktopInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+async function desktopInvoke<T>(command: string, args?: Record<string, unknown>, beforeInvoke?: () => void): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core');
+  beforeInvoke?.();
   return invoke<T>(command, args);
 }
 
@@ -48,8 +51,8 @@ export async function readLocalMarkdown(path: string): Promise<LocalDocument> {
   return desktopInvoke<LocalDocument>('read_local_markdown', { path });
 }
 
-export async function saveLocalMarkdown(path: string | null, suggestedName: string, content: string): Promise<LocalDocument | null> {
-  return desktopInvoke<LocalDocument | null>('save_local_markdown', { path, suggestedName, content });
+export async function saveLocalMarkdown(path: string | null, suggestedName: string, content: string, expectedContent: string | null): Promise<LocalDocument | null> {
+  return desktopInvoke<LocalDocument | null>('save_local_markdown', { path, suggestedName, content, expectedContent });
 }
 
 export async function openRelativeFile(documentPath: string, source: string): Promise<void> {
@@ -58,14 +61,23 @@ export async function openRelativeFile(documentPath: string, source: string): Pr
 }
 
 export type SavedImage = { relativePath: string; name: string };
-export async function savePastedImage(documentPath: string, file: File): Promise<SavedImage> {
+export async function savePastedImage(documentPath: string, file: File, isCurrent: () => boolean = () => true): Promise<SavedImage> {
+  const ensureCurrent = () => {
+    if (!isCurrent()) throw new Error('粘贴位置或文档已变化，请重新粘贴图片。');
+  };
+  ensureCurrent();
+  await validatePastedImage(file);
+  ensureCurrent();
   const data = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).split(',')[1]);
     reader.onerror = () => reject(new Error('无法读取剪贴板图片'));
+    reader.onabort = () => reject(new Error('无法读取剪贴板图片'));
     reader.readAsDataURL(file);
   });
-  return desktopInvoke('save_pasted_image', { documentPath, name: file.name, data });
+  // Check after the IPC module loads too. Once native saving has started it
+  // cannot be rolled back here; the caller must still check before insertion.
+  return desktopInvoke('save_pasted_image', { documentPath, name: file.name, data }, ensureCurrent);
 }
 
 export async function readLaunchTarget(): Promise<LaunchTarget> {
@@ -73,7 +85,17 @@ export async function readLaunchTarget(): Promise<LaunchTarget> {
   return desktopInvoke<LaunchTarget>('read_launch_target');
 }
 
-export async function listenLocalOpened(onTarget: (target: Exclude<LaunchTarget, null>) => void) {
+export async function listenLocalOpened(
+  onTarget: (target: Exclude<LaunchTarget, null>) => void,
+  onError: (message: string) => void,
+) {
   const { listen } = await import('@tauri-apps/api/event');
-  return listen<Exclude<LaunchTarget, null>>('local-opened', (event) => onTarget(event.payload));
+  const stopErrors = await listen<string>('local-open-error', event => onError(event.payload));
+  try {
+    const stopOpened = await listen<Exclude<LaunchTarget, null>>('local-opened', event => onTarget(event.payload));
+    return () => { stopOpened(); stopErrors(); };
+  } catch (reason) {
+    stopErrors();
+    throw reason;
+  }
 }

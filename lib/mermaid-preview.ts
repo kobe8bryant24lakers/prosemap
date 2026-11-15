@@ -2,6 +2,18 @@ export const MERMAID_PREVIEW_MIN_ZOOM = 0.65;
 export const MERMAID_PREVIEW_MAX_ZOOM = 1.8;
 export const MERMAID_FULLSCREEN_MIN_ZOOM = 0.5;
 export const MERMAID_FULLSCREEN_MAX_ZOOM = 3;
+export const MERMAID_FULLSCREEN_MIN_FONT_PX = 12;
+
+/** Fit-relative limits measured from the smallest visible diagram label. */
+export function mermaidFullscreenZoomLimits(fontSizeAtFit: number) {
+  const readable = Number.isFinite(fontSizeAtFit) && fontSizeAtFit > 0
+    ? Math.ceil(MERMAID_FULLSCREEN_MIN_FONT_PX / fontSizeAtFit * 100 - 1e-7) / 100
+    : MERMAID_FULLSCREEN_MIN_ZOOM;
+  const min = Math.max(MERMAID_FULLSCREEN_MIN_ZOOM, readable);
+  // A small window or a large diagram can need more than the normal 300%
+  // ceiling just to reach readable text. Never put the ceiling below the floor.
+  return { min, max: Math.max(MERMAID_FULLSCREEN_MAX_ZOOM, min) };
+}
 
 const WHEEL_LINE_HEIGHT = 18;
 const MAX_WHEEL_DELTA = 180;
@@ -23,14 +35,15 @@ export function mermaidFullscreenZoomFromWheel(
   deltaY: number,
   deltaMode = 0,
   pageHeight = 1,
+  limits = { min: MERMAID_FULLSCREEN_MIN_ZOOM, max: MERMAID_FULLSCREEN_MAX_ZOOM },
 ) {
   return mermaidZoomFromWheel(
     currentZoom,
     deltaY,
     deltaMode,
     pageHeight,
-    MERMAID_FULLSCREEN_MIN_ZOOM,
-    MERMAID_FULLSCREEN_MAX_ZOOM,
+    limits.min,
+    limits.max,
   );
 }
 

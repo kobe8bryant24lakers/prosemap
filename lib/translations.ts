@@ -1,5 +1,28 @@
 // UI copy only. Never pass document content through this dictionary.
 export const english: Record<string, string> = {
+  "未完成": "Incomplete",
+  "已列出 {0} 个文件": "Files listed: {0}",
+  "本次扫描达到 {0} 个文件上限，可能还有文件未显示。": "This scan reached the {0}-file limit. Additional files may be omitted.",
+  "超过 {0} 层的子文件夹未扫描。": "Folders deeper than {0} levels were not scanned.",
+  "扫描范围内没有 Markdown 文件。": "No Markdown files were found within the scan limits.",
+  "编辑器正在更新，请稍后重试。": "The editor is updating. Please try again shortly.",
+  "无法安全保存：文档行尾状态不一致。当前编辑内容已保留，请复制备份后重新打开文件。": "Cannot save safely because line-ending metadata is inconsistent. Your edits are retained. Copy a backup before reopening the file.",
+  "改动过大，无法安全定位修改范围。请缩小修改范围后重试。": "The change is too large to locate safely. Try applying a smaller change.",
+  "读取模型配置": "Load model settings",
+  "当前已保存的配置不会被修改。": "Your saved settings will remain unchanged.",
+  "正在读取本机模型配置…": "Loading model settings from this device…",
+  "你可以关闭此窗口继续编辑文档，稍后再查看。": "You can close this window, keep editing, and check again later.",
+  "重新读取": "Retry loading",
+  "桌面应用不加载远程图片，请将图片保存到文档附近并使用相对路径": "The desktop app does not load remote images. Save the image beside your document and use a relative path.",
+  "文件已被外部修改，未覆盖磁盘内容。请重新载入，或另存为以保留当前修改。": "The file changed outside ProseMap. Nothing was overwritten. Reload it, or use Save As to keep your changes.",
+  "无法确认文件原始内容，请重新打开后保存": "The original file contents are unavailable. Reopen the file before saving.",
+  "重新载入": "Reload from disk",
+  "重新读取磁盘文件；未保存的修改会先确认": "Reload the file from disk; confirm before discarding unsaved changes",
+  "重新载入磁盘内容？": "Reload from disk?",
+  "当前未保存的文档修改和图表草稿将被丢弃。你也可以取消后先另存为，保留两份内容。": "Unsaved document changes and diagram drafts will be discarded. You can cancel and use Save As to keep both versions.",
+  "放弃修改并重新载入": "Discard changes and reload",
+  "载入期间文档已变化，请重新载入": "The document changed while loading. Reload again.",
+  "已重新载入 {0}": "Reloaded {0}",
   "连接对象已不存在，请重新选择": "A connection object no longer exists. Select it again.",
   "主题不能连接到自身，请选择其他主题": "A topic cannot connect to itself. Choose another topic.",
   "任务不能依赖自身，请选择其他任务": "A task cannot depend on itself. Choose another task.",
@@ -18,6 +41,7 @@ export const english: Record<string, string> = {
   "不支持打开此文件类型；请链接表格、文档、图片或媒体文件": "This file type cannot be opened. Link to a spreadsheet, document, image or media file.",
   "请粘贴 PNG、JPEG、GIF、WebP、BMP 或 AVIF 图片": "Paste a PNG, JPEG, GIF, WebP, BMP or AVIF image.",
   "图片数据无效": "Invalid image data.",
+  "图片尺寸过大：最多 4000 万像素，单边不超过 32768 像素。": "Image dimensions are too large: at most 40 million pixels and 32,768 pixels per side.",
   "无法创建 images 文件夹，请检查写入权限": "Cannot create the images folder. Check write permissions.",
   "无法访问 images 文件夹": "Cannot access the images folder.",
   "images 必须是文档目录内的普通文件夹": "images must be a regular folder beside the document.",
@@ -86,6 +110,7 @@ export const english: Record<string, string> = {
   "{0} 代码已格式化，可撤销": "{0} code formatted. You can undo this change.",
   "格式化失败：{0}": "Formatting failed: {0}",
   "格式化失败，请检查代码语法": "Formatting failed. Check the code syntax.",
+  "暂不支持 {0} 自动格式化；仍可使用缩进和语法高亮。": "Automatic formatting is not supported for {0}. Indentation and syntax highlighting are still available.",
   "上下文资料已更新": "Context files updated",
   "无法读取上下文文件": "Could not read the context files",
   "放弃未保存的修改？": "Discard unsaved changes?",
@@ -192,6 +217,10 @@ export const english: Record<string, string> = {
   "AI 助手": "AI assistant",
   "松开即可导入 Markdown": "Drop to import Markdown",
   "支持 .md、.markdown 与 .txt，最大 2 MB": "Supports .md, .markdown, and .txt, up to 2 MB",
+  "配置仅用于本次会话": "Settings are for this session only",
+  "当前使用内存存储，不访问系统凭据库，也不写入磁盘。退出后需重新填写。": "This session uses memory only, without accessing the system credential store or writing to disk. Enter your settings again after quitting.",
+  "配置仅保留在本次会话，退出后需重新填写": "Settings are kept for this session only. Enter them again after quitting.",
+  "模型配置锁已损坏": "The model settings lock is unavailable",
   "模型配置已加密保存到系统安全凭据库": "Model settings saved to the system credential store",
   "浏览器预览环境不会持久化密钥，配置仅保留在本次会话": "Browser preview keeps credentials for this session only",
   "模型配置保存失败": "Could not save model settings",
@@ -547,6 +576,14 @@ export const english: Record<string, string> = {
   "缩小全屏图表": "Zoom out fullscreen diagram",
   "重置全屏图表为适配视图，当前 {0}%": "Fit fullscreen diagram, currently {0}%",
   "适配窗口": "Fit window",
+  "滚轮缩放保留可读字号 · 拖动平移 · 点击百分比复位": "Scroll to zoom with readable text · Drag to pan · Click the percentage to reset",
+  "已达到最小可读字号": "Minimum readable text size reached",
+  "重置全屏图表，当前 {0}%": "Reset fullscreen diagram, currently {0}%",
+  "适配窗口并保持文字可读": "Fit window while keeping text readable",
+  "一屏总览": "Overview",
+  "完整显示图表，文字可能变小": "Fit the whole diagram; text may be smaller",
+  "居中并恢复可读缩放": "Center at a readable zoom",
+  "总览中：文字可能变小 · 放大或点击百分比返回可读视图": "Overview: text may be smaller · Zoom in or click the percentage for readable text",
   "放大全屏图表": "Zoom in fullscreen diagram",
   "关闭全屏图表": "Close fullscreen diagram",
   "关闭（Esc）": "Close (Esc)",
@@ -574,6 +611,12 @@ export const english: Record<string, string> = {
   "停止生成并关闭？": "Stop generating and close?",
   "停止应用并关闭？": "Stop applying and close?",
   "放弃图表草稿？": "Discard diagram draft?",
+  "用模板替换当前草稿？": "Replace the current draft with a template?",
+  "尚未应用的修改将被模板替换，画布布局和历史也会重置。文档内容保持不变。": "The template will replace unapplied changes and reset the canvas layout and history. Your document will stay unchanged.",
+  "替换会停止正在进行的生成或应用，并丢弃当前草稿、画布布局和历史。文档内容保持不变。": "Replacing will stop generation or application in progress and discard the current draft, canvas layout, and history. Your document will stay unchanged.",
+  "替换草稿": "Replace draft",
+  "保留草稿": "Keep draft",
+  "草稿已更新，请重新选择模板。": "The draft has changed. Select the template again to replace it.",
   "AI 仍在生成。继续后将停止生成，并丢弃尚未应用到文档的图表草稿。": "AI is still generating. Closing will stop generation and discard the unapplied draft.",
   "图表正在校验并应用。继续后将取消本次应用并关闭工作台。": "The diagram is being validated and applied. Closing will cancel this operation.",
   "当前图表的修改尚未应用到文档。放弃后，这些修改将无法恢复。": "The diagram changes have not been applied. Discarding them cannot be undone.",
@@ -693,9 +736,12 @@ export const english: Record<string, string> = {
   "按日期展示任务、依赖与里程碑": "Tasks, dependencies, and milestones over time",
   "画布文字不能包含换行、分号或 #": "Canvas text cannot contain newlines, semicolons, or #",
   "包或系统边界的标识不能重复或与节点冲突": "Package and boundary IDs must be unique and distinct from node IDs",
+  "包或系统边界的名称不能为空": "Package or boundary name cannot be empty",
   "包层级包含无效父级或循环": "The package hierarchy contains an invalid parent or a cycle",
   "节点所属包不存在": "The node's package does not exist",
   "{0}不能包含换行、花括号、分号或 #": "{0} cannot contain newlines, braces, semicolons, or #",
+  "类成员不能包含换行、花括号、分号或 #": "Class members cannot contain newlines, braces, semicolons, or #",
+  "实体字段不能包含换行、花括号、分号或 #": "Entity fields cannot contain newlines, braces, semicolons, or #",
   "参与者标识无效或重复": "Participant IDs are invalid or duplicated",
   "无效的生命线激活标记": "Invalid lifeline activation marker",
   "参与者仍被注释或激活结构引用，请先在源码中调整引用": "The participant is referenced by notes or activations. Update those references in Source first.",
@@ -732,6 +778,10 @@ export const english: Record<string, string> = {
   "语言切换立即生效，并自动保存在本机。": "Language changes apply immediately and are saved on this device.",
   "全屏编辑": "Expand workspace",
   "还原窗口": "Restore workspace",
+  "请输入 API 地址": "Enter an API endpoint",
+  "API 地址不能包含用户名或密码": "API endpoints cannot contain a username or password",
+  "API 地址不能包含查询参数（?）": "API endpoints cannot contain query parameters (?)",
+  "API 地址不能包含锚点（#）": "API endpoints cannot contain fragments (#)",
   "API 地址无效": "Invalid API endpoint",
   "API 地址必须使用 HTTP 或 HTTPS": "API endpoints must use HTTP or HTTPS",
   "API 地址不能包含凭据、查询参数或锚点": "API endpoints cannot contain credentials, query parameters, or fragments",
@@ -752,6 +802,7 @@ export const english: Record<string, string> = {
   "仅支持 UTF-8 编码的 Markdown 文件": "Markdown files must use UTF-8 encoding",
   "请选择文件夹": "Choose a folder",
   "一次最多选择 {0} 个上下文文件": "Select up to {0} context files at once",
+  "最多可保留 {0} 个上下文文件，请先移除现有资料": "Keep up to {0} context files. Remove existing files before adding more.",
   "上下文仅支持常见文本、资料与代码文件": "Context supports common text, reference, and code files",
   "无法读取上下文文件信息": "Could not read context file information",
   "上下文文件 {0} 不能超过 2 MB": "Context file {0} must be no larger than 2 MB",
@@ -759,6 +810,11 @@ export const english: Record<string, string> = {
   "该路径尚未通过系统选择器授权": "Choose this path using the system file picker first",
   "无法在目标文件夹创建安全的临时文件": "Could not create a secure temporary file in the target folder",
   "无法安全保存该 Markdown 文件；原文件保持不变": "Could not save the Markdown file safely. The original is unchanged.",
+  "无法安全保存该 Markdown 文件。当前编辑已保留，请检查磁盘文件后重试或另存为。": "Could not save the Markdown file safely. Your edits are retained. Check the file on disk, then retry or save as a new file.",
+  "当前文件系统不支持此安全保存方式，请另存到其他位置。": "This file system does not support this safe save operation. Save as a new file in another location.",
+  "无法读取另存为目标，请选择其他文件名": "Could not read the Save As destination. Choose another file name.",
+  "另存为目标超过 16 MB，请选择其他文件名": "The Save As destination exceeds 16 MB. Choose another file name.",
+  "保存期间文件状态发生变化。替换前的版本已保留到：{0}。当前编辑仍保留，请检查恢复副本后重新载入或另存为。": "The file changed during saving. The version replaced was preserved at: {0}. Your edits are retained. Check the recovery copy, then reload or save as a new file.",
   "只能保存 Markdown 文件": "Only Markdown files can be saved",
   "API 密钥无效": "Invalid API key",
   "模型名称无效": "Invalid model name",
@@ -805,5 +861,63 @@ export const english: Record<string, string> = {
   "模型响应解码失败": "Could not decode the model response",
   "发送模型请求失败": "Could not send the model request",
   "模型返回了无效的流式数据": "The model returned invalid streaming data",
-  "上游模型服务返回错误": "The upstream model service returned an error"
+  "上游模型服务返回错误": "The upstream model service returned an error",
+  "无法向编辑器传递模型推理": "Could not deliver model reasoning to the editor",
+  "无法向编辑器传递模型响应": "Could not deliver the model response to the editor",
+  "模型响应超过大小限制": "The model response exceeds the size limit",
+  "无法完成模型响应": "Could not complete the model response",
+  "模型输出超过 8 MB 限制": "The model output exceeds the 8 MB limit",
+  "模型返回了无效的 UTF-8 数据": "The model returned invalid UTF-8 data",
+  "模型响应提前结束，请重试": "The model response ended early. Please retry.",
+  "请求标识重复": "Duplicate request ID"
 };
+
+
+/** Only application-owned error envelopes from ai.rs; all slots remain opaque. */
+export const modelErrorTemplates: Record<string, string> = {
+  "无法解析 API 主机名 {0}：{1}。请求地址：{2}": "Could not resolve API hostname {0}: {1}. Request URL: {2}",
+  "API 地址返回了重定向（HTTP {0}）；为保护密钥，应用不会自动跟随。请填写最终 API 地址。请求地址：{1}": "The API endpoint redirected (HTTP {0}). To protect your key, the app will not follow redirects. Enter the final API endpoint. Request URL: {1}",
+  "模型服务返回了无法识别的内容（Content-Type: 未提供）。请检查 API 地址与服务类型。请求地址：{0}": "The model service returned unrecognized content without a Content-Type header. Check the API endpoint and service type. Request URL: {0}",
+  "模型服务返回了无法识别的内容（Content-Type: {0}）。请检查 API 地址与服务类型。请求地址：{1}": "The model service returned unrecognized content (Content-Type: {0}). Check the API endpoint and service type. Request URL: {1}",
+  "模型服务返回了空内容或不兼容的响应格式。请检查服务类型与模型接口。请求地址：{0}": "The model service returned empty content or an incompatible response format. Check the service type and model API. Request URL: {0}",
+};
+
+for (const summary of [
+  "请求格式或参数不受模型服务支持", "API 密钥无效或未获得授权",
+  "模型账户余额或付费状态异常", "模型服务拒绝访问当前模型或资源",
+  "API 路径或模型不存在", "API 路径不接受当前请求方法", "模型服务处理请求超时",
+  "模型服务拒绝了冲突的请求", "模型服务无法处理请求参数",
+  "请求过于频繁、额度不足或已达到限额", "上游模型服务暂时不可用", "上游模型服务拒绝了本次请求",
+]) {
+  const zh = summary + "（HTTP {0}）。请求地址：{1}";
+  const en = english[summary] + " (HTTP {0}). Request URL: {1}";
+  // Match the detailed form first so the upstream text is one untouched value.
+  modelErrorTemplates[zh + "。服务返回：{2}"] = en + ". Service response: {2}";
+  modelErrorTemplates[zh] = en;
+}
+
+for (const summary of [
+  "TLS 握手或证书校验失败，请检查服务证书链或企业代理证书",
+  "模型服务拒绝连接，请确认服务已启动且 API 端口正确",
+  "模型服务所在网络不可达，请检查网络、VPN 或代理",
+  "模型服务域名解析失败，请检查 API 地址或 DNS", "代理连接失败，请检查代理地址、认证与放行规则",
+  "连接被模型服务或中间代理意外断开", "连接模型服务超时，请检查 API 地址、网络、VPN 或代理",
+  "等待模型服务响应超时，请稍后重试或缩小处理内容",
+  "无法与模型服务建立 TCP 连接，请检查地址、端口、网络或代理",
+  "模型请求构造失败，请检查 API 地址与请求配置", "模型请求或响应数据传输失败",
+  "模型响应解码失败", "发送模型请求失败",
+]) {
+  const zh = summary + "。请求地址：{0}";
+  const en = english[summary].replace(/\.$/, "") + ". Request URL: {0}";
+  for (const [source, translated] of [[zh, en], ["模型流式响应意外中断。" + zh, "The model stream was interrupted. " + en]]) {
+    modelErrorTemplates[source + "。底层原因：{1}"] = translated + ". Root cause: {1}";
+    modelErrorTemplates[source] = translated;
+  }
+}
+
+for (const summary of [
+  "API 主机名没有可用的网络地址", "API 地址解析到了不可用的网络地址",
+  "HTTP API 地址仅允许本机、私有网络或链路本地目标", "API 地址缺少有效端口", "API 地址缺少有效的主机名或 IP",
+]) {
+  modelErrorTemplates[summary + "。请求地址：{0}"] = english[summary] + ". Request URL: {0}";
+}

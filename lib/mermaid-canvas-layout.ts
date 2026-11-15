@@ -7,6 +7,7 @@ import type {
 } from './mermaid-workbench.ts';
 
 export type MermaidCanvasPoint = { x: number; y: number };
+export type MermaidCanvasPlacementLimits = { minX?: number; minY?: number; maxX?: number; maxY?: number };
 export type MermaidCanvasNodePositions = Record<string, MermaidCanvasPoint>;
 export type MermaidCanvasAlignmentGuides = { x?: number; y?: number };
 export type MermaidCanvasEdgeRoute = {
@@ -258,26 +259,57 @@ export function placeMermaidCanvasNode(
   positions: MermaidCanvasNodePositions,
   node: MermaidFlowNode,
   preferred: MermaidCanvasPoint,
+  limits: MermaidCanvasPlacementLimits = {},
 ): MermaidCanvasPoint {
   const size = mermaidCanvasNodeSize(node, graph.kind);
-  const origin = { x: Math.max(18, preferred.x), y: graph.kind === 'sequence' ? 58 : Math.max(18, preferred.y) };
   const occupied = graph.nodes.filter((other) => other.id !== node.id && positions[other.id]).map((other) => ({
     ...positions[other.id], ...mermaidCanvasNodeSize(other, graph.kind),
   }));
+  const ancestors = new Set<string>();
+  const groups = new Map((graph.data?.groups ?? []).map(group => [group.id, group]));
+  for (let id = node.data?.groupId; id && !ancestors.has(id); id = groups.get(id)?.parentId) ancestors.add(id);
+  for (const [id, bounds] of Object.entries(mermaidGroupBounds(graph, positions))) {
+    if (!ancestors.has(id)) occupied.push({ x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY });
+  }
+  return placeCanvasBox(size, occupied, preferred, graph.kind === 'sequence', limits);
+}
+
+/** Empty boundaries need their own anchors, clear of nodes and other groups. */
+export function placeMermaidCanvasGroup(
+  graph: MermaidFlowGraph,
+  positions: MermaidCanvasNodePositions,
+  preferred: MermaidCanvasPoint,
+): MermaidCanvasPoint {
+  const occupied = graph.nodes.filter((node) => positions[node.id]).map((node) => ({
+    ...positions[node.id], ...mermaidCanvasNodeSize(node, graph.kind),
+  }));
+  for (const bounds of Object.values(mermaidGroupBounds(graph, positions))) {
+    occupied.push({ x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY });
+  }
+  return placeCanvasBox({ width: 220, height: 120 }, occupied, preferred, false);
+}
+
+function placeCanvasBox(size: Size, occupied: Array<MermaidCanvasPoint & Size>, preferred: MermaidCanvasPoint, sequence: boolean, limits: MermaidCanvasPlacementLimits = {}): MermaidCanvasPoint {
+  const minX = Math.max(18, limits.minX ?? 18), minY = Math.max(18, limits.minY ?? 18);
+  const maxX = Math.max(minX, limits.maxX ?? Infinity), maxY = Math.max(minY, limits.maxY ?? Infinity);
+  const origin = { x: Math.min(maxX, Math.max(minX, preferred.x)), y: sequence ? 58 : Math.min(maxY, Math.max(minY, preferred.y)) };
   const free = (p: MermaidCanvasPoint) => occupied.every((other) =>
     p.x + size.width + 24 <= other.x || other.x + other.width + 24 <= p.x
-    || (graph.kind !== 'sequence' && (p.y + size.height + 24 <= other.y || other.y + other.height + 24 <= p.y)));
+    || (!sequence && (p.y + size.height + 24 <= other.y || other.y + other.height + 24 <= p.y)));
   if (free(origin)) return origin;
   // Search close to the intended insertion point before extending the stage.
   for (let ring = 1; ring <= 12; ring++) {
     for (let x = -ring; x <= ring; x++) {
       for (let y = -ring; y <= ring; y++) {
-        if (Math.max(Math.abs(x), Math.abs(y)) !== ring || (graph.kind === 'sequence' && y !== 0)) continue;
+        if (Math.max(Math.abs(x), Math.abs(y)) !== ring || (sequence && y !== 0)) continue;
         const point = { x: origin.x + x * (size.width + 32), y: origin.y + y * (size.height + 32) };
-        if (point.x >= 18 && point.y >= 18 && free(point)) return point;
+        if (point.x >= minX && point.x <= maxX && point.y >= (sequence ? 58 : minY) && point.y <= maxY && free(point)) return point;
       }
     }
   }
+  // A leftward insertion has a fixed maximum X; use a free row instead of
+  // reversing direction when the bounded search area is occupied.
+  if (Number.isFinite(maxX) && !sequence) return { x: origin.x, y: Math.max(origin.y, ...occupied.map(other => other.y + other.height + 32)) };
   return { x: Math.max(origin.x, ...occupied.map((other) => other.x + other.width + 32)), y: origin.y };
 }
 
@@ -773,6 +805,10 @@ export function expandedMermaidCanvasStage(
       : size.height;
     maxY = Math.max(maxY, position.y + totalHeight);
   }
+  for (const bounds of Object.values(mermaidGroupBounds(graph, positions))) {
+    maxX = Math.max(maxX, bounds.maxX);
+    maxY = Math.max(maxY, bounds.maxY);
+  }
   return {
     width: Math.max(current.width, MIN_MERMAID_STAGE_WIDTH, Math.ceil(maxX + MERMAID_STAGE_PADDING)),
     height: Math.max(current.height, graph.kind === 'sequence' ? MIN_MERMAID_SEQUENCE_STAGE_HEIGHT : MIN_MERMAID_STAGE_HEIGHT, Math.ceil(maxY + MERMAID_STAGE_PADDING)),
@@ -782,6 +818,9 @@ export function expandedMermaidCanvasStage(
 /** Preserve manual positions when inserting, deleting or reordering declarations. */
 export function reconcileMermaidCanvasNodes(graph: MermaidFlowGraph, current: MermaidCanvasLayout): MermaidCanvasLayout {
   const positions = createSafeRecord<MermaidCanvasPoint>();
+  for (const group of graph.data?.groups ?? []) {
+    if (current.positions[group.id]) positions[group.id] = current.positions[group.id];
+  }
   const missing = graph.nodes.filter((node) => !current.positions[node.id]);
   const fallback = missing.length ? layoutMermaidGraph(graph) : current;
   for (const node of graph.nodes) {
@@ -792,5 +831,82 @@ export function reconcileMermaidCanvasNodes(graph: MermaidFlowGraph, current: Me
   }
   // Source edits may reuse an edge ID for different endpoints. Rebuild routes
   // on topology changes; pointer-only movement retains unrelated routes.
+  return { positions, routes: createSafeRecord<MermaidCanvasEdgeRoute>(), ...expandedMermaidCanvasStage(graph, positions, current) };
+}
+
+/** Repack only the group trees whose containment changed, keeping other manual positions. */
+export function reconcileMermaidCanvasGroups(previous: MermaidFlowGraph, graph: MermaidFlowGraph, current: MermaidCanvasLayout, insertionDirection?: MermaidFlowGraph['direction']): MermaidCanvasLayout | null {
+  if (previous.kind !== 'flowchart' || graph.kind !== 'flowchart') return null;
+  const oldGroups = new Map((previous.data?.groups ?? []).map(group => [group.id, group]));
+  const groups = new Map((graph.data?.groups ?? []).map(group => [group.id, group]));
+  const rootOf = (map: typeof groups, id?: string): string | undefined => {
+    if (!id || !map.has(id)) return undefined;
+    const seen = new Set<string>();
+    while (map.get(id)?.parentId) {
+      if (seen.has(id)) return undefined;
+      seen.add(id);
+      id = map.get(id)!.parentId!;
+    }
+    return id;
+  };
+  const affectedRoots = new Set<string>();
+  const affect = (id?: string) => {
+    const oldRoot = rootOf(oldGroups, id);
+    for (const candidate of [id, oldRoot]) {
+      const root = rootOf(groups, candidate);
+      if (root) affectedRoots.add(root);
+    }
+  };
+  for (const group of groups.values()) {
+    const old = oldGroups.get(group.id);
+    if (old ? old.parentId !== group.parentId : group.parentId !== undefined) {
+      affect(group.id);
+      affect(old?.parentId);
+      affect(group.parentId);
+    }
+  }
+  for (const old of oldGroups.values()) if (!groups.has(old.id)) affect(old.parentId);
+  const oldNodes = new Map(previous.nodes.map(node => [node.id, node]));
+  const nodes = new Map(graph.nodes.map(node => [node.id, node]));
+  const movedOutside = new Set<string>();
+  for (const id of new Set([...oldNodes.keys(), ...nodes.keys()])) {
+    const oldGroup = oldNodes.get(id)?.data?.groupId, newGroup = nodes.get(id)?.data?.groupId;
+    if (oldGroup === newGroup) continue;
+    affect(oldGroup);
+    affect(newGroup);
+    if (oldGroup && !newGroup && nodes.has(id)) movedOutside.add(id);
+  }
+  if (!affectedRoots.size && !movedOutside.size) return null;
+
+  // Connected insertion has an explicit direction, independent of the diagram's
+  // default. Only affected group trees use it; unrelated manual positions stay put.
+  const fresh = layoutMermaidGraph(insertionDirection ? { ...graph, direction: insertionDirection } : graph);
+  const freshBounds = mermaidGroupBounds(graph, fresh.positions);
+  const oldBounds = mermaidGroupBounds(previous, current.positions);
+  const positions = createSafeRecord<MermaidCanvasPoint>();
+  const roots = new Map<string, string | undefined>();
+  for (const node of graph.nodes) roots.set(node.id, rootOf(groups, node.data?.groupId));
+  for (const group of groups.values()) roots.set(group.id, rootOf(groups, group.id));
+  for (const id of roots.keys()) positions[id] = current.positions[id] ?? fresh.positions[id];
+  const affected = (id: string) => affectedRoots.has(roots.get(id) ?? '') || movedOutside.has(id);
+  const occupied = graph.nodes.filter(node => !affected(node.id)).map(node => ({ ...positions[node.id], ...mermaidCanvasNodeSize(node, graph.kind) }));
+  for (const [id, bounds] of Object.entries(mermaidGroupBounds(graph, positions))) {
+    if (!affected(id)) occupied.push({ x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY });
+  }
+  for (const id of affectedRoots) {
+    const bounds = freshBounds[id], old = oldBounds[id] ?? bounds;
+    const size = { width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY };
+    const point = placeCanvasBox(size, occupied, { x: old.minX, y: old.minY }, false);
+    for (const [memberId, root] of roots) if (root === id) {
+      const member = fresh.positions[memberId];
+      positions[memberId] = { x: member.x + point.x - bounds.minX, y: member.y + point.y - bounds.minY };
+    }
+    occupied.push({ ...point, ...size });
+  }
+  for (const id of movedOutside) {
+    const size = mermaidCanvasNodeSize(nodes.get(id)!, graph.kind);
+    positions[id] = placeCanvasBox(size, occupied, positions[id], false);
+    occupied.push({ ...positions[id], ...size });
+  }
   return { positions, routes: createSafeRecord<MermaidCanvasEdgeRoute>(), ...expandedMermaidCanvasStage(graph, positions, current) };
 }

@@ -4,7 +4,7 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'src-tauri/target/**', '.worktrees/**'] },
+  { ignores: ['dist/**', 'src-tauri/target/**', '.worktrees/**', 'outputs/**', 'artifacts/**'] },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [js.configs.recommended, ...tseslint.configs.recommended, reactHooks.configs.flat.recommended],

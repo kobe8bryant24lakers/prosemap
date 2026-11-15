@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { previewHtmlSanitize } from '../lib/preview-html.ts';
 import { previewHeadingIds } from '../lib/preview-links.ts';
+import { previewSourceLines } from '../lib/preview-source-lines.ts';
 import { compactJsonPreviewIndentation, previewLineBreaks } from '../lib/markdown-preview.ts';
 
 const renderPreview = (markdown) => renderToStaticMarkup(createElement(
@@ -16,6 +17,15 @@ const renderPreview = (markdown) => renderToStaticMarkup(createElement(
     rehypePlugins: [rehypeRaw, previewHtmlSanitize, previewHeadingIds],
   }, markdown,
 ));
+
+test('scroll anchors use parsed top-level source positions, never supplied attributes', () => {
+  const output = renderToStaticMarkup(createElement(ReactMarkdown, {
+    remarkPlugins: [remarkGfm],
+    rehypePlugins: [rehypeRaw, previewHtmlSanitize, previewSourceLines],
+  }, '# Synthetic\n\n<p data-source-line="999"><span data-source-line="888">Synthetic</span></p>\n\n```text\nsynthetic\n```\n\n- first\n- second'));
+  assert.deepEqual([...output.matchAll(/data-source-line="(\d+)"/g)].map(match => Number(match[1])), [1, 3, 5, 9]);
+  assert.doesNotMatch(output, /888|999/);
+});
 
 test('preview renders inline HTML and block HTML alongside Markdown', () => {
   assert.equal(renderPreview('**粗体**<br>H<sub>2</sub>O 和 <sup>2</sup>'),

@@ -1,19 +1,21 @@
 'use client';
 
 import { initialDocument } from '@/lib/localized-content';
+import { documentLineEndings, normalizeDocumentText, serializeDocument } from '@/lib/document-line-endings';
+import { minimalDocumentChanges } from '@/lib/document-changes';
 import { t, uiMessage, setLocale } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
 
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { markdown as markdownLanguage } from '@codemirror/lang-markdown';
 import { inlineMarkdownEdit, lineMarkdownEdit, type MarkdownEdit, type MarkdownLineStyle } from '@/lib/markdown-editing';
-import { EditorState } from '@codemirror/state';
+import { EditorState, Prec } from '@codemirror/state';
 import { openSearchPanel, search } from '@codemirror/search';
 import { EditorView, keymap, type ViewUpdate } from '@codemirror/view';
 import { undo, redo, indentWithTab, isolateHistory } from '@codemirror/commands';
 import { indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { classHighlighter } from '@lezer/highlight';
-import { findCodeBlock, formatCode, languages } from '@/lib/code-blocks';
+import { findCodeBlock, formatCode, languages, UnsupportedCodeLanguageError } from '@/lib/code-blocks';
 import {
   Bold,
   Undo2,
@@ -36,6 +38,7 @@ import {
   PanelLeft,
   PenLine,
   Quote,
+  RefreshCw,
   Save,
   Settings2,
   Sparkles,
@@ -53,13 +56,14 @@ import MermaidWorkbench from '@/components/MermaidWorkbench';
 import SettingsModal from '@/components/SettingsModal';
 import { isDesktopRuntime, streamAi } from '@/lib/ai-client';
 import { createAiContextBlock, mergeAiContextDocuments, type AiContextDocument } from '@/lib/ai-context';
-import { loadModelProfiles, saveModelProfiles, selectModelProfile } from '@/lib/model-config';
+import { loadModelProfiles, saveModelProfiles, selectModelProfile, modelConfigStorage, type ModelConfigStorage } from '@/lib/model-config';
 import { activeModelProfile, emptyModelConfig, emptyModelProfiles, type ModelProfiles } from '@/lib/model-profiles';
 import ModelSwitcher from '@/components/ModelSwitcher';
+import ModelLoadDialog from '@/components/ModelLoadDialog';
 import { parseMermaid } from '@/lib/mermaid-runtime';
 import { UML_AI_GUIDANCE } from '@/lib/mermaid-workbench';
-import { synchronizedScrollTop } from '@/lib/scroll-sync';
-import { clipboardImageFiles, imageMarkdown } from '@/lib/image-paste';
+import { anchoredScrollTop } from '@/lib/scroll-sync';
+import { clipboardImageFiles, imageMarkdown, MAX_PASTED_IMAGE_BYTES } from '@/lib/image-paste';
 import {
   ACTION_LABELS,
   countReadableCharacters,
@@ -85,8 +89,16 @@ import {
   type LocalFileEntry,
   type LocalWorkspace,
 } from '@/lib/local-desktop';
+import { includeSavedFile } from '@/lib/local-workspace';
 
 type ViewMode = 'split' | 'editor' | 'preview';
+
+function restoredViewMode(): ViewMode {
+  try {
+    const saved = window.localStorage.getItem('prosemap.viewMode');
+    return saved === 'editor' || saved === 'preview' ? saved : 'split';
+  } catch { return 'split'; }
+}
 
 type MermaidWorkbenchSession = {
   id: number;
@@ -127,11 +139,13 @@ function inlineCommand(before: string, after = before, placeholder = '文字') {
 }
 const editorBasicSetup = { lineNumbers: true, highlightActiveLine: true, highlightActiveLineGutter: true, foldGutter: true, autocompletion: true, bracketMatching: true, closeBrackets: true, history: true };
 // Keep search state installed when React reconfigures the editor (e.g. locale changes).
-const baseEditorExtensions = [search(), keymap.of([
+// Markdown commands take precedence over default bindings such as Mod-i
+// (selectParentSyntax), while remaining scoped to this editor's focus.
+const baseEditorExtensions = [search(), Prec.high(keymap.of([
   { key: 'Mod-b', run: inlineCommand('**') },
   { key: 'Mod-i', run: inlineCommand('*') },
   { key: 'Mod-k', run: inlineCommand('[', '](https://)', '链接文字') },
-]), markdownLanguage({ codeLanguages: languages }), indentUnit.of('  '), syntaxHighlighting(classHighlighter), keymap.of([indentWithTab]), EditorView.lineWrapping];
+])), markdownLanguage({ codeLanguages: languages }), indentUnit.of('  '), syntaxHighlighting(classHighlighter), keymap.of([indentWithTab]), EditorView.lineWrapping];
 
 function normalizeMermaidStream(value: string): string {
   return value
@@ -185,16 +199,22 @@ function createAiPrompts(
 export default function Home() {
   const locale = useLocale();
   const [content, setContent] = useState(initialDocument);
+  const [rawDocument, setRawDocument] = useState(initialDocument);
   const previewContent = useDeferredValue(content);
   const [documentName, setDocumentName] = useState(t("ProseMap 入门"));
   const [selection, setSelection] = useState<SelectionRange>({ from: 0, to: 0, text: '' });
-  const [viewMode, setViewMode] = useState<ViewMode>('split');
+  const [cursorLine, setCursorLine] = useState(1);
+  const [viewMode, setViewMode] = useState<ViewMode>(restoredViewMode);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantAction, setAssistantAction] = useState<AssistAction>('polish');
+  const [assistantInstructionDrafts, setAssistantInstructionDrafts] = useState<Partial<Record<AssistAction, string>>>({});
   const [mermaidWorkbench, setMermaidWorkbench] = useState<MermaidWorkbenchSession | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelProfiles, setModelProfiles] = useState<ModelProfiles>(emptyModelProfiles);
   const [modelsLoading, setModelsLoading] = useState(true);
+  const [credentialStorage, setCredentialStorage] = useState<ModelConfigStorage>('memory');
+  const [modelsLoadError, setModelsLoadError] = useState<string | null>(null);
+  const [modelsLoadAttempt, setModelsLoadAttempt] = useState(0);
   const [modelsSaving, setModelsSaving] = useState(false);
   const modelsSavingRef = useRef(false);
   const config = activeModelProfile(modelProfiles) ?? emptyModelConfig;
@@ -204,6 +224,7 @@ export default function Home() {
   const [localWorkspace, setLocalWorkspace] = useState<LocalWorkspace | null>(null);
   const [fileExplorerOpen, setFileExplorerOpen] = useState(false);
   const [aiContextDocuments, setAiContextDocuments] = useState<AiContextDocument[]>([]);
+  const aiContextDocumentsRef = useRef<AiContextDocument[]>([]);
   const [isDirty, setIsDirty] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [confirmation, setConfirmation] = useState<ActiveConfirmation | null>(null);
@@ -212,6 +233,7 @@ export default function Home() {
   const workbenchOpenSnapshotRef = useRef<EditorSnapshot | null>(null);
   const previewScrollRef = useRef<HTMLDivElement>(null);
   const syncPreviewFromEditorRef = useRef<(() => void) | null>(null);
+  const previewReadingLineRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const proposalIdRef = useRef(0);
@@ -222,13 +244,15 @@ export default function Home() {
   const workbenchSessionIdRef = useRef(0);
   const dirtyRef = useRef(false);
   const configChangedRef = useRef(false);
-  const configLoadRef = useRef<Promise<ModelProfiles | null> | null>(null);
+  const configLoadRef = useRef<Promise<[ModelProfiles | null, ModelConfigStorage]> | null>(null);
   const confirmationIdRef = useRef(0);
   const confirmationResolverRef = useRef<{ id: number; resolve: (confirmed: boolean) => void } | null>(null);
   const closeConfirmationPendingRef = useRef(false);
   const activeWorkbenchSessionRef = useRef<number | null>(null);
   const workbenchPendingRef = useRef(false);
   const documentPathRef = useRef<string | null>(null);
+  const savedContentRef = useRef<string | null>(null);
+  const savePendingRef = useRef(false);
   const imagePasteHandlerRef = useRef<((files: File[], view: EditorView) => void) | null>(null);
   const imagePasteQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingPastesRef = useRef(new Set<{ from: number; to: number; selected: string }>());
@@ -236,6 +260,10 @@ export default function Home() {
   const readableCharacters = useMemo(() => countReadableCharacters(content), [content]);
   const mermaidTarget = useMemo(() => findMermaidTarget(content, selection.from), [content, selection.from]);
   const configured = Boolean(config.apiKey && config.model);
+
+  useEffect(() => {
+    try { window.localStorage.setItem('prosemap.viewMode', viewMode); } catch { /* Editing remains available if storage is disabled. */ }
+  }, [viewMode]);
 
   const showToast = useCallback((kind: 'success' | 'error' | 'info', message: string) => {
     setToast({ kind, message });
@@ -258,10 +286,25 @@ export default function Home() {
       view.focus();
       showToast('success', t("{0} 代码已格式化，可撤销", block.language.toUpperCase()));
     } catch (error) {
-      showToast('error', error instanceof Error ? t("格式化失败：{0}", error.message) : t("格式化失败，请检查代码语法"));
+      if (view.state.doc !== document || editorRef.current?.view !== view) {
+        showToast('info', t("文档已变化，请重新格式化")); return;
+      }
+      showToast('error', error instanceof UnsupportedCodeLanguageError
+        ? t("暂不支持 {0} 自动格式化；仍可使用缩进和语法高亮。", error.language)
+        : error instanceof Error ? t("格式化失败：{0}", error.message.split(/\r?\n/, 1)[0]) : t("格式化失败，请检查代码语法"));
     }
   }, [showToast]);
-  const editorExtensions = useMemo(() => [...baseEditorExtensions, EditorView.domEventHandlers({
+  const editorExtensions = useMemo(() => [...baseEditorExtensions, documentLineEndings(rawDocument), Prec.high(EditorView.domEventHandlers({
+    keydown(event, view) {
+      if (!view.hasFocus || event.altKey || !event.shiftKey || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'm') return false;
+      // A shifted lowercase key can otherwise match CodeMirror's unshifted
+      // Ctrl-m tab-focus command before its Mod-Shift-m binding is considered.
+      event.preventDefault();
+      setAssistantAction('mermaid');
+      setAssistantOpen(true);
+      return true;
+    },
+  })), EditorView.domEventHandlers({
     paste(event, view) {
       if (!event.clipboardData) return false;
       const files = clipboardImageFiles(event.clipboardData);
@@ -277,22 +320,31 @@ export default function Home() {
     'current match': '当前匹配', 'on line': '所在行', 'No matches': '没有匹配项',
   } : {}), keymap.of([
     { key: 'Mod-Shift-f', run: () => { void formatCurrentCodeBlock(); return true; } },
-  ])], [formatCurrentCodeBlock, locale]);
+  ])], [formatCurrentCodeBlock, locale, rawDocument]);
+
+  const replaceAiContextDocuments = useCallback((documents: AiContextDocument[]) => {
+    aiContextDocumentsRef.current = documents;
+    setAiContextDocuments(documents);
+  }, []);
 
   const addAiContextFiles = useCallback(async () => {
+    const session = documentSessionRef.current;
     try {
       const picked = await pickAiContextFiles();
-      if (!picked.length) return;
-      setAiContextDocuments((current) => mergeAiContextDocuments(current, picked));
+      if (session !== documentSessionRef.current || !picked.length) return;
+      // Validate the complete batch against the latest list before committing it.
+      const merged = mergeAiContextDocuments(aiContextDocumentsRef.current, picked);
+      replaceAiContextDocuments(merged);
       showToast('success', t("上下文资料已更新"));
     } catch (reason) {
-      showToast('error', reason instanceof Error ? reason.message : t("无法读取上下文文件"));
+      if (session !== documentSessionRef.current) return;
+      showToast('error', typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("无法读取上下文文件"));
     }
-  }, [showToast]);
+  }, [replaceAiContextDocuments, showToast]);
 
   const removeAiContextFile = useCallback((path: string) => {
-    setAiContextDocuments((current) => current.filter((document) => document.path !== path));
-  }, []);
+    replaceAiContextDocuments(aiContextDocumentsRef.current.filter((document) => document.path !== path));
+  }, [replaceAiContextDocuments]);
 
   const updateDirtyState = useCallback((dirty: boolean) => {
     dirtyRef.current = dirty;
@@ -313,6 +365,7 @@ export default function Home() {
     }
     const main = update.state.selection.main;
     setSelection({ from: main.from, to: main.to, text: update.state.sliceDoc(main.from, main.to) });
+    setCursorLine(update.state.doc.lineAt(main.head).number);
   }, []);
 
   const askConfirmation = useCallback((request: ConfirmationRequest) => new Promise<boolean>((resolve) => {
@@ -355,16 +408,24 @@ export default function Home() {
 
   useEffect(() => {
     let active = true;
-    configLoadRef.current ??= loadModelProfiles();
+    configLoadRef.current ??= Promise.all([loadModelProfiles(), modelConfigStorage()]);
     void configLoadRef.current
-      .then((saved) => {
-        if (active && saved && !configChangedRef.current) setModelProfiles(saved);
+      .then(([saved, storage]) => {
+        if (active && !configChangedRef.current) {
+          setModelsLoadError(null);
+          setCredentialStorage(storage);
+          if (saved) setModelProfiles(saved);
+        }
       })
       .catch((reason: unknown) => {
-        if (active) showToast('error', reason instanceof Error ? reason.message : t("无法读取已保存的模型配置"));
+        if (active) {
+          const message = typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("无法读取已保存的模型配置");
+          setModelsLoadError(message);
+          showToast('error', uiMessage(message));
+        }
       }).finally(() => { if (active) setModelsLoading(false); });
     return () => { active = false; };
-  }, [showToast]);
+  }, [modelsLoadAttempt, showToast]);
 
   async function switchModel(id: string) {
     if (modelsLoading || modelsSavingRef.current || id === modelProfiles.activeId || !modelProfiles.profiles.some((profile) => profile.id === id)) return;
@@ -393,17 +454,22 @@ export default function Home() {
     documentSessionRef.current += 1;
     documentRevisionRef.current += 1;
     setProposal(null);
-    setContent(document.content);
+    setRawDocument(document.content);
+    setContent(normalizeDocumentText(document.content));
     setDocumentName(safeDocumentName(document.name));
     setLocalPath(document.path);
-    setAiContextDocuments([]);
+    documentPathRef.current = document.path;
+    savedContentRef.current = document.path ? document.content : null;
+    replaceAiContextDocuments([]);
+    setAssistantInstructionDrafts({});
     setSelection({ from: 0, to: 0, text: '' });
+    setCursorLine(1);
     updateDirtyState(false);
     activeWorkbenchSessionRef.current = null;
     workbenchPendingRef.current = false;
     setMermaidWorkbench(null);
     if (announcement) showToast('success', announcement);
-  }, [showToast, updateDirtyState]);
+  }, [replaceAiContextDocuments, showToast, updateDirtyState]);
 
   const commitDocumentReplacement = useCallback(async (
     requestId: number,
@@ -417,15 +483,29 @@ export default function Home() {
     return true;
   }, [applyLocalDocument, confirmDocumentReplacement]);
 
+  const openFile = useCallback(async () => {
+    const requestId = ++documentOpenRequestRef.current;
+    try {
+      const document = await pickLocalMarkdown();
+      if (document) await commitDocumentReplacement(requestId, document);
+    } catch (reason) {
+      showToast('error', typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("文件打开失败，请重试"));
+    }
+  }, [commitDocumentReplacement, showToast]);
+
   const saveDocument = useCallback(async (saveAs = false) => {
+    if (savePendingRef.current) return;
+    savePendingRef.current = true;
     const requestId = ++saveRequestIdRef.current;
     const documentSession = documentSessionRef.current;
     const documentRevision = documentRevisionRef.current;
     const path = saveAs ? null : localPath;
     const suggestedName = `${safeDocumentName(documentName)}.md`;
-    const snapshot = editorRef.current?.view?.state.doc.toString() ?? content;
     try {
-      const saved = await saveLocalMarkdown(path, suggestedName, snapshot);
+      const state = editorRef.current?.view?.state;
+      const snapshot = state ? serializeDocument(state)
+        : content === normalizeDocumentText(rawDocument) ? rawDocument : content;
+      const saved = await saveLocalMarkdown(path, suggestedName, snapshot, path ? savedContentRef.current : null);
       if (!saved) return;
       if (
         requestId !== saveRequestIdRef.current
@@ -433,7 +513,9 @@ export default function Home() {
       ) return;
       setLocalPath(saved.path);
       documentPathRef.current = saved.path;
+      savedContentRef.current = saved.content;
       setDocumentName(safeDocumentName(saved.name));
+      setLocalWorkspace(workspace => includeSavedFile(workspace, saved));
       const savedLatestRevision = documentRevision === documentRevisionRef.current;
       if (savedLatestRevision) updateDirtyState(false);
       showToast(
@@ -448,9 +530,39 @@ export default function Home() {
         requestId !== saveRequestIdRef.current
         || documentSession !== documentSessionRef.current
       ) return;
-      showToast('error', reason instanceof Error ? reason.message : t("文件保存失败，请重试"));
+      showToast('error', uiMessage(typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("文件保存失败，请重试")));
+    } finally {
+      savePendingRef.current = false;
     }
-  }, [content, documentName, localPath, showToast, updateDirtyState]);
+  }, [content, documentName, localPath, rawDocument, showToast, updateDirtyState]);
+
+  const reloadDocument = useCallback(async () => {
+    const path = documentPathRef.current;
+    if (!path || savePendingRef.current) return;
+    const session = documentSessionRef.current;
+    const requestId = ++documentOpenRequestRef.current;
+    if ((dirtyRef.current || workbenchPendingRef.current) && !(await askConfirmation({
+      title: t("重新载入磁盘内容？"),
+      message: t("当前未保存的文档修改和图表草稿将被丢弃。你也可以取消后先另存为，保留两份内容。"),
+      confirmLabel: t("放弃修改并重新载入"),
+      cancelLabel: t("继续编辑"),
+      destructive: true,
+    }))) return;
+    const revision = documentRevisionRef.current;
+    const workbenchSession = activeWorkbenchSessionRef.current;
+    if (requestId !== documentOpenRequestRef.current || session !== documentSessionRef.current) return;
+    try {
+      const document = await readLocalMarkdown(path);
+      if (requestId !== documentOpenRequestRef.current || session !== documentSessionRef.current) return;
+      if (revision !== documentRevisionRef.current || workbenchSession !== activeWorkbenchSessionRef.current || savePendingRef.current) {
+        showToast('info', t("载入期间文档已变化，请重新载入"));
+        return;
+      }
+      applyLocalDocument(document, t("已重新载入 {0}", document.name));
+    } catch (reason) {
+      if (session === documentSessionRef.current) showToast('error', uiMessage(typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("文件读取失败，请重试")));
+    }
+  }, [applyLocalDocument, askConfirmation, showToast]);
 
   useEffect(() => { documentPathRef.current = localPath; }, [localPath]);
   useEffect(() => {
@@ -464,7 +576,7 @@ export default function Home() {
         try {
           if (!current()) return;
           if (!('__TAURI_INTERNALS__' in window)) throw new Error(t("请在桌面应用中粘贴图片，以保存到文档的 images 文件夹。"));
-          if (files.length > 10 || files.some((file) => !file.size || file.size > 20 * 1024 * 1024)) {
+          if (files.length > 10 || files.some((file) => !file.size || file.size > MAX_PASTED_IMAGE_BYTES)) {
             throw new Error(t("每次最多粘贴 10 张图片，每张不超过 20 MB。"));
           }
           let path = documentPathRef.current;
@@ -482,11 +594,13 @@ export default function Home() {
           for (const file of files) {
             if (!locationUnchanged()) break;
             try {
-              const saved = await savePastedImage(path, file);
+              const saved = await savePastedImage(path, file, locationUnchanged);
               references.push(imageMarkdown(saved.relativePath, file.name || 'image'));
             } catch (error) { failure = error; break; }
           }
-          if (!locationUnchanged()) throw new Error(t("文档已变化；已保存的图片保留在 images 中，请重新插入引用。"));
+          if (!locationUnchanged()) throw new Error(references.length
+            ? t("文档已变化；已保存的图片保留在 images 中，请重新插入引用。")
+            : t("粘贴位置或文档已变化，请重新粘贴图片。"));
           if (references.length) {
             const insert = references.join('\n');
             pendingPastesRef.current.delete(paste);
@@ -504,21 +618,78 @@ export default function Home() {
   }, [saveDocument, showToast]);
 
   useEffect(() => {
-    function handleShortcut(event: KeyboardEvent) {
-      const command = event.metaKey || event.ctrlKey;
-      if (command && event.key.toLowerCase() === 's') {
+    function guardNativeEditorInput(event: Event) {
+      const view = editorRef.current?.view;
+      const active = document.activeElement;
+      if (!view || !(event.target instanceof Node) || !view.contentDOM.contains(event.target)) return;
+      const history = event instanceof InputEvent
+        && (event.inputType === 'historyUndo' || event.inputType === 'historyRedo');
+      // WKWebView may send native editing commands to the last contenteditable
+      // selection even after it is hidden. Keep preview history available,
+      // but never let a paste, cut, or other text input edit the hidden view.
+      if (viewMode === 'preview' && !history) {
         event.preventDefault();
-        void saveDocument();
+        event.stopPropagation();
+        return;
       }
-      if (command && event.shiftKey && event.key.toLowerCase() === 'm') {
+      if (!history || view.contentDOM.contains(active)) return;
+      // Browser undo can target the previously edited contenteditable even
+      // while an unrelated input (with no local history) owns focus.
+      if (active?.closest('input, textarea, select, [contenteditable="true"]')
+        || document.querySelector('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]')) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }
+    function handleShortcut(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.altKey) return;
+      const command = event.metaKey || event.ctrlKey;
+      if (!command) return;
+      const key = event.key.toLowerCase();
+      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]'));
+      const workbenchOnly = dialogs.length === 1
+        && dialogs[0].classList.contains('mermaid-workbench')
+        && !dialogs[0].closest('[inert]');
+      if (!dialogs.length && (key === 'z' || (key === 'y' && !event.metaKey && !event.shiftKey))) {
+        const target = event.target instanceof Element ? event.target : null;
+        // Text fields own their native history. With focus in the preview or
+        // on a toolbar, route document history to the retained editor view.
+        if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+        const view = editorRef.current?.view;
+        if (view) {
+          event.preventDefault();
+          (event.shiftKey || key === 'y' ? redo : undo)(view);
+        }
+        return;
+      }
+      if (key === 's' || (key === 'o' && !event.shiftKey)) {
+        event.preventDefault();
+        // The workbench keeps its draft separate: ordinary Save still saves
+        // the main document, while Open/Save As must not switch its file.
+        if (dialogs.length && !(workbenchOnly && key === 's' && !event.shiftKey)) return;
+        if (key === 's') void saveDocument(event.shiftKey);
+        else void openFile();
+        return;
+      }
+      if (!dialogs.length && event.shiftKey && key === 'm') {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
         event.preventDefault();
         setAssistantAction('mermaid');
         setAssistantOpen(true);
       }
     }
+    window.addEventListener('beforeinput', guardNativeEditorInput, true);
+    window.addEventListener('paste', guardNativeEditorInput, true);
+    window.addEventListener('cut', guardNativeEditorInput, true);
     window.addEventListener('keydown', handleShortcut);
-    return () => window.removeEventListener('keydown', handleShortcut);
-  }, [saveDocument]);
+    return () => {
+      window.removeEventListener('beforeinput', guardNativeEditorInput, true);
+      window.removeEventListener('paste', guardNativeEditorInput, true);
+      window.removeEventListener('cut', guardNativeEditorInput, true);
+      window.removeEventListener('keydown', handleShortcut);
+    };
+  }, [openFile, saveDocument, viewMode]);
 
   useEffect(() => {
     let active = true;
@@ -540,7 +711,10 @@ export default function Home() {
             setFileExplorerOpen(true);
             showToast('success', t("已打开文件夹 {0}", target.workspace.name));
           }
+        }, (message) => {
+          if (active) showToast('error', uiMessage(message));
         });
+        if (!active) { unlisten(); return; }
         const target = await readLaunchTarget();
         if (!active || !target) return;
         if (target.kind === 'file') {
@@ -550,7 +724,7 @@ export default function Home() {
           setFileExplorerOpen(true);
         }
       } catch (reason) {
-        if (active) showToast('error', reason instanceof Error ? reason.message : t("无法读取启动文件"));
+        if (active) showToast('error', uiMessage(typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("无法读取启动文件")));
       }
     })();
     return () => { active = false; unlisten?.(); };
@@ -646,17 +820,35 @@ export default function Home() {
 
     function flushSync() {
       animationFrame = null;
-      const request = pendingSync;
+      let request = pendingSync;
       pendingSync = null;
       if (!request || !isVisibleScroller(request.source) || !isVisibleScroller(request.target)) return;
 
-      const nextTop = synchronizedScrollTop(
-        request.source.scrollTop,
-        request.source.scrollHeight,
-        request.source.clientHeight,
-        request.target.scrollHeight,
-        request.target.clientHeight,
-      );
+      if (!editorView || !editorScroller || !previewScroller) return;
+      if (previewReadingLineRef.current !== null) {
+        const origin = previewScroller.scrollTop - previewScroller.getBoundingClientRect().top;
+        const anchors = Array.from(previewScroller.querySelectorAll<HTMLElement>('[data-source-line]')).map(element => ({
+          source: Number(element.dataset.sourceLine) - 1,
+          target: origin + element.getBoundingClientRect().top,
+        }));
+        previewScroller.scrollTop = anchoredScrollTop(previewReadingLineRef.current, editorView.state.doc.lines - 1,
+          previewScroller.scrollHeight - previewScroller.clientHeight, anchors);
+        previewReadingLineRef.current = null;
+        request = { source: previewScroller, target: editorScroller };
+      }
+      const editorOrigin = editorView.documentTop - editorScroller.getBoundingClientRect().top + editorScroller.scrollTop;
+      const previewOrigin = previewScroller.scrollTop - previewScroller.getBoundingClientRect().top;
+      const fromEditor = request.source === editorScroller;
+      const anchors = Array.from(previewScroller.querySelectorAll<HTMLElement>('[data-source-line]')).flatMap(element => {
+        const line = Number(element.dataset.sourceLine);
+        if (!Number.isInteger(line) || line < 1 || line > editorView.state.doc.lines) return [];
+        const editorTop = editorOrigin + editorView.lineBlockAt(editorView.state.doc.line(line).from).top;
+        const previewTop = previewOrigin + element.getBoundingClientRect().top;
+        return [{ source: fromEditor ? editorTop : previewTop, target: fromEditor ? previewTop : editorTop }];
+      });
+      const nextTop = anchoredScrollTop(request.source.scrollTop,
+        request.source.scrollHeight - request.source.clientHeight,
+        request.target.scrollHeight - request.target.clientHeight, anchors);
       if (Math.abs(request.target.scrollTop - nextTop) <= 1) return;
 
       suppressedScroll = { element: request.target, expectedTop: nextTop };
@@ -688,10 +880,15 @@ export default function Home() {
     previewScroller.addEventListener('scroll', handlePreviewScroll, { passive: true });
     syncPreviewFromEditorRef.current = syncPreviewFromEditor;
     syncPreviewFromEditor();
+    // Images and Mermaid render asynchronously, independently of previewContent.
+    const resizeObserver = new ResizeObserver(syncPreviewFromEditor);
+    const article = previewScroller.querySelector('article');
+    if (article) resizeObserver.observe(article);
 
     return () => {
       editorScroller.removeEventListener('scroll', handleEditorScroll);
       previewScroller.removeEventListener('scroll', handlePreviewScroll);
+      resizeObserver.disconnect();
       if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
       if (syncPreviewFromEditorRef.current === syncPreviewFromEditor) {
         syncPreviewFromEditorRef.current = null;
@@ -704,6 +901,22 @@ export default function Home() {
     const animationFrame = window.requestAnimationFrame(() => syncPreviewFromEditorRef.current?.());
     return () => window.cancelAnimationFrame(animationFrame);
   }, [previewContent, viewMode]);
+
+  function changeViewMode(nextMode: ViewMode) {
+    const preview = previewScrollRef.current;
+    if (viewMode === 'preview' && nextMode === 'split' && preview && editorView) {
+      const origin = preview.scrollTop - preview.getBoundingClientRect().top;
+      const anchors = Array.from(preview.querySelectorAll<HTMLElement>('[data-source-line]')).map(element => ({
+        source: origin + element.getBoundingClientRect().top,
+        target: Number(element.dataset.sourceLine) - 1,
+      }));
+      previewReadingLineRef.current = anchoredScrollTop(preview.scrollTop, preview.scrollHeight - preview.clientHeight,
+        editorView.state.doc.lines - 1, anchors);
+    } else {
+      previewReadingLineRef.current = null;
+    }
+    setViewMode(nextMode);
+  }
 
   function readEditorSnapshot(): EditorSnapshot {
     const view = editorRef.current?.view;
@@ -718,28 +931,6 @@ export default function Home() {
     };
   }
 
-  function focusRange(from: number, to: number, expectedDocument?: string) {
-    let attempts = 0;
-    function restore() {
-      const view = editorRef.current?.view;
-      if (!view) return;
-      if (expectedDocument !== undefined && view.state.doc.toString() !== expectedDocument && attempts < 20) {
-        attempts += 1;
-        window.requestAnimationFrame(restore);
-        return;
-      }
-      const length = view.state.doc.length;
-      const anchor = Math.max(0, Math.min(length, from));
-      const head = Math.max(0, Math.min(length, to));
-      view.dispatch({
-        selection: { anchor, head },
-        effects: EditorView.scrollIntoView(head, { y: 'center' }),
-      });
-      view.focus();
-    }
-    window.setTimeout(restore, 0);
-  }
-
   function replaceRange(
     from: number,
     to: number,
@@ -747,7 +938,7 @@ export default function Home() {
     selectInside = false,
     restoredSelection?: EditorSelection,
   ) {
-    const nextDocument = `${content.slice(0, from)}${replacement}${content.slice(to)}`;
+    replacement = normalizeDocumentText(replacement);
     const defaultAnchor = selectInside ? from : from + replacement.length;
     const defaultHead = selectInside ? from + replacement.length : defaultAnchor;
     const anchor = restoredSelection?.anchor ?? defaultAnchor;
@@ -755,26 +946,23 @@ export default function Home() {
     const view = editorRef.current?.view;
 
     if (view && view.state.doc.toString() === content) {
+      const changes = minimalDocumentChanges(content.slice(from, to), replacement, from);
+      if (!changes) {
+        showToast('error', t('改动过大，无法安全定位修改范围。请缩小修改范围后重试。'));
+        return false;
+      }
       view.dispatch({
-        changes: { from, to, insert: replacement },
+        changes,
         selection: { anchor, head },
         effects: EditorView.scrollIntoView(head, { y: 'center' }),
+        annotations: isolateHistory.of('full'),
       });
       view.focus();
-      return;
+      return true;
     }
 
-    documentRevisionRef.current += 1;
-    setContent(nextDocument);
-    updateDirtyState(true);
-    const normalizedFrom = Math.min(anchor, head);
-    const normalizedTo = Math.max(anchor, head);
-    setSelection({
-      from: normalizedFrom,
-      to: normalizedTo,
-      text: nextDocument.slice(normalizedFrom, normalizedTo),
-    });
-    focusRange(anchor, head, nextDocument);
+    showToast('info', t('编辑器正在更新，请稍后重试。'));
+    return false;
   }
 
   function formatSelection(before: string, after = before, placeholder = t("文字")) {
@@ -822,16 +1010,6 @@ export default function Home() {
     }
   }
 
-  async function openFile() {
-    const requestId = ++documentOpenRequestRef.current;
-    try {
-      const document = await pickLocalMarkdown();
-      if (document) await commitDocumentReplacement(requestId, document);
-    } catch (reason) {
-      showToast('error', reason instanceof Error ? reason.message : t("文件打开失败，请重试"));
-    }
-  }
-
   async function openFolder() {
     try {
       const workspace = await pickMarkdownFolder();
@@ -840,24 +1018,30 @@ export default function Home() {
       setFileExplorerOpen(true);
       showToast('success', t("已打开文件夹 {0}", workspace.name));
     } catch (reason) {
-      showToast('error', reason instanceof Error ? reason.message : t("文件夹打开失败，请重试"));
+      showToast('error', typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("文件夹打开失败，请重试"));
     }
   }
 
   async function openWorkspaceFile(entry: LocalFileEntry) {
-    if (entry.path === localPath) return;
     const requestId = ++documentOpenRequestRef.current;
+    // Reselecting the current file still supersedes an earlier pending open.
+    if (entry.path === localPath) return;
     try {
       const document = await readLocalMarkdown(entry.path);
       await commitDocumentReplacement(requestId, document);
     } catch (reason) {
-      showToast('error', reason instanceof Error ? reason.message : t("文件读取失败，请重试"));
+      showToast('error', typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("文件读取失败，请重试"));
     }
   }
 
   function openAssistant(action: AssistAction) {
     setAssistantAction(action);
     setAssistantOpen(true);
+  }
+
+  function returnToDocument() {
+    setViewMode((current) => current === 'preview' ? 'editor' : current);
+    window.requestAnimationFrame(() => editorRef.current?.view?.focus());
   }
 
   function captureWorkbenchInsertion() {
@@ -923,13 +1107,13 @@ export default function Home() {
       mermaidWorkbench.target,
       mermaidWorkbench.insertAt,
     );
-    replaceRange(
+    if (!replaceRange(
       edit.from,
       edit.to,
       edit.replacement,
       false,
       { anchor: edit.diagramFrom, head: edit.diagramFrom },
-    );
+    )) return;
     closeMermaidWorkbench(sessionId);
     showToast('success', mermaidWorkbench.target ? t("图表已更新") : t("图表已插入文档"));
   }
@@ -970,6 +1154,7 @@ export default function Home() {
       modified: '',
       reasoning: '',
       sourceDocument: content,
+      documentRevision: documentRevisionRef.current,
       from: target.from,
       to: target.to,
       status: 'streaming',
@@ -1009,7 +1194,7 @@ export default function Home() {
       );
 
       const mermaidSource = isMermaid ? stripCodeFence(streamed) : '';
-      const finalText = isMermaid ? `\`\`\`mermaid\n${mermaidSource}\n\`\`\`` : streamed.trim();
+      const finalText = isMermaid ? `\`\`\`mermaid\n${mermaidSource}\n\`\`\`` : streamed;
       if (!finalText.trim() || (isMermaid && !mermaidSource)) throw new Error(t("模型返回了空内容"));
       if (isMermaid) await validateMermaidSource(mermaidSource);
       if (controller.signal.aborted || proposalIdRef.current !== id) return;
@@ -1039,12 +1224,12 @@ export default function Home() {
 
   function acceptProposal() {
     if (!proposal || proposal.status !== 'ready') return;
-    if (content !== proposal.sourceDocument) {
+    if (content !== proposal.sourceDocument || documentRevisionRef.current !== proposal.documentRevision) {
       setProposal(null);
       showToast('error', t("文档已发生变化，请重新生成建议"));
       return;
     }
-    replaceRange(proposal.from, proposal.to, proposal.modified);
+    if (!replaceRange(proposal.from, proposal.to, proposal.modified)) return;
     setProposal(null);
     showToast('success', t("已接受修改"));
   }
@@ -1056,7 +1241,6 @@ export default function Home() {
   return (
     <main
       className={`app-shell view-${viewMode}`}
-      inert={Boolean(confirmation)}
       onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
       onDragOver={(event) => event.preventDefault()}
       onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
@@ -1086,25 +1270,26 @@ export default function Home() {
           <button type="button" className="header-button folder-button" onClick={() => void openFolder()}><Folder size={15} />  {t("打开文件夹")}</button>
           <button type="button" className="header-button export-button" onClick={() => void saveDocument(true)}><FileDown size={15} />  {t("另存为")}</button>
           <button type="button" className="header-primary" onClick={() => void saveDocument()}><Save size={15} />  {t("保存")}</button>
-          <button type="button" className="icon-button header-settings" onClick={() => setSettingsOpen(true)} aria-label={t("设置")}><Settings2 size={17} /></button>
+          <button type="button" className="icon-button header-settings" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setSettingsOpen(true); }} aria-label={t("设置")}><Settings2 size={17} /></button>
         </div>
       </header>
 
       <div className="view-controls" role="group" aria-label={t("编辑器视图")}>
-        <button type="button" aria-pressed={viewMode === 'editor'} className={viewMode === 'editor' ? 'active' : ''} onClick={() => setViewMode('editor')}><PenLine size={14} />  {t("纯编辑")}</button>
-        <button type="button" aria-pressed={viewMode === 'preview'} className={viewMode === 'preview' ? 'active' : ''} onClick={() => setViewMode('preview')}><Eye size={14} />  {t("纯预览")}</button>
-        <button type="button" aria-pressed={viewMode === 'split'} className={viewMode === 'split' ? 'active' : ''} onClick={() => setViewMode('split')}><PanelLeft size={14} /> {t("左编辑右预览")}</button>
+        <button type="button" aria-pressed={viewMode === 'editor'} className={viewMode === 'editor' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('editor'); }}><PenLine size={14} />  {t("纯编辑")}</button>
+        <button type="button" aria-pressed={viewMode === 'preview'} className={viewMode === 'preview' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('preview'); }}><Eye size={14} />  {t("纯预览")}</button>
+        <button type="button" aria-pressed={viewMode === 'split'} className={viewMode === 'split' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('split'); }}><PanelLeft size={14} /> {t("左编辑右预览")}</button>
+        {localPath && <button type="button" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); void reloadDocument(); }} title={t("重新读取磁盘文件；未保存的修改会先确认")}><RefreshCw size={14} /> {t("重新载入")}</button>}
       </div>
 
       <section className={`workspace ${assistantOpen ? 'with-assistant' : ''} ${fileExplorerOpen ? 'with-files' : ''}`}>
         <nav className="rail" aria-label={t("主要工具")}>
-          <button type="button" className="rail-button active" aria-label={t("文档编辑")} title={t("文档编辑")}><PanelLeft size={18} /></button>
+          <button type="button" className={`rail-button ${viewMode !== 'preview' ? 'active' : ''}`} aria-pressed={viewMode !== 'preview'} onClick={returnToDocument} aria-label={t("文档编辑")} title={t("文档编辑")}><PanelLeft size={18} /></button>
           <button type="button" className={`rail-button ${fileExplorerOpen ? 'active' : ''}`} onClick={() => setFileExplorerOpen((open) => !open)} aria-label={t("本地文件")} title={t("本地文件")}><FolderOpen size={18} /></button>
           <button type="button" className="rail-button" onClick={() => openAssistant('polish')} aria-label={t("AI 文字助手")} title={t("AI 文字助手")}><Bot size={18} /></button>
           <button type="button" className="rail-button mermaid-rail" onClick={() => openAssistant('mermaid')} aria-label={t("Mermaid 智能绘图")} title={t("Mermaid 智能绘图")}><Workflow size={19} /></button>
           <button type="button" className="rail-button diagram-workbench-rail" onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onMouseDown={(event) => event.preventDefault()} onClick={() => openMermaidWorkbench()} aria-label={t("Mermaid 可视化画布")} title={mermaidTarget ? t("编辑光标所在图表") : t("新建 Mermaid 图表")}><Braces size={18} /></button>
           <span className="rail-spacer" />
-          <button type="button" className="rail-button" onClick={() => setSettingsOpen(true)} aria-label={t("模型设置")} title={t("模型设置")}><Settings2 size={18} /></button>
+          <button type="button" className="rail-button" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setSettingsOpen(true); }} aria-label={t("模型设置")} title={t("模型设置")}><Settings2 size={18} /></button>
         </nav>
 
         {fileExplorerOpen ? (
@@ -1116,6 +1301,11 @@ export default function Home() {
               </div>
               <button type="button" className="icon-button" onClick={() => setFileExplorerOpen(false)} aria-label={t("关闭文件列表")}><X size={15} /></button>
             </header>
+            {localWorkspace && <div className="file-scan-status" role="status">
+              <span>{t("已列出 {0} 个文件", localWorkspace.files.length.toLocaleString(locale))}</span>
+              {localWorkspace.scanLimits?.fileCount != null && <p>{t("本次扫描达到 {0} 个文件上限，可能还有文件未显示。", localWorkspace.scanLimits.fileCount.toLocaleString(locale))}</p>}
+              {localWorkspace.scanLimits?.depth != null && <p>{t("超过 {0} 层的子文件夹未扫描。", localWorkspace.scanLimits.depth)}</p>}
+            </div>}
             {localWorkspace ? (
               localWorkspace.files.length ? (
                 <div className="file-list">
@@ -1126,7 +1316,7 @@ export default function Home() {
                     </button>
                   ))}
                 </div>
-              ) : <p className="file-explorer-empty">{t("此文件夹中没有 Markdown 文件。")}</p>
+              ) : <p className="file-explorer-empty">{t(localWorkspace.scanLimits?.depth != null ? "扫描范围内没有 Markdown 文件。" : "此文件夹中没有 Markdown 文件。")}</p>
             ) : (
               <div className="file-explorer-welcome">
                 <FolderOpen size={27} />
@@ -1168,6 +1358,7 @@ export default function Home() {
 
           <div className="editor-surface">
             <CodeMirror
+              key={documentSessionRef.current}
               ref={editorRef}
               onCreateEditor={setEditorView}
               value={content}
@@ -1182,7 +1373,7 @@ export default function Home() {
           </div>
           <footer className="statusbar">
             <span><i className="live-dot" />  {t("实时预览已开启")}</span>
-            <span>{t("行")} {content.slice(0, selection.from).split('\n').length} · {readableCharacters.toLocaleString('zh-CN')}  {t("字 · UTF-8")}</span>
+            <span>{t("行")} {cursorLine} · {readableCharacters.toLocaleString('zh-CN')}  {t("字 · UTF-8")}</span>
           </footer>
         </section>
 
@@ -1195,12 +1386,13 @@ export default function Home() {
               <button type="button" className="ai-chip" onClick={() => openAssistant('custom')}><Sparkles size={13} />  {t("AI 助手")}</button>
             </div>
           </header>
-          <div ref={previewScrollRef} className="preview-scroll"><MarkdownPreview markdown={previewContent} documentPath={localPath} onEditMermaid={editPreviewMermaid} /></div>
+          <div ref={previewScrollRef} className="preview-scroll"><MarkdownPreview key={JSON.stringify([documentSessionRef.current, localPath])} markdown={previewContent} documentPath={localPath} onEditMermaid={editPreviewMermaid} /></div>
         </section>
 
         {assistantOpen ? (
           <AssistantPanel
             action={assistantAction}
+            instruction={assistantInstructionDrafts[assistantAction] ?? ''}
             config={config}
             modelSwitcher={modelSwitcher}
             targetLength={targetLength}
@@ -1208,6 +1400,7 @@ export default function Home() {
             hasMermaidTarget={Boolean(mermaidTarget)}
             contextDocuments={aiContextDocuments}
             onActionChange={setAssistantAction}
+            onInstructionChange={(instruction) => setAssistantInstructionDrafts((current) => ({ ...current, [assistantAction]: instruction }))}
             onPickContext={() => void addAiContextFiles()}
             onRemoveContext={removeAiContextFile}
             onOpenSettings={() => setSettingsOpen(true)}
@@ -1238,9 +1431,20 @@ export default function Home() {
           interactionSuspended={Boolean(confirmation)}
         />
       ) : null}
-      {settingsOpen && !modelsLoading && !modelsSaving ? (
+      {settingsOpen && (modelsLoading || modelsLoadError) ? <ModelLoadDialog
+        error={modelsLoadError}
+        onClose={() => setSettingsOpen(false)}
+        onRetry={() => {
+          configLoadRef.current = null;
+          setModelsLoadError(null);
+          setModelsLoading(true);
+          setModelsLoadAttempt(attempt => attempt + 1);
+        }}
+      /> : null}
+      {settingsOpen && !modelsLoading && !modelsLoadError && !modelsSaving ? (
         <SettingsModal
           settings={modelProfiles}
+          storage={credentialStorage}
           onClose={() => setSettingsOpen(false)}
           onSave={async (next) => {
             try {
@@ -1252,7 +1456,7 @@ export default function Home() {
                 storage === 'memory' ? 'info' : 'success',
                 storage === 'system'
                   ? t("模型配置已加密保存到系统安全凭据库")
-                  : t("浏览器预览环境不会持久化密钥，配置仅保留在本次会话"),
+                  : t("配置仅保留在本次会话，退出后需重新填写"),
               );
             } catch (reason) {
               showToast('error', typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("模型配置保存失败"));

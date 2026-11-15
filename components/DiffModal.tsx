@@ -2,10 +2,11 @@
 
 import { t, uiMessage } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
+import { useModalFocus } from '@/lib/use-modal-focus';
 
 import { diffLines } from 'diff';
 import { BrainCircuit, Check, ChevronDown, ChevronRight, CircleAlert, GitCompareArrows, LoaderCircle, Square, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Proposal } from '@/lib/editor';
 
 type DiffModalProps = {
@@ -23,30 +24,27 @@ export default function DiffModal({ proposal, onAccept, onReject, onStop }: Diff
     let added = 0;
     let removed = 0;
     for (const change of changes) {
-      const lines = Math.max(1, change.value.split('\n').filter(Boolean).length);
-      if (change.added) added += lines;
-      if (change.removed) removed += lines;
+      if (change.added) added += change.count;
+      if (change.removed) removed += change.count;
     }
     return { added, removed };
   }, [changes]);
 
-  useEffect(() => {
-    function handleKeydown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        if (proposal.status === 'streaming') onStop();
-        else onReject();
-      }
-    }
-    window.addEventListener('keydown', handleKeydown);
-    return () => window.removeEventListener('keydown', handleKeydown);
-  }, [onReject, onStop, proposal.status]);
+  const dialogRef = useModalFocus(() => {
+    if (proposal.status === 'streaming') onStop();
+    else onReject();
+  }, () => {
+    // Generating a proposal unmounts its assistant button. Return to editing,
+    // or to the persistent document entry when the editor is hidden.
+    const editor = document.querySelector<HTMLElement>('.editor-pane .cm-content');
+    return editor?.getClientRects().length ? editor : document.querySelector<HTMLElement>('.rail .rail-button');
+  });
 
   const reasoning = proposal.reasoning.trim();
 
   return (
     <div className="modal-backdrop diff-backdrop" role="presentation">
-      <section className="diff-modal" role="dialog" aria-modal="true" aria-labelledby="diff-title">
+      <section ref={dialogRef} className="diff-modal" role="dialog" aria-modal="true" aria-labelledby="diff-title" tabIndex={-1}>
         <header className="diff-header">
           <div className="diff-heading-icon"><GitCompareArrows size={20} /></div>
           <div>

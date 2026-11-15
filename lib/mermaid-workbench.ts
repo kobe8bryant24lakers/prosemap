@@ -1,3 +1,8 @@
+import dayjs from 'dayjs';
+import customParseFormat from 'dayjs/plugin/customParseFormat.js';
+
+dayjs.extend(customParseFormat);
+
 export type MermaidFlowDirection = 'TB' | 'TD' | 'BT' | 'LR' | 'RL';
 
 export type MermaidDiagramKind = 'flowchart' | 'sequence' | 'state' | 'class' | 'er' | 'mindmap' | 'gantt';
@@ -329,7 +334,16 @@ function parseNodeToken(token: string): MermaidFlowNode | null {
   ];
   for (const candidate of shapes) {
     const label = notation.match(candidate.pattern);
-    if (label) return { id, label: normalizeLabel(label[1]), shape: candidate.shape };
+    if (label) {
+      const body = label[1].trim();
+      const quote = body[0] === '"' || body[0] === "'" ? body[0] : '';
+      // A complete shape owns exactly one label. Never swallow a following
+      // declaration/edge into a greedy label match. Quoted labels may contain
+      // Mermaid punctuation; unquoted nested shapes stay in source mode.
+      if (quote ? body.length < 2 || !body.endsWith(quote) || body.slice(1, -1).includes(quote)
+        : /[()[\]{}"]/.test(body)) return null;
+      return { id, label: normalizeLabel(body), shape: candidate.shape };
+    }
   }
   return null;
 }
@@ -341,20 +355,56 @@ function edgeStyleFromToken(token: string): MermaidEdgeStyle {
   return 'arrow';
 }
 
-function parseEdgeLine(line: string): { from: MermaidFlowNode; to: MermaidFlowNode; label: string; style: MermaidEdgeStyle } | null {
-  const labelledArrow = line.match(/^([\s\S]*?)\s+--\s+([\s\S]+?)\s+-->\s+([\s\S]*?)$/);
-  if (labelledArrow) {
-    const from = parseNodeToken(labelledArrow[1]);
-    const to = parseNodeToken(labelledArrow[3]);
-    if (from && to) return { from, to, label: normalizeLabel(labelledArrow[2]), style: 'arrow' };
+/** Find edge separators outside node shapes/quoted labels. Keeping character
+ * offsets lets source-preserving edits reuse exactly the same grammar. */
+export function parseFlowchartEdgeTokens(line: string) {
+  let depth = 0;
+  let quote = '';
+  let masked = '';
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (quote) {
+      masked += '\0';
+      if (char === quote) quote = '';
+    } else if (depth && (char === '"' || char === "'") && /[([{]\s*$/.test(line.slice(0, i))) {
+      quote = char;
+      masked += '\0';
+    } else if ('([{'.includes(char)) {
+      depth++;
+      masked += '\0';
+    } else if (depth && ')]}'.includes(char)) {
+      depth--;
+      masked += '\0';
+    } else masked += depth ? '\0' : char;
   }
+  const labelled = masked.match(/^([\s\S]*?)(\s+--\s+)([\s\S]+?)(\s+-->\s+)([\s\S]*?)$/);
+  const normal = masked.match(/^([\s\S]*?)(\s*(-->|---|-\.->|==>)\s*(?:\|([^|]*)\|\s*)?)([\s\S]*?)$/);
+  for (const match of [labelled, normal]) {
+    if (!match) continue;
+    const from = line.slice(0, match[1].length);
+    const toAt = line.length - match[5].length;
+    const to = line.slice(toAt);
+    if (!parseNodeToken(from) || !parseNodeToken(to)) continue;
+    const labelledForm = match === labelled;
+    const hasPipeLabel = !labelledForm && match[4] !== undefined;
+    const labelAt = labelledForm ? match[1].length + match[2].length
+      : match[1].length + (hasPipeLabel ? match[2].indexOf('|') + 1 : match[2].indexOf(match[3]) + match[3].length);
+    const labelLength = labelledForm ? match[3].length : match[4]?.length ?? 0;
+    return { from, to, fromAt: 0, toAt,
+      labelAt, labelLength, labelSyntax: labelledForm ? 'text' as const : hasPipeLabel ? 'pipe' as const : 'none' as const,
+      label: normalizeLabel(line.slice(labelAt, labelAt + labelLength)),
+      style: labelledForm ? 'arrow' as const : edgeStyleFromToken(match[3]) };
+  }
+  return null;
+}
 
-  const normal = line.match(/^([\s\S]*?)\s*(-->|---|-\.->|==>)\s*(?:\|([^|]*)\|\s*)?([\s\S]*?)$/);
-  if (!normal) return null;
-  const from = parseNodeToken(normal[1]);
-  const to = parseNodeToken(normal[4]);
-  if (!from || !to) return null;
-  return { from, to, label: normalizeLabel(normal[3] ?? ''), style: edgeStyleFromToken(normal[2]) };
+function parseEdgeLine(line: string): { from: MermaidFlowNode; to: MermaidFlowNode; fromDeclared: boolean; toDeclared: boolean; label: string; style: MermaidEdgeStyle } | null {
+  const tokens = parseFlowchartEdgeTokens(line);
+  if (!tokens) return null;
+  const from = parseNodeToken(tokens.from);
+  const to = parseNodeToken(tokens.to);
+  return from && to ? { from, to, fromDeclared: tokens.from.trim() !== from.id,
+    toDeclared: tokens.to.trim() !== to.id, label: tokens.label, style: tokens.style } : null;
 }
 
 export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
@@ -371,11 +421,13 @@ export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
   const groupStack: string[] = [];
   let diagramType: 'usecase' | 'package' | undefined;
 
-  const rememberNode = (node: MermaidFlowNode) => {
+  const rememberNode = (node: MermaidFlowNode, declared: boolean) => {
     const previous = nodeMap.get(node.id);
     const groupId = groupStack.at(-1) ?? previous?.data?.groupId;
     if (previous?.data?.groupId && groupId !== previous.data.groupId) return false;
-    if (!previous || node.label !== node.id || previous.label === previous.id) {
+    // A bare ID references an existing declaration. Its text may equal its ID,
+    // so label equality cannot tell us whether a shape was explicitly declared.
+    if (!previous || declared) {
       nodeMap.set(node.id, { ...node, ...(groupId ? { data: { groupId } } : {}) });
     } else if (groupId) previous.data = { ...previous.data, groupId };
     return true;
@@ -393,7 +445,9 @@ export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
     const group = line.match(/^subgraph\s+([A-Za-z_][\w-]*)(?:\s*\[(?:"([^"\n]*)"|([^\]"[\n]+))\])?$/);
     if (group) {
       if (groups.some((entry) => entry.id === group[1]) || nodeMap.has(group[1])) return null;
-      groups.push({ id: group[1], label: group[2] ?? group[3]?.trim() ?? group[1], ...(groupStack.length ? { parentId: groupStack.at(-1) } : {}) });
+      const label = (group[2] ?? group[3]?.trim() ?? group[1])
+        .replace(/#(quot|34|38|124);/gi, (_entity, code: string) => code === '38' ? '&' : code === '124' ? '|' : '"');
+      groups.push({ id: group[1], label, ...(groupStack.length ? { parentId: groupStack.at(-1) } : {}) });
       groupStack.push(group[1]);
       continue;
     }
@@ -408,7 +462,7 @@ export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
     if (/^(?:(?:subgraph|direction|classDef|class|style|linkStyle)(?:\s|$)|end\s*$)/i.test(line) || line.includes(';')) return null;
     const edge = parseEdgeLine(line);
     if (edge) {
-      if (!rememberNode(edge.from) || !rememberNode(edge.to)) return null;
+      if (!rememberNode(edge.from, edge.fromDeclared) || !rememberNode(edge.to, edge.toDeclared)) return null;
       edges.push({
         id: `edge-${edges.length + 1}`,
         from: edge.from.id,
@@ -420,7 +474,7 @@ export function parseFlowchartSource(source: string): MermaidFlowGraph | null {
     }
     const node = parseNodeToken(line);
     if (!node) return null;
-    if (!rememberNode(node)) return null;
+    if (!rememberNode(node, line !== node.id)) return null;
   }
 
   if (groupStack.length || groups.some((group) => nodeMap.has(group.id))) return null;
@@ -436,6 +490,14 @@ function safeLabel(value: string): string {
     .replace(/"/g, "'")
     .replace(/\|/g, '/')
     .trim();
+}
+
+function safeGroupLabel(value: string): string {
+  if (!value.trim()) throw new Error('包或系统边界的名称不能为空');
+  if (/[;#\r\n]/.test(value)) throw new Error('画布文字不能包含换行、分号或 #');
+  // Mermaid entity codes preserve the title instead of silently replacing
+  // quotes or separators. Decode the same codes when reopening the source.
+  return value.replace(/&/g, '#38;').replace(/"/g, '#quot;').replace(/\|/g, '#124;');
 }
 
 function serializeNode(node: MermaidFlowNode): string {
@@ -471,7 +533,7 @@ export function serializeFlowchart(graph: MermaidFlowGraph): string {
       if (/^[A-Za-z_][\w-]*$/.test(node.id)) nodes.push(`${indent}${serializeNode(node)}`);
     }
     for (const group of groups.filter((entry) => entry.parentId === parentId)) {
-      nodes.push(`${indent}subgraph ${group.id}["${safeLabel(group.label)}"]`);
+      nodes.push(`${indent}subgraph ${group.id}["${safeGroupLabel(group.label)}"]`);
       emitMembers(group.id, `${indent}  `);
       nodes.push(`${indent}end`);
     }
@@ -1130,14 +1192,16 @@ export function parseGanttSource(source: string): MermaidFlowGraph | null {
   return { kind: 'gantt', direction: 'LR', nodes, edges, data: { header: body.header, directives } };
 }
 
+export function ganttDateFormat(graph: MermaidFlowGraph): string {
+  // Mermaid applies directives in source order, so the final declaration wins.
+  return graph.data?.directives?.filter((directive) => /^dateFormat\s+/i.test(directive)).at(-1)
+    ?.replace(/^dateFormat\s+/i, '').trim() || 'YYYY-MM-DD';
+}
+
 export function suggestGanttStart(graph: MermaidFlowGraph): string {
   const explicitStart = graph.nodes.find((node) => node.data?.ganttStart)?.data?.ganttStart;
   if (explicitStart) return explicitStart;
-  const dateFormat = graph.data?.directives
-    ?.find((directive) => /^dateFormat\s+/i.test(directive))
-    ?.replace(/^dateFormat\s+/i, '')
-    .trim();
-  if (dateFormat && dateFormat !== 'YYYY-MM-DD') return '';
+  if (ganttDateFormat(graph) !== 'YYYY-MM-DD') return '';
   return new Date().toISOString().slice(0, 10);
 }
 
@@ -1146,6 +1210,16 @@ function serializeGantt(graph: MermaidFlowGraph): string {
   const lines = [graph.data?.header || 'gantt', ...(graph.data?.directives ?? []).map((directive) => `  ${directive.trim()}`)];
   const refs = new Map<string, string>();
   const used = new Set<string>();
+  const dateFormat = ganttDateFormat(graph);
+  const validDate = (value: string, isStart = false) => {
+    if (!value || /[,;#\r\n]/.test(value)) return false;
+    // Mermaid special-cases numeric x/X dates only in getStartDate. Numeric
+    // ends otherwise fall back to the start, silently producing zero duration.
+    if (dateFormat === 'x' || dateFormat === 'X') {
+      return isStart && /^\d+$/.test(value) && Number.isFinite(new Date(Number(value)).getTime());
+    }
+    return dayjs(value, dateFormat, true).isValid();
+  };
   for (const node of graph.nodes) {
     const ref = node.data?.ref ?? node.id;
     if (!/^[A-Za-z_][\w-]*$/.test(ref)) throw new Error(`任务“${node.label || node.id}”的 ID 格式无效`);
@@ -1179,7 +1253,20 @@ function serializeGantt(graph: MermaidFlowGraph): string {
   }
   if (visitedCount !== graph.nodes.length) throw new Error('甘特图任务依赖不能形成循环');
   let section = '__unset__';
+  // Mermaid has no empty-section reset. Emit ungrouped tasks before any named
+  // section so clearing a group cannot silently inherit the preceding group.
+  // Section titles span consecutive task rows. Keep each named group together,
+  // preserving first-appearance group order and task order within each group.
+  const sections = new Map<string, MermaidFlowNode[]>();
   for (const node of graph.nodes) {
+    const name = safeVisualText(node.data?.ganttSection ?? '');
+    const tasks = sections.get(name) ?? [];
+    tasks.push(node);
+    sections.set(name, tasks);
+  }
+  const tasks = [...(sections.get('') ?? []),
+    ...Array.from(sections).filter(([name]) => name).flatMap(([, tasks]) => tasks)];
+  for (const node of tasks) {
     if (/[:\r\n]/.test(node.label)) throw new Error('甘特图任务名称不能包含冒号或换行');
     const taskLabel = safeVisualText(node.label) || refs.get(node.id)!;
     const nextSection = safeVisualText(node.data?.ganttSection ?? '');
@@ -1195,17 +1282,21 @@ function serializeGantt(graph: MermaidFlowGraph): string {
     const spec = [...statuses, refs.get(node.id)!];
     if (dependencies.length) spec.push(`after ${dependencies.join(' ')}`);
     else {
-      const start = (node.data?.ganttStart || suggestGanttStart(graph)).trim();
+      const start = (node.data?.ganttStart ?? suggestGanttStart(graph)).trim();
       if (!start) throw new Error(`任务“${node.label || refs.get(node.id)}”需要开始日期或依赖任务`);
-      if (/[,;#\r\n]/.test(start) || /^after\b/i.test(start)) {
+      if (!validDate(start, true)) {
         throw new Error(`任务“${taskLabel}”的开始时间格式无效`);
       }
       spec.push(start);
     }
-    const timing = node.data?.ganttTiming?.map((value) => value.trim()).filter(Boolean) ?? [];
+    const timing = node.data?.ganttTiming?.map((value) => value.trim()) ?? ['1d'];
     if (timing.length > 1) throw new Error(`任务“${node.label || refs.get(node.id)}”只能填写工期或结束日期之一`);
-    const endSpec = timing[0] || '1d';
-    if (/[,;#\r\n]/.test(endSpec)) throw new Error(`任务“${taskLabel}”的工期或结束日期格式无效`);
+    const endSpec = timing[0] ?? '';
+    const until = /^until\s+([A-Za-z_][\w-]*(?:\s+[A-Za-z_][\w-]*)*)$/.exec(endSpec);
+    const validUntil = until && until[1].split(/\s+/).every((ref) => used.has(ref) && ref !== refs.get(node.id));
+    if (!validDate(endSpec) && !/^(\d+(?:\.\d+)?)([Mdhmswy]|ms)$/.test(endSpec) && !validUntil) {
+      throw new Error(`任务“${taskLabel}”的工期或结束日期格式无效`);
+    }
     spec.push(endSpec);
     lines.push(`  ${taskLabel} :${spec.join(', ')}`);
   }

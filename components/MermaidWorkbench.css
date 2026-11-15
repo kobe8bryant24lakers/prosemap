@@ -17,7 +17,6 @@
   border-radius: 17px;
   background: #fff;
   box-shadow: var(--shadow-lg);
-  animation: modal-in .18s ease-out;
 }
 
 .workbench-header {
@@ -166,7 +165,7 @@
 .canvas-tool-group, .canvas-node-library, .canvas-direction-tools, .canvas-assist-tools, .canvas-style-tools, .canvas-zoom-tools, .canvas-shape-tools, .canvas-edge-style-tools, .canvas-semantic-tools { display: flex; align-items: center; gap: 3px; }
 .canvas-tool-group button, .canvas-direction-tools button, .canvas-assist-tools button, .canvas-style-tools button, .canvas-zoom-tools button, .canvas-context-bar button { height: 30px; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 9px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #586c62; font-size: var(--font-ui); font-weight: 730; white-space: nowrap; }
 .canvas-tool-group button:hover, .canvas-direction-tools button:hover, .canvas-assist-tools button:hover, .canvas-style-tools button:hover, .canvas-zoom-tools button:hover, .canvas-context-bar button:hover { background: #f2f7f4; color: var(--green); }
-.canvas-tool-group button:disabled { opacity: .34; pointer-events: none; }
+.canvas-tool-group button:disabled, .canvas-zoom-tools button:disabled { opacity: .34; pointer-events: none; }
 .canvas-tool-group button.active, .canvas-direction-tools button.active, .canvas-assist-tools button.active, .canvas-style-tools button.active, .canvas-context-bar button.active { border-color: #a9cbb9; background: var(--green-soft); color: var(--green); }
 .canvas-context-bar button:disabled { opacity: .38; pointer-events: none; }
 .canvas-tool-group.primary-tools { padding-right: 9px; border-right: 1px solid var(--line); }
@@ -187,6 +186,11 @@
 .canvas-zoom-tools .canvas-zoom-value { min-width: 47px; border-color: var(--line); background: #f8faf9; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
 .canvas-zoom-tools .canvas-fit-button { min-width: 55px; border-color: #cbd9d1; color: var(--green); }
 
+/* Keep selection controls outside a stable canvas rectangle. Compensating the
+   stage's scroll alone leaves a top-edge label hidden under a new inspector,
+   so the second click can otherwise activate a property control instead. */
+.canvas-selection-panel { height: 96px; flex: none; overflow: auto; overscroll-behavior: contain; background: #f9fbfa; border-bottom: 1px solid #dfe7e2; scrollbar-width: thin; }
+.canvas-selection-panel > .canvas-context-bar:only-child { min-height: 100%; align-content: center; }
 .canvas-context-bar { min-height: 38px; flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 4px 11px; overflow: visible; border-bottom: 1px solid #dfe7e2; background: #f9fbfa; scrollbar-width: thin; }
 .canvas-selection-title { max-width: 180px; flex: none; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; color: var(--green); font-size: var(--font-ui); white-space: nowrap; }
 .canvas-selection-title b { overflow: hidden; text-overflow: ellipsis; }
@@ -242,7 +246,16 @@
 .canvas-alignment-guide.horizontal { left: 0; height: 0; border-top: 1px dashed #2b9c70; }
 .canvas-edge-layer { position: absolute; inset: 0; z-index: 1; overflow: visible; }
 .canvas-edge-layer marker path { fill: #557669; }
-.canvas-edge-layer marker .canvas-marker-cross, .canvas-edge-layer marker .canvas-marker-async { fill: none; stroke: #557669; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+/* Older WebKit leaks the message's dash paint into stroked markers even for
+   none/0. A nonzero dash longer than these fixed glyphs resets that state; a
+   zero gap keeps the marker solid without changing the message's line style. */
+.canvas-edge-layer marker .canvas-marker-cross, .canvas-edge-layer marker .canvas-marker-async { fill: none; stroke: #557669; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1000 0; }
+.canvas-edge-layer marker .canvas-marker-class { fill: var(--canvas-marker-background, #f3f7f4); stroke: #557669; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1000 0; }
+.canvas-edge-layer marker .canvas-marker-class.open { fill: none; }
+.canvas-edge-layer marker .canvas-marker-class.filled-diamond { fill: #557669; }
+.canvas-edge-layer marker .canvas-marker-er { fill: none; stroke: #557669; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1000 0; }
+.canvas-edge-layer marker .canvas-marker-er.circle { fill: var(--canvas-marker-background, #f3f7f4); }
+.canvas-style-handdrawn { --canvas-marker-background: #faf9f3; }
 .canvas-edge-visible, .canvas-edge-preview { fill: none; stroke: #557669; stroke-width: 2; }
 .canvas-edge.dotted .canvas-edge-visible { stroke-dasharray: 6 6; }
 .canvas-edge.token-dashed .canvas-edge-visible { stroke-dasharray: 6 5; }
@@ -365,7 +378,8 @@
 .canvas-style-handdrawn .canvas-node-details, .canvas-style-handdrawn .canvas-node-gantt-meta { border-top-style: dashed; }
 .canvas-style-handdrawn .canvas-node-details > span { border-bottom-style: dashed; }
 
-.canvas-empty-action { position: absolute; left: 50%; top: 48%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 22px 34px; transform: translate(-50%, -50%); border: 1px dashed #9dbbac; border-radius: 14px; background: rgb(255 255 255 / 76%); color: var(--green); }
+/* Keep the empty-state action above the SVG edge hit layer. */
+.canvas-empty-action { position: absolute; z-index: 2; left: 50%; top: 48%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 22px 34px; transform: translate(-50%, -50%); border: 1px dashed #9dbbac; border-radius: 14px; background: rgb(255 255 255 / 76%); color: var(--green); }
 .canvas-empty-action strong { font-size: var(--font-caption);  line-height: 1.5;}
 .canvas-empty-action span { color: var(--muted); font-size: var(--font-caption);  line-height: 1.5;}
 .canvas-editor-status { min-height: 27px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 11px; border-top: 1px solid var(--line); background: #fff; color: var(--muted-light); font-size: var(--font-caption);  line-height: 1.5;}

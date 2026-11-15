@@ -2,6 +2,7 @@
 
 import { t, uiMessage } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
+import { useModalFocus } from '@/lib/use-modal-focus';
 
 import { AlertTriangle, X } from 'lucide-react';
 import { useEffect, useId, useRef } from 'react';
@@ -33,24 +34,11 @@ export default function ConfirmDialog({
   const titleId = useId();
   const messageId = useId();
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useModalFocus(onCancel, () => document.querySelector<HTMLElement>('.cm-content'));
 
   useEffect(() => {
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     cancelRef.current?.focus({ preventScroll: true });
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      onCancel();
-    }
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown, true);
-      previouslyFocused?.focus({ preventScroll: true });
-    };
-  }, [onCancel]);
+  }, []);
 
   if (typeof document === 'undefined') return null;
 
@@ -59,10 +47,16 @@ export default function ConfirmDialog({
       className="confirmation-backdrop"
       role="presentation"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel();
+        if (event.target === event.currentTarget) {
+          // Preserve the focus restored when this dialog unmounts.
+          event.preventDefault();
+          onCancel();
+        }
       }}
     >
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         className="confirmation-dialog"
         role="alertdialog"
         aria-modal="true"

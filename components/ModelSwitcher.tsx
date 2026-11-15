@@ -20,7 +20,7 @@ export default function ModelSwitcher({ settings, disabled, onSelect, onManage }
         {!settings.profiles.length && <option value="">{t('连接模型')}</option>}
         {settings.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.model}</option>)}
       </select>
-      <button type="button" className="icon-button" onClick={onManage} disabled={disabled} title={t('管理模型')} aria-label={t('管理模型')}><Settings2 size={16} /></button>
+      <button type="button" className="icon-button" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); onManage(); }} disabled={disabled} title={t('管理模型')} aria-label={t('管理模型')}><Settings2 size={16} /></button>
     </div>
   );
 }

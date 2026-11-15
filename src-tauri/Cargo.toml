@@ -1,6 +1,6 @@
 [package]
 name = "prosemap"
-version = "0.11.0"
+version = "0.11.1"
 description = "ProseMap desktop Markdown editor"
 license = "MIT"
 repository = "https://github.com/kobe8bryant24lakers/prosemap"
@@ -14,6 +14,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
+
+[features]
+default = []
+# Explicit development mode: credentials remain in process memory only.
+dev-credentials = []
 
 [dependencies]
 base64 = "0.22"

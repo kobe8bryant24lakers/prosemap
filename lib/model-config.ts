@@ -3,11 +3,16 @@ import type { ModelProfiles } from './model-profiles';
 
 export type ModelConfigStorage = 'system' | 'memory';
 
+export async function modelConfigStorage(): Promise<ModelConfigStorage> {
+  if (!(await isDesktopRuntime())) return 'memory';
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<ModelConfigStorage>('model_config_storage');
+}
+
 export async function saveModelProfiles(settings: ModelProfiles): Promise<ModelConfigStorage> {
   if (!(await isDesktopRuntime())) return 'memory';
   const { invoke } = await import('@tauri-apps/api/core');
-  await invoke('save_model_profiles', { settings });
-  return 'system';
+  return invoke<ModelConfigStorage>('save_model_profiles', { settings });
 }
 
 export async function loadModelProfiles(): Promise<ModelProfiles | null> {

@@ -1,4 +1,4 @@
-import { english } from './translations.ts';
+import { english, modelErrorTemplates } from './translations.ts';
 
 export type Locale = 'en' | 'zh-CN';
 export const LOCALE_STORAGE_KEY = 'prosemap.locale';
@@ -26,14 +26,18 @@ export function setLocale(next: Locale) {
   listeners.forEach((listener) => listener());
 }
 
-const reverse = new Map(Object.entries(english).map(([zh, en]) => [en, zh]));
-const templates = Object.entries(english).filter(([key]) => /\{\d+\}/.test(key)).map(([zh, en]) => {
-  const compile = (value: string) => new RegExp('^' + value.split(/(\{\d+\})/).map((part) => /\{\d+\}/.test(part) ? '([\\s\\S]*?)' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('') + '$');
+const uiCopy = { ...modelErrorTemplates, ...english };
+const reverse = new Map(Object.entries(uiCopy).map(([zh, en]) => [en, zh]));
+const templates = Object.entries(uiCopy).filter(([key]) => /\{\d+\}/.test(key)).map(([zh, en]) => {
+  // Diagnostics and Content-Type values can contain their own trailing labels.
+  const greedySlot = zh === '无法解析 API 主机名 {0}：{1}。请求地址：{2}' ? '{1}'
+    : zh === '模型服务返回了无法识别的内容（Content-Type: {0}）。请检查 API 地址与服务类型。请求地址：{1}' ? '{0}' : null;
+  const compile = (value: string) => new RegExp('^' + value.split(/(\{\d+\})/).map((part) => /\{\d+\}/.test(part) ? (part === greedySlot ? '([\\s\\S]*)' : '([\\s\\S]*?)') : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('') + '$');
   return { zh, en, zhPattern: compile(zh), enPattern: compile(en) };
 });
 
 export function translate(key: string, target: Locale, ...values: Array<string | number>): string {
-  const source = target === 'en' ? (english[key] ?? key) : (reverse.get(key) ?? key);
+  const source = target === 'en' ? (uiCopy[key] ?? key) : (reverse.get(key) ?? key);
   return source.replace(/\{(\d+)\}/g, (placeholder, index: string) => values[Number(index)] === undefined ? placeholder : String(values[Number(index)]));
 }
 
@@ -44,7 +48,7 @@ export function t(key: string, ...values: Array<string | number>): string {
 
 /** Re-localize stored UI notices and backend errors, without touching document text. */
 export function uiMessage(message: string): string {
-  if (english[message] !== undefined || reverse.has(message)) return t(message);
+  if (uiCopy[message] !== undefined || reverse.has(message)) return t(message);
   for (const entry of templates) {
     const pattern = locale === 'en' ? entry.zhPattern : entry.enPattern;
     const match = message.match(pattern);

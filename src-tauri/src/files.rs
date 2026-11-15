@@ -4,7 +4,7 @@ use std::{
     collections::HashSet,
     ffi::OsStr,
     fs::{self, File, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -100,6 +100,14 @@ pub struct LocalWorkspace {
     pub root: String,
     pub name: String,
     pub files: Vec<LocalFileEntry>,
+    pub scan_limits: WorkspaceScanLimits,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceScanLimits {
+    pub file_count: Option<usize>,
+    pub depth: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -121,15 +129,17 @@ pub enum LaunchTarget {
 pub struct FileAccessState {
     files: Mutex<HashSet<PathBuf>>,
     roots: Mutex<HashSet<PathBuf>>,
-    pending_launch: Mutex<Option<LaunchTarget>>,
+    pending_launch: Mutex<Option<Result<LaunchTarget, String>>>,
+    save_lock: Mutex<()>,
 }
 
 impl FileAccessState {
-    pub fn with_pending(target: Option<LaunchTarget>) -> Self {
+    pub fn with_pending(target: Result<Option<LaunchTarget>, String>) -> Self {
         let state = Self::default();
-        if let Some(target) = target {
-            state.authorize_target(&target);
-            *state.pending_launch.lock().expect("pending launch lock") = Some(target);
+        match target {
+            Ok(Some(target)) => state.set_launch_target(target),
+            Err(reason) => state.set_launch_error(reason),
+            Ok(None) => {}
         }
         state
     }
@@ -167,7 +177,19 @@ impl FileAccessState {
 
     pub fn set_launch_target(&self, target: LaunchTarget) {
         self.authorize_target(&target);
-        *self.pending_launch.lock().expect("pending launch lock") = Some(target);
+        *self.pending_launch.lock().expect("pending launch lock") = Some(Ok(target));
+    }
+
+    pub fn set_launch_error(&self, reason: String) {
+        *self.pending_launch.lock().expect("pending launch lock") = Some(Err(reason));
+    }
+
+    fn take_launch_target(&self) -> Result<Option<LaunchTarget>, String> {
+        self.pending_launch
+            .lock()
+            .expect("pending launch lock")
+            .take()
+            .transpose()
     }
 }
 
@@ -236,9 +258,19 @@ fn should_skip_directory(path: &Path) -> bool {
         )
 }
 
-fn collect_markdown_files(root: &Path) -> Vec<LocalFileEntry> {
-    fn visit(root: &Path, directory: &Path, depth: usize, files: &mut Vec<LocalFileEntry>) {
-        if depth > MAX_WORKSPACE_DEPTH || files.len() >= MAX_WORKSPACE_FILES {
+fn collect_markdown_files(root: &Path) -> (Vec<LocalFileEntry>, WorkspaceScanLimits) {
+    fn visit(
+        root: &Path,
+        directory: &Path,
+        depth: usize,
+        files: &mut Vec<LocalFileEntry>,
+        limits: &mut WorkspaceScanLimits,
+    ) {
+        if depth > MAX_WORKSPACE_DEPTH {
+            limits.depth = Some(MAX_WORKSPACE_DEPTH);
+            return;
+        }
+        if files.len() >= MAX_WORKSPACE_FILES {
             return;
         }
 
@@ -258,7 +290,7 @@ fn collect_markdown_files(root: &Path) -> Vec<LocalFileEntry> {
             }
             if file_type.is_dir() {
                 if !should_skip_directory(&path) {
-                    visit(root, &path, depth + 1, files);
+                    visit(root, &path, depth + 1, files, limits);
                 }
                 continue;
             }
@@ -278,23 +310,31 @@ fn collect_markdown_files(root: &Path) -> Vec<LocalFileEntry> {
                 name: display_name(&canonical, "未命名.md"),
                 relative_path: relative.to_string_lossy().into_owned(),
             });
+            if files.len() == MAX_WORKSPACE_FILES {
+                // Reaching the bound does not prove there is another matching
+                // file. Report the limit, rather than claiming a known omission.
+                limits.file_count = Some(MAX_WORKSPACE_FILES);
+            }
         }
     }
 
     let mut files = Vec::new();
-    visit(root, root, 0, &mut files);
+    let mut limits = WorkspaceScanLimits::default();
+    visit(root, root, 0, &mut files, &mut limits);
     files.sort_by_key(|entry| entry.relative_path.to_lowercase());
-    files
+    (files, limits)
 }
 
 fn workspace_from_canonical(root: &Path) -> Result<LocalWorkspace, String> {
     if !root.is_dir() {
         return Err("请选择文件夹".to_string());
     }
+    let (files, scan_limits) = collect_markdown_files(root);
     Ok(LocalWorkspace {
         root: root.to_string_lossy().into_owned(),
         name: display_name(root, "Markdown Workspace"),
-        files: collect_markdown_files(root),
+        files,
+        scan_limits,
     })
 }
 
@@ -307,11 +347,30 @@ pub fn launch_target_from_path(path: &Path) -> Result<LaunchTarget, String> {
     }
 }
 
-pub fn launch_target_from_args() -> Option<LaunchTarget> {
-    std::env::args_os()
-        .skip(1)
-        .filter(|argument| !argument.to_string_lossy().starts_with('-'))
-        .find_map(|argument| launch_target_from_path(Path::new(&argument)).ok())
+pub fn launch_target_from_paths(
+    paths: impl IntoIterator<Item = PathBuf>,
+) -> Result<Option<LaunchTarget>, String> {
+    let mut first_error = None;
+    for path in paths {
+        match launch_target_from_path(&path) {
+            Ok(target) => return Ok(Some(target)),
+            Err(reason) if first_error.is_none() => first_error = Some(reason),
+            Err(_) => {}
+        }
+    }
+    match first_error {
+        Some(reason) => Err(reason),
+        None => Ok(None),
+    }
+}
+
+pub fn launch_target_from_args() -> Result<Option<LaunchTarget>, String> {
+    launch_target_from_paths(
+        std::env::args_os()
+            .skip(1)
+            .filter(|argument| !argument.to_string_lossy().starts_with('-'))
+            .map(PathBuf::from),
+    )
 }
 
 #[tauri::command]
@@ -688,41 +747,254 @@ fn create_temporary_sibling(destination: &Path) -> io::Result<(PathBuf, File)> {
     ))
 }
 
-#[cfg(not(target_os = "windows"))]
-fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<()> {
-    fs::rename(temporary, destination)
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn rename_with_flags(source: &Path, target: &Path, exchange: bool) -> io::Result<()> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+    let source = CString::new(source.as_os_str().as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid source path"))?;
+    let target = CString::new(target.as_os_str().as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid target path"))?;
+    #[cfg(target_os = "macos")]
+    let result = {
+        extern "C" {
+            fn renamex_np(
+                from: *const std::ffi::c_char,
+                to: *const std::ffi::c_char,
+                flags: u32,
+            ) -> i32;
+        }
+        // RENAME_SWAP / RENAME_EXCL, respectively.
+        unsafe {
+            renamex_np(
+                source.as_ptr(),
+                target.as_ptr(),
+                if exchange { 2 } else { 4 },
+            )
+        }
+    };
+    #[cfg(target_os = "linux")]
+    let result = {
+        extern "C" {
+            fn renameat2(
+                from_fd: i32,
+                from: *const std::ffi::c_char,
+                to_fd: i32,
+                to: *const std::ffi::c_char,
+                flags: u32,
+            ) -> i32;
+        }
+        // AT_FDCWD; RENAME_EXCHANGE / RENAME_NOREPLACE, respectively.
+        unsafe {
+            renameat2(
+                -100,
+                source.as_ptr(),
+                -100,
+                target.as_ptr(),
+                if exchange { 2 } else { 1 },
+            )
+        }
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn publish_new_file(temporary: &Path, destination: &Path) -> io::Result<()> {
+    rename_with_flags(temporary, destination, false)
 }
 
 #[cfg(target_os = "windows")]
-fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<()> {
+fn publish_new_file(temporary: &Path, destination: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{
-        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-    };
-
+    use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_WRITE_THROUGH};
     let source: Vec<u16> = temporary.as_os_str().encode_wide().chain(Some(0)).collect();
     let target: Vec<u16> = destination
         .as_os_str()
         .encode_wide()
         .chain(Some(0))
         .collect();
-    let replaced = unsafe {
-        MoveFileExW(
-            source.as_ptr(),
-            target.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    };
-    if replaced == 0 {
+    let result = unsafe { MoveFileExW(source.as_ptr(), target.as_ptr(), MOVEFILE_WRITE_THROUGH) };
+    if result == 0 {
         Err(io::Error::last_os_error())
     } else {
         Ok(())
     }
 }
 
-fn write_document_atomically(destination: &Path, content: &[u8]) -> Result<(), String> {
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn publish_new_file(_: &Path, _: &Path) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "safe creation is unavailable",
+    ))
+}
+
+// Preserve the exact directory entry displaced by the commit. A second
+// pre-rename read cannot close the race with a noncooperating external writer.
+struct ReplacementError {
+    source: io::Error,
+    recovery: Option<PathBuf>,
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn replace_preserving_destination(
+    temporary: &Path,
+    destination: &Path,
+) -> Result<PathBuf, ReplacementError> {
+    rename_with_flags(temporary, destination, true)
+        .map(|()| temporary.to_path_buf())
+        .map_err(|source| ReplacementError {
+            source,
+            recovery: None,
+        })
+}
+
+#[cfg(target_os = "windows")]
+fn replace_preserving_destination(
+    temporary: &Path,
+    destination: &Path,
+) -> Result<PathBuf, ReplacementError> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
+    let (backup, reservation) =
+        create_temporary_sibling(destination).map_err(|source| ReplacementError {
+            source,
+            recovery: None,
+        })?;
+    drop(reservation);
+    fs::remove_file(&backup).map_err(|source| ReplacementError {
+        source,
+        recovery: None,
+    })?;
+    let wide = |path: &Path| {
+        path.as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect::<Vec<u16>>()
+    };
+    let source = wide(temporary);
+    let target = wide(destination);
+    let saved = wide(&backup);
+    let result = unsafe {
+        ReplaceFileW(
+            target.as_ptr(),
+            source.as_ptr(),
+            saved.as_ptr(),
+            0,
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    };
+    if result != 0 {
+        Ok(backup)
+    } else {
+        let source = io::Error::last_os_error();
+        // Windows can move the old file to the backup name before reporting
+        // ERROR_UNABLE_TO_MOVE_REPLACEMENT_2. Never delete that backup.
+        let recovery = backup.symlink_metadata().ok().map(|_| backup);
+        Err(ReplacementError { source, recovery })
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn replace_preserving_destination(_: &Path, _: &Path) -> Result<PathBuf, ReplacementError> {
+    Err(ReplacementError {
+        source: io::Error::new(
+            io::ErrorKind::Unsupported,
+            "safe replacement is unavailable",
+        ),
+        recovery: None,
+    })
+}
+
+fn recovery_notice(destination: &Path, displaced: &Path) -> String {
+    // Give a conflicting Markdown version a visible, openable name. A failed
+    // rename leaves the original recovery entry intact; it is never discarded.
+    let mut recovery = displaced.to_path_buf();
+    for _ in 0..64 {
+        let nonce = SAVE_NONCE.fetch_add(1, Ordering::Relaxed);
+        let visible = destination.with_file_name(format!(
+            "ProseMap-recovery-{}-{nonce}.md",
+            std::process::id()
+        ));
+        match publish_new_file(displaced, &visible) {
+            Ok(()) => {
+                recovery = visible;
+                break;
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(_) => break,
+        }
+    }
+    #[cfg(unix)]
+    if let Some(directory) = destination.parent() {
+        let _ = File::open(directory).and_then(|handle| handle.sync_all());
+    }
+    format!("保存期间文件状态发生变化。替换前的版本已保留到：{}。当前编辑仍保留，请检查恢复副本后重新载入或另存为。", recovery.display())
+}
+
+const EXTERNAL_CHANGE: &str =
+    "文件已被外部修改，未覆盖磁盘内容。请重新载入，或另存为以保留当前修改。";
+
+fn save_as_baseline(destination: &Path) -> Result<Option<Vec<u8>>, String> {
+    let file = match File::open(destination) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("无法读取另存为目标，请选择其他文件名".into()),
+    };
+    if !file
+        .metadata()
+        .map_err(|_| "无法读取另存为目标，请选择其他文件名")?
+        .is_file()
+    {
+        return Err("无法读取另存为目标，请选择其他文件名".into());
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_DOCUMENT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "无法读取另存为目标，请选择其他文件名")?;
+    if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
+        return Err("另存为目标超过 16 MB，请选择其他文件名".into());
+    }
+    Ok(Some(bytes))
+}
+
+fn verify_document_unchanged(destination: &Path, expected: Option<&[u8]>) -> io::Result<()> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    // A bounded read also handles an external writer replacing a small file
+    // with a large one. Compare bytes, not timestamps (which can be preserved).
+    let mut current = Vec::new();
+    File::open(destination)?
+        .take(MAX_DOCUMENT_BYTES + 1)
+        .read_to_end(&mut current)?;
+    if current != expected {
+        return Err(io::Error::new(io::ErrorKind::WouldBlock, EXTERNAL_CHANGE));
+    }
+    Ok(())
+}
+
+fn write_document_atomically(
+    destination: &Path,
+    content: &[u8],
+    expected: Option<&[u8]>,
+) -> Result<(), String> {
+    write_document_before_commit(destination, content, expected, |_| {})
+}
+
+fn write_document_before_commit(
+    destination: &Path,
+    content: &[u8],
+    expected: Option<&[u8]>,
+    before_commit: impl FnOnce(&Path),
+) -> Result<(), String> {
     let (temporary, mut file) = create_temporary_sibling(destination)
         .map_err(|_| "无法在目标文件夹创建安全的临时文件".to_string())?;
+    let mut recovery = None;
     let result = (|| -> io::Result<()> {
         file.write_all(content)?;
         file.sync_all()?;
@@ -730,7 +1002,26 @@ fn write_document_atomically(destination: &Path, content: &[u8]) -> Result<(), S
             fs::set_permissions(&temporary, metadata.permissions())?;
         }
         drop(file);
-        replace_file_atomically(&temporary, destination)?;
+        // Check after writing/flushing the temporary file, immediately before
+        // replacement. Other applications do not share our in-process lock.
+        verify_document_unchanged(destination, expected)?;
+        before_commit(destination);
+        if expected.is_some() {
+            match replace_preserving_destination(&temporary, destination) {
+                Ok(displaced) => recovery = Some(displaced),
+                Err(error) => {
+                    recovery = error.recovery;
+                    return Err(error.source);
+                }
+            }
+            // Inspect the version actually displaced, not a racy pre-commit
+            // snapshot. Keep it on mismatch or read failure; do not roll back
+            // over a newer external version that may already occupy the path.
+            verify_document_unchanged(recovery.as_ref().unwrap(), expected)?;
+            let _ = fs::remove_file(recovery.take().unwrap());
+        } else {
+            publish_new_file(&temporary, destination)?;
+        }
         #[cfg(unix)]
         if let Some(directory) = destination.parent() {
             let _ = File::open(directory).and_then(|handle| handle.sync_all());
@@ -738,10 +1029,25 @@ fn write_document_atomically(destination: &Path, content: &[u8]) -> Result<(), S
         Ok(())
     })();
 
-    if result.is_err() {
+    if result.is_err() && recovery.as_deref() != Some(temporary.as_path()) {
         let _ = fs::remove_file(&temporary);
     }
-    result.map_err(|_| "无法安全保存该 Markdown 文件；原文件保持不变".to_string())
+    result.map_err(|error| {
+        if let Some(displaced) = recovery {
+            return recovery_notice(destination, &displaced);
+        }
+        if matches!(
+            error.kind(),
+            io::ErrorKind::WouldBlock | io::ErrorKind::AlreadyExists
+        ) {
+            EXTERNAL_CHANGE.to_string()
+        } else if error.kind() == io::ErrorKind::Unsupported {
+            "当前文件系统不支持此安全保存方式，请另存到其他位置。".to_string()
+        } else {
+            "无法安全保存该 Markdown 文件。当前编辑已保留，请检查磁盘文件后重试或另存为。"
+                .to_string()
+        }
+    })
 }
 
 #[tauri::command]
@@ -749,12 +1055,17 @@ pub async fn save_local_markdown(
     path: Option<String>,
     suggested_name: String,
     content: String,
+    expected_content: Option<String>,
     state: State<'_, FileAccessState>,
 ) -> Result<Option<LocalDocument>, String> {
     if content.len() as u64 > MAX_DOCUMENT_BYTES {
         return Err("Markdown 文件不能超过 16 MB".to_string());
     }
 
+    let existing_document = path.is_some();
+    if existing_document && expected_content.is_none() {
+        return Err("无法确认文件原始内容，请重新打开后保存".to_string());
+    }
     let destination = if let Some(path) = path {
         let canonical = canonical_existing(Path::new(&path))?;
         if !state.is_authorized(&canonical) {
@@ -780,24 +1091,121 @@ pub async fn save_local_markdown(
         selected
     };
 
-    write_document_atomically(&destination, content.as_bytes())?;
+    let _save_guard = state
+        .save_lock
+        .lock()
+        .map_err(|_| "文件保存失败，请重试".to_string())?;
+    // Save As also needs a baseline for a replacement approved in the native
+    // picker. A new target must be published without replacing a file that
+    // another application creates while our temporary file is being written.
+    let expected = if existing_document {
+        expected_content.map(String::into_bytes)
+    } else {
+        save_as_baseline(&destination)?
+    };
+    write_document_atomically(&destination, content.as_bytes(), expected.as_deref())?;
     let canonical = canonical_existing(&destination)?;
     state.authorize_file(canonical.clone());
-    document_from_canonical(&canonical).map(Some)
+    // The saved baseline must be our committed snapshot, even if another
+    // application changes the path immediately after the commit.
+    Ok(Some(LocalDocument {
+        name: display_name(&canonical, "未命名文件"),
+        path: canonical.to_string_lossy().into_owned(),
+        content,
+    }))
 }
 
 #[tauri::command]
-pub fn read_launch_target(state: State<'_, FileAccessState>) -> Option<LaunchTarget> {
-    state
-        .pending_launch
-        .lock()
-        .expect("pending launch lock")
-        .take()
+pub fn read_launch_target(
+    state: State<'_, FileAccessState>,
+) -> Result<Option<LaunchTarget>, String> {
+    state.take_launch_target()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn workspace_fixture() -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "prosemap-synthetic-workspace-{}-{}",
+            std::process::id(),
+            SAVE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::canonicalize(root).unwrap()
+    }
+
+    #[test]
+    fn workspace_reports_the_file_limit_without_claiming_known_omissions() {
+        let root = workspace_fixture();
+        for index in 0..MAX_WORKSPACE_FILES - 1 {
+            fs::write(root.join(format!("synthetic-{index:04}.md")), "# Synthetic").unwrap();
+        }
+        let below = workspace_from_canonical(&root).unwrap();
+        assert_eq!(below.files.len(), MAX_WORKSPACE_FILES - 1);
+        assert_eq!(below.scan_limits.file_count, None);
+        for index in MAX_WORKSPACE_FILES - 1..=MAX_WORKSPACE_FILES {
+            fs::write(root.join(format!("synthetic-{index:04}.md")), "# Synthetic").unwrap();
+            let workspace = workspace_from_canonical(&root).unwrap();
+            assert_eq!(workspace.files.len(), MAX_WORKSPACE_FILES);
+            assert_eq!(workspace.scan_limits.file_count, Some(MAX_WORKSPACE_FILES));
+            assert_eq!(workspace.scan_limits.depth, None);
+            let wire = serde_json::to_value(&workspace).unwrap();
+            assert_eq!(wire["scanLimits"]["fileCount"], MAX_WORKSPACE_FILES);
+            assert!(wire["scanLimits"]["depth"].is_null());
+            assert!(workspace
+                .files
+                .windows(2)
+                .all(|pair| pair[0].relative_path <= pair[1].relative_path));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_depth_warning_preserves_hidden_build_and_symlink_filters() {
+        let root = workspace_fixture();
+        for directory in [
+            ".hidden",
+            "node_modules",
+            "target",
+            "dist",
+            "build",
+            "desktop-dist",
+            ".next",
+        ] {
+            fs::create_dir_all(root.join(directory)).unwrap();
+            fs::write(root.join(directory).join("hidden.md"), "# Synthetic hidden").unwrap();
+        }
+        fs::write(root.join("root.MD"), "# Synthetic root").unwrap();
+        fs::write(root.join("unsupported.txt"), "Synthetic plain text").unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.join("root.MD"), root.join("linked.md")).unwrap();
+            std::os::unix::fs::symlink(root.join(".hidden"), root.join("linked-folder")).unwrap();
+        }
+        let mut nested = root.clone();
+        for _ in 0..MAX_WORKSPACE_DEPTH {
+            nested = nested.join("level");
+        }
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("depth-12.markdown"), "# Synthetic depth 12").unwrap();
+        let boundary = workspace_from_canonical(&root).unwrap();
+        assert_eq!(boundary.files.len(), 2);
+        assert_eq!(boundary.scan_limits.depth, None);
+        fs::create_dir_all(nested.join("level")).unwrap();
+        fs::write(nested.join("level/depth-13.md"), "# Synthetic depth 13").unwrap();
+        let limited = workspace_from_canonical(&root).unwrap();
+        assert_eq!(limited.files.len(), 2);
+        assert_eq!(limited.scan_limits.depth, Some(MAX_WORKSPACE_DEPTH));
+        assert_eq!(limited.scan_limits.file_count, None);
+        fs::remove_file(root.join("root.MD")).unwrap();
+        fs::remove_file(nested.join("depth-12.markdown")).unwrap();
+        let empty = workspace_from_canonical(&root).unwrap();
+        assert!(empty.files.is_empty());
+        assert_eq!(empty.scan_limits.depth, Some(MAX_WORKSPACE_DEPTH));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn attachment_fixture() -> (PathBuf, PathBuf, FileAccessState) {
         let root = std::env::temp_dir().join(format!(
@@ -849,7 +1257,7 @@ mod tests {
     #[test]
     fn pasted_images_create_or_reuse_images_without_overwriting() {
         let (root, document, state) = attachment_fixture();
-        let bytes = b"\x89PNG\r\n\x1a\nfixture";
+        let bytes = include_bytes!("../../tests/fixtures/assets/中文 图标.png");
         let data = STANDARD.encode(bytes);
         assert!(
             store_pasted_image(&document, "image.png", &data, &FileAccessState::default()).is_err()
@@ -887,7 +1295,7 @@ mod tests {
         assert!(store_pasted_image(
             &document,
             "image.png",
-            &STANDARD.encode(b"\x89PNG\r\n\x1a\n"),
+            &STANDARD.encode(include_bytes!("../../tests/fixtures/assets/中文 图标.png")),
             &state
         )
         .is_err());
@@ -904,7 +1312,7 @@ mod tests {
         assert!(store_pasted_image(
             &document,
             "image.png",
-            &STANDARD.encode(b"\x89PNG\r\n\x1a\n"),
+            &STANDARD.encode(include_bytes!("../../tests/fixtures/assets/中文 图标.png")),
             &state
         )
         .is_err());
@@ -1029,13 +1437,48 @@ mod tests {
         let destination = directory.join("draft.md");
         fs::write(&destination, "old").expect("write original");
 
-        write_document_atomically(&destination, "完整的新内容".as_bytes()).expect("atomic save");
+        write_document_atomically(&destination, "完整的新内容".as_bytes(), Some(b"old"))
+            .expect("atomic save");
         assert_eq!(
             fs::read_to_string(&destination).expect("read replacement"),
             "完整的新内容"
         );
 
         fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn external_changes_block_save_without_losing_either_version_or_leaking_temp_files() {
+        let directory = std::env::temp_dir().join(format!(
+            "prosemap-conflict-{}-{}",
+            std::process::id(),
+            SAVE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        let destination = directory.join("中文.md");
+        let original = "# 原文\r\n🧭\r\n".as_bytes();
+        fs::write(&destination, original).unwrap();
+        write_document_atomically(&destination, b"local edit", Some(original)).unwrap();
+        fs::write(&destination, b"external edit").unwrap();
+        assert_eq!(
+            write_document_atomically(&destination, b"second local edit", Some(b"local edit")),
+            Err(EXTERNAL_CHANGE.into())
+        );
+        assert_eq!(fs::read(&destination).unwrap(), b"external edit");
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+        // Reloading establishes a new baseline; saving can safely continue.
+        write_document_atomically(&destination, b"merged edit", Some(b"external edit")).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), b"merged edit");
+        fs::remove_file(&destination).unwrap();
+        assert!(write_document_atomically(
+            &destination,
+            b"must not resurrect",
+            Some(b"merged edit")
+        )
+        .is_err());
+        assert!(!destination.exists());
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -1050,5 +1493,248 @@ mod tests {
         let value = serde_json::to_value(target).expect("serialize launch target");
         assert_eq!(value["kind"], "file");
         assert_eq!(value["document"]["name"], "test.md");
+    }
+
+    #[test]
+    fn invalid_launch_result_survives_until_frontend_reads_it_once() {
+        let root = workspace_fixture();
+        let path = root.join("SYNTHETIC_invalid_startup.md");
+        fs::write(&path, b"\xff\xfe").unwrap();
+        let state = FileAccessState::with_pending(launch_target_from_paths([path.clone()]));
+        assert!(!state.is_authorized(&path));
+        assert_eq!(
+            state.take_launch_target().unwrap_err(),
+            "仅支持 UTF-8 编码的 Markdown 文件"
+        );
+        assert!(state.take_launch_target().unwrap().is_none());
+        assert_eq!(fs::read(&path).unwrap(), b"\xff\xfe");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn newer_launch_success_replaces_a_pending_error_and_authorizes_its_file() {
+        let root = workspace_fixture();
+        let path = root.join("SYNTHETIC_recovery.md");
+        fs::write(&path, "# SYNTHETIC recovery").unwrap();
+        let state = FileAccessState::with_pending(Err("SYNTHETIC old startup error".into()));
+        state.set_launch_target(launch_target_from_path(&path).unwrap());
+        assert!(state.is_authorized(&fs::canonicalize(&path).unwrap()));
+        match state.take_launch_target().unwrap().unwrap() {
+            LaunchTarget::File { document } => assert_eq!(document.content, "# SYNTHETIC recovery"),
+            _ => panic!("expected the latest file"),
+        }
+        assert!(state.take_launch_target().unwrap().is_none());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn newer_launch_error_replaces_a_pending_success_without_reopening_it() {
+        let root = workspace_fixture();
+        let path = root.join("SYNTHETIC_old_target.md");
+        fs::write(&path, "# SYNTHETIC old target").unwrap();
+        let state = FileAccessState::with_pending(launch_target_from_paths([path]));
+        state.set_launch_error("SYNTHETIC latest startup error".into());
+        assert_eq!(
+            state.take_launch_target().unwrap_err(),
+            "SYNTHETIC latest startup error"
+        );
+        assert!(state.take_launch_target().unwrap().is_none());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn external_open_reports_invalid_encoding_without_changing_the_file() {
+        let root = workspace_fixture();
+        let path = root.join("SYNTHETIC_invalid.md");
+        let bytes = b"# SYNTHETIC invalid UTF-8\n\xff\xfe\x80";
+        fs::write(&path, bytes).unwrap();
+        assert_eq!(
+            launch_target_from_paths([path.clone()]).unwrap_err(),
+            "仅支持 UTF-8 编码的 Markdown 文件"
+        );
+        assert_eq!(fs::read(path).unwrap(), bytes);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn external_open_keeps_the_first_valid_target_when_other_paths_fail() {
+        let root = workspace_fixture();
+        let invalid = root.join("SYNTHETIC_invalid.md");
+        let valid = root.join("SYNTHETIC_valid.md");
+        fs::write(&invalid, b"\xff").unwrap();
+        fs::write(&valid, "# SYNTHETIC valid document").unwrap();
+        let target = launch_target_from_paths([invalid, valid.clone(), root.clone()])
+            .unwrap()
+            .unwrap();
+        match target {
+            LaunchTarget::File { document } => {
+                assert_eq!(document.path, valid.to_string_lossy());
+                assert_eq!(document.content, "# SYNTHETIC valid document");
+            }
+            _ => panic!("Expected the first valid file before the folder"),
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn external_open_without_local_paths_has_no_target_or_error() {
+        assert!(launch_target_from_paths([]).unwrap().is_none());
+    }
+    #[test]
+    fn external_write_in_commit_window_keeps_both_versions_and_reports_recovery() {
+        for replace in [false, true] {
+            let root = workspace_fixture();
+            let destination = root.join("SYNTHETIC_竞争.md");
+            fs::write(&destination, b"SYNTHETIC original").unwrap();
+            let result = write_document_before_commit(
+                &destination,
+                b"SYNTHETIC local edit",
+                Some(b"SYNTHETIC original"),
+                |path| {
+                    let path = path.to_owned();
+                    std::thread::spawn(move || {
+                        if replace {
+                            let incoming = path.with_extension("incoming");
+                            fs::write(&incoming, b"SYNTHETIC external edit").unwrap();
+                            fs::rename(incoming, path).unwrap();
+                        } else {
+                            fs::write(path, b"SYNTHETIC external edit").unwrap();
+                        }
+                    })
+                    .join()
+                    .unwrap();
+                },
+            )
+            .unwrap_err();
+            assert!(result.starts_with("保存期间文件状态发生变化。"));
+            assert_eq!(fs::read(&destination).unwrap(), b"SYNTHETIC local edit");
+            let backups: Vec<_> = fs::read_dir(&root)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .filter(|path| path != &destination)
+                .collect();
+            assert_eq!(backups.len(), 1);
+            assert_eq!(fs::read(&backups[0]).unwrap(), b"SYNTHETIC external edit");
+            assert!(is_markdown(&backups[0]));
+            assert!(result.contains(&backups[0].to_string_lossy().to_string()));
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn deletion_in_commit_window_is_not_silently_resurrected() {
+        let root = workspace_fixture();
+        let destination = root.join("SYNTHETIC_deleted.md");
+        fs::write(&destination, b"SYNTHETIC original").unwrap();
+        let result = write_document_before_commit(
+            &destination,
+            b"SYNTHETIC edit",
+            Some(b"SYNTHETIC original"),
+            |path| {
+                fs::remove_file(path).unwrap();
+            },
+        );
+        assert!(result.is_err());
+        assert!(!destination.exists());
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn preexisting_conflict_never_reaches_commit_or_creates_recovery_copy() {
+        let root = workspace_fixture();
+        let destination = root.join("SYNTHETIC_stale.md");
+        fs::write(&destination, b"SYNTHETIC external edit").unwrap();
+        let result = write_document_before_commit(
+            &destination,
+            b"SYNTHETIC edit",
+            Some(b"SYNTHETIC original"),
+            |_| {
+                panic!("a stale document must never reach commit");
+            },
+        );
+        assert_eq!(result, Err(EXTERNAL_CHANGE.into()));
+        assert_eq!(fs::read(&destination).unwrap(), b"SYNTHETIC external edit");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recovery_naming_failure_retains_the_displaced_version() {
+        let root = workspace_fixture();
+        let displaced = root.join("SYNTHETIC_displaced.tmp");
+        fs::write(&displaced, b"SYNTHETIC external edit").unwrap();
+        let result = recovery_notice(&root.join("missing/SYNTHETIC.md"), &displaced);
+        assert_eq!(fs::read(&displaced).unwrap(), b"SYNTHETIC external edit");
+        assert!(result.contains(&displaced.to_string_lossy().to_string()));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ordinary_safe_replacement_keeps_permissions_without_leaking_backups() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = workspace_fixture();
+        let destination = root.join("SYNTHETIC_modes.md");
+        fs::write(&destination, b"SYNTHETIC original").unwrap();
+        fs::set_permissions(&destination, fs::Permissions::from_mode(0o640)).unwrap();
+        write_document_atomically(&destination, b"SYNTHETIC edit", Some(b"SYNTHETIC original"))
+            .unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), b"SYNTHETIC edit");
+        assert_eq!(
+            fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_new_target_created_during_save_is_not_overwritten() {
+        let root = workspace_fixture();
+        let destination = root.join("SYNTHETIC_new.md");
+        assert_eq!(save_as_baseline(&destination).unwrap(), None);
+        let result = write_document_before_commit(&destination, b"SYNTHETIC local", None, |path| {
+            fs::write(path, b"SYNTHETIC external new file").unwrap();
+        });
+        assert_eq!(result, Err(EXTERNAL_CHANGE.into()));
+        assert_eq!(
+            fs::read(&destination).unwrap(),
+            b"SYNTHETIC external new file"
+        );
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn save_as_baseline_preserves_bytes_for_replacement_and_allows_new_creation() {
+        let root = workspace_fixture();
+        let destination = root.join("SYNTHETIC_new.md");
+        write_document_atomically(&destination, "SYNTHETIC 中文\r\n".as_bytes(), None).unwrap();
+        let baseline = save_as_baseline(&destination).unwrap().unwrap();
+        assert_eq!(baseline, "SYNTHETIC 中文\r\n".as_bytes());
+        write_document_atomically(&destination, b"SYNTHETIC replacement", Some(&baseline)).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), b"SYNTHETIC replacement");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn save_as_rejects_directories_and_oversized_existing_targets() {
+        let root = workspace_fixture();
+        assert!(save_as_baseline(&root).is_err());
+        let destination = root.join("SYNTHETIC_large.md");
+        File::create(&destination)
+            .unwrap()
+            .set_len(MAX_DOCUMENT_BYTES + 1)
+            .unwrap();
+        assert!(save_as_baseline(&destination)
+            .unwrap_err()
+            .contains("16 MB"));
+        assert_eq!(
+            fs::metadata(&destination).unwrap().len(),
+            MAX_DOCUMENT_BYTES + 1
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 }

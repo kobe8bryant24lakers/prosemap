@@ -1,6 +1,6 @@
 {
   "name": "prosemap",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "A local-first AI Markdown and Mermaid editor for macOS, Windows and Linux.",
   "license": "MIT",
   "repository": "https://github.com/kobe8bryant24lakers/prosemap",
@@ -14,11 +14,16 @@
     "preview": "vite preview --config vite.config.ts",
     "lint": "eslint .",
     "test:mermaid": "node --experimental-strip-types --test tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "test:fixtures": "node --experimental-strip-types scripts/fixture-generate.mjs --check && node --experimental-strip-types scripts/fixture-verify.mjs",
     "typecheck": "tsc --noEmit --pretty false",
-    "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build",
+    "desktop:dev": "tauri dev --features dev-credentials --config src-tauri/tauri.dev.conf.json",
+    "desktop:build": "node scripts/desktop-build.mjs",
     "desktop:build:windows": "tauri build --bundles nsis msi",
-    "desktop:build:linux": "tauri build --bundles deb,appimage"
+    "desktop:build:linux": "tauri build --bundles deb,appimage",
+    "macos:signing:check": "node scripts/macos-signing.mjs check",
+    "macos:signing:verify": "node scripts/macos-signing.mjs verify",
+    "desktop:build:dev": "node scripts/desktop-build-dev.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",
@@ -32,6 +37,7 @@
     "@tauri-apps/api": "^2.11.1",
     "@uiw/react-codemirror": "^4.25.11",
     "dagre-d3-es": "^7.0.14",
+    "dayjs": "^1.11.21",
     "diff": "^9.0.0",
     "dompurify": "^3.4.14",
     "lucide-react": "^1.33.0",
@@ -43,10 +49,12 @@
     "react-markdown": "^10.1.0",
     "rehype-raw": "^7.0.0",
     "rehype-sanitize": "^6.0.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "unicode-segmenter": "0.17.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@playwright/test": "1.64.1",
     "@tauri-apps/cli": "^2.11.4",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",

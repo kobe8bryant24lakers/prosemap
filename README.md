@@ -44,7 +44,7 @@ Screenshots show the actual production frontend with sample documents. Native fi
 - Create diagrams from natural-language instructions, edit Mermaid source, or directly manipulate flowcharts, sequence diagrams, state diagrams, class diagrams, ER models, mind maps, and Gantt plans on a canvas.
 - Start from common templates including basic flowcharts, 4+1 architecture views, sequence diagrams, state diagrams, class diagrams, ER diagrams, Gantt charts, mind maps, use cases, and package structures.
 - Edit use cases and nested packages using standard Mermaid flowcharts: actors, system boundaries, include/extend relationships, package membership, and module dependencies are preserved when switching between source and canvas.
-- Scroll the document normally over inline diagrams, or open a scrollbar-free fullscreen view to zoom with the wheel, drag to pan, and click the percentage to reset.
+- Scroll the document normally over inline diagrams, or open a scrollbar-free fullscreen view with a readable minimum zoom. Use **Overview / 一屏总览** to see the complete diagram with smaller labels, then click the percentage or zoom in to return to the readable view.
 - Insert new diagrams at the editor caret captured before opening the workbench.
 - Keep diagrams with ordinary Mermaid comments visually editable. Sequence diagrams also accept Unicode participant identifiers, activation markers, notes, boxes, loops, alternatives, and parallel/optional/critical blocks without discarding their structure.
 - In structured sequence diagrams, edit participants and messages on the canvas; control statements remain preserved in source order and are inspected from the canvas. Change the control structure in the source tab; newly added messages are appended after existing statements.
@@ -134,17 +134,30 @@ npm ci
 npm run desktop:dev
 ```
 
+`desktop:dev` enables the explicit `dev-credentials` Cargo feature: model settings stay in process memory, never touch your normal credential store, and disappear on exit. The settings dialog identifies this session-only mode.
+
 The Vite development server only binds to `127.0.0.1`. It is an implementation detail of the local Tauri development workflow, not a hosted web product.
 
 ## Build
 
 ### macOS
 
+Normal builds use the macOS Keychain and require an Apple-issued signing identity (Developer ID Application for distribution). Select an installed identity with `APPLE_SIGNING_IDENTITY`, or let the build select the only available identity:
+
 ```bash
+npm run macos:signing:check
 npm run desktop:build -- --bundles app,dmg
 ```
 
-Production distribution requires Apple Developer signing and notarization.
+Ad-hoc and self-signed builds do not preserve Keychain access across rebuilds on modern macOS. The normal build rejects these signatures and checks the actual Apple certificate chain. CI uses `APPLE_SIGNING_IDENTITY`, `APPLE_CERTIFICATE` and `APPLE_CERTIFICATE_PASSWORD` from repository secrets. Production distribution also requires notarization.
+
+Without an Apple signing identity, use the separate development application:
+
+```bash
+npm run desktop:build:dev
+```
+
+Open `src-tauri/target/debug/bundle/macos/ProseMap Development.app`. Its model settings stay in memory for the current process and are cleared on quit; it never accesses Keychain. `npm run desktop:dev` uses the same session-only backend. See [macOS signing and Keychain continuity](docs/macos-keychain.md) for verification and migration details.
 
 ### Windows
 

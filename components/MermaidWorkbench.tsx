@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { templateSource } from '@/lib/localized-content';
 import { t, uiMessage } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
+import { useModalFocus } from '@/lib/use-modal-focus';
 
 import {
   Bot,
@@ -33,6 +34,7 @@ import { streamAi } from '@/lib/ai-client';
 import { createAiContextBlock, MAX_AI_CONTEXT_CHARACTERS, type AiContextDocument } from '@/lib/ai-context';
 import type { ModelConfig } from '@/lib/editor';
 import { parseMermaid } from '@/lib/mermaid-runtime';
+import { MermaidSourceHistory } from '@/lib/mermaid-source-preservation';
 import {
   activateMermaidCanvasDraft,
   commitMermaidCanvasGraph,
@@ -45,7 +47,6 @@ import {
   extractMermaidSource,
   mermaidSafetyError,
   parseMermaidVisualSource,
-  serializeMermaidVisualGraph,
   type MermaidVisualGraph,
 } from '@/lib/mermaid-workbench';
 import MermaidCanvasEditor from './MermaidCanvasEditor';
@@ -149,11 +150,14 @@ export default function MermaidWorkbench({
   const [startingSource] = useState(() => initialSource.trim() ? initialSource : templateSource(MERMAID_TEMPLATES[0]));
   const startingGraph = useMemo(() => safelyParseVisualSource(startingSource), [startingSource]);
   const [source, setSource] = useState(startingSource);
+  const [sourceHistory] = useState(() => new MermaidSourceHistory());
+  const canvasSourceRef = useRef(startingSource);
   const [canvasSession, setCanvasSession] = useState(() => createMermaidCanvasSession(startingGraph));
   const { graph, canvasGraph, externalRevision } = canvasSession;
   const [expanded, setExpanded] = useState(false);
   const [canvasRevision, setCanvasRevision] = useState(0);
   const [tab, setTab] = useState<WorkbenchTab>('visual');
+  const tabRef = useRef<WorkbenchTab>('visual');
   const [selectedTemplateId, setSelectedTemplateId] = useState(initialSource.trim() ? '' : MERMAID_TEMPLATES[0].id);
   const [aiInstruction, setAiInstruction] = useState('');
   const [aiUseCurrentSource, setAiUseCurrentSource] = useState(mode === 'edit');
@@ -171,9 +175,10 @@ export default function MermaidWorkbench({
   const draftRevisionRef = useRef(0);
   const mountedRef = useRef(true);
   const closeRequestPendingRef = useRef(false);
+  const templateRequestPendingRef = useRef(false);
   const configured = Boolean(config.apiKey && config.model);
   const aiRunning = aiStatus.kind === 'running';
-  const draftChanged = source.trim() !== startingSource.trim();
+  const draftChanged = source !== startingSource;
   const hasPendingChanges = aiRunning || draftChanged || applying;
   const contextCharacters = contextDocuments.reduce((total, document) => total + document.content.length, 0);
 
@@ -236,6 +241,13 @@ export default function MermaidWorkbench({
     }
   }, [aiRunning, discardAndClose, hasPendingChanges, inactive, interactionSuspended, onRequestConfirmation]);
 
+  // Keep canvas autofocus and let its inline editors consume Escape before closing.
+  const dialogRef = useModalFocus(
+    () => { void requestClose(); },
+    () => document.querySelector<HTMLElement>('.cm-content'),
+    { captureEscape: false, preserveInitialFocus: true },
+  );
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (inactive || interactionSuspended || event.key !== 'Escape' || event.defaultPrevented) return;
@@ -288,9 +300,21 @@ export default function MermaidWorkbench({
     invalidatePendingApplyForDraftChange();
     setSource(nextSource);
     const nextGraph = safelyParseVisualSource(nextSource);
-    setCanvasSession((current) => templateId
-      ? createMermaidCanvasSession(nextGraph)
-      : updateMermaidCanvasDraft(current, nextGraph));
+    const publish = Boolean(templateId) || tabRef.current === 'visual';
+    const changedSource = Boolean(nextGraph) && nextSource !== canvasSourceRef.current;
+    if (publish && changedSource) {
+      sourceHistory.reset(nextGraph, nextSource);
+      canvasSourceRef.current = nextSource;
+    }
+    setCanvasSession((current) => {
+      if (templateId) return createMermaidCanvasSession(nextGraph);
+      const draft = updateMermaidCanvasDraft(current, nextGraph);
+      if (!publish) return draft;
+      const next = activateMermaidCanvasDraft(draft);
+      return changedSource && next.externalRevision === current.externalRevision
+        ? { ...next, externalRevision: next.externalRevision + 1 }
+        : next;
+    });
     setAiDraftValidation(nextSource.trim()
       ? { kind: 'checking', message: t("正在校验 Mermaid v11 语法…") }
       : { kind: 'error', message: t("图表源码不能为空") });
@@ -300,7 +324,23 @@ export default function MermaidWorkbench({
   }
 
   function switchTab(nextTab: WorkbenchTab) {
-    if (nextTab === 'visual') setCanvasSession(activateMermaidCanvasDraft);
+    tabRef.current = nextTab;
+    if (nextTab === 'visual') {
+      // Publish one history boundary when returning from an external edit,
+      // including spelling/whitespace changes that parse to the same graph.
+      // Temporarily invalid drafts and edits restored to the original bytes
+      // leave the mounted canvas and its history intact.
+      const changedSource = Boolean(canvasSession.graph) && source !== canvasSourceRef.current;
+      if (changedSource) sourceHistory.reset(canvasSession.graph, source);
+      else sourceHistory.remember(canvasSession.graph, source);
+      if (canvasSession.graph) canvasSourceRef.current = source;
+      setCanvasSession((current) => {
+        const next = activateMermaidCanvasDraft(current);
+        return changedSource && next.externalRevision === current.externalRevision
+          ? { ...next, externalRevision: next.externalRevision + 1 }
+          : next;
+      });
+    }
     if (nextTab === 'ai' && !aiRunning) {
       setAiDraftValidation(source.trim()
         ? { kind: 'checking', message: t("正在校验 Mermaid v11 语法…") }
@@ -310,19 +350,51 @@ export default function MermaidWorkbench({
     setTab(nextTab);
   }
 
-  function selectTemplate(templateId: string) {
+  async function selectTemplate(templateId: string) {
+    if (inactive || interactionSuspended || templateRequestPendingRef.current) return;
     const template = MERMAID_TEMPLATES.find((candidate) => candidate.id === templateId);
     if (!template) return;
+    const nextSource = templateSource(template);
+    if (nextSource === source && !aiRunning && !applyingRef.current) {
+      switchTab('visual');
+      return;
+    }
+    if (draftChanged || aiRunning || applyingRef.current) {
+      const revision = draftRevisionRef.current;
+      templateRequestPendingRef.current = true;
+      try {
+        const confirmed = await onRequestConfirmation({
+          title: t("用模板替换当前草稿？"),
+          message: aiRunning || applyingRef.current
+            ? t("替换会停止正在进行的生成或应用，并丢弃当前草稿、画布布局和历史。文档内容保持不变。")
+            : t("尚未应用的修改将被模板替换，画布布局和历史也会重置。文档内容保持不变。"),
+          confirmLabel: t("替换草稿"),
+          cancelLabel: t("保留草稿"),
+          destructive: true,
+        });
+        if (!confirmed || !mountedRef.current) return;
+        // AI can complete while the confirmation is open. The user confirmed
+        // replacing the earlier draft, not a result that arrived afterwards.
+        if (draftRevisionRef.current !== revision) {
+          setFormError(t("草稿已更新，请重新选择模板。"));
+          return;
+        }
+      } finally {
+        templateRequestPendingRef.current = false;
+      }
+    }
     setCanvasRevision((revision) => revision + 1);
-    updateDraft(templateSource(template), template.id);
+    updateDraft(nextSource, template.id);
     setAiStatus({ kind: 'idle', message: '' });
     setAiReasoning('');
+    tabRef.current = 'visual';
     setTab('visual');
   }
 
-  function commitGraph(next: MermaidVisualGraph) {
+  function commitGraph(next: MermaidVisualGraph, editBase?: MermaidVisualGraph) {
     try {
-      const nextSource = serializeMermaidVisualGraph(next);
+      const nextSource = sourceHistory.commit(source, canvasGraph, next, editBase);
+      canvasSourceRef.current = nextSource;
       invalidateActiveAiForDraftChange();
       invalidatePendingApplyForDraftChange();
       setCanvasSession((current) => commitMermaidCanvasGraph(current, next));
@@ -330,8 +402,10 @@ export default function MermaidWorkbench({
       setSelectedTemplateId('');
       setAiUseCurrentSource(true);
       setFormError('');
+      return true;
     } catch (reason) {
       setFormError(reason instanceof Error ? reason.message : t("画布内容无法转换为 Mermaid 源码"));
+      return false;
     }
   }
 
@@ -413,7 +487,7 @@ export default function MermaidWorkbench({
   }
 
   async function applySource() {
-    if (applyingRef.current) return;
+    if (applyingRef.current || (tab === 'visual' && formError)) return;
     const normalized = source.trim();
     const draftRevision = draftRevisionRef.current;
     const operation = ++applyOperationRef.current;
@@ -427,7 +501,7 @@ export default function MermaidWorkbench({
         || applyOperationRef.current !== operation
         || draftRevisionRef.current !== draftRevision
       ) return;
-      onApply(normalized);
+      onApply(source);
     } catch (reason) {
       if (
         !mountedRef.current
@@ -447,9 +521,13 @@ export default function MermaidWorkbench({
 
   return (
     <div className={`modal-backdrop mermaid-workbench-backdrop${expanded ? ' is-expanded' : ''}`} role="presentation" onMouseDown={(event) => {
-      if (!inactive && !interactionSuspended && event.target === event.currentTarget) void requestClose();
+      if (!inactive && !interactionSuspended && event.target === event.currentTarget) {
+        // The default mouse focus change runs after a confirmation takes focus.
+        event.preventDefault();
+        void requestClose();
+      }
     }}>
-      <section className="mermaid-workbench" role="dialog" aria-modal="true" aria-labelledby="mermaid-workbench-title" inert={inactive || interactionSuspended}>
+      <section ref={dialogRef} className="mermaid-workbench" role="dialog" aria-modal="true" aria-labelledby="mermaid-workbench-title" tabIndex={-1} inert={inactive || interactionSuspended}>
         <header className="workbench-header">
           <span className="workbench-heading-icon"><Workflow size={20} /></span>
           <div>
@@ -554,7 +632,7 @@ export default function MermaidWorkbench({
                   ) : null}
                   {modelSwitcher}
                   {!configured ? (
-                    <button type="button" className="workbench-configure" onClick={onOpenSettings}>{t("先连接模型")}</button>
+                    <button type="button" className="workbench-configure" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); onOpenSettings(); }}>{t("先连接模型")}</button>
                   ) : null}
                   {aiStatus.kind === 'running' ? (
                     <button type="button" className="workbench-ai-run secondary" onClick={stopAi}><X size={15} />  {t("停止生成")}</button>
@@ -573,7 +651,7 @@ export default function MermaidWorkbench({
                   </div>
                   <div className="workbench-template-grid">
                     {MERMAID_TEMPLATES.map((template) => (
-                      <button key={template.id} type="button" className={selectedTemplateId === template.id ? 'active' : ''} onClick={() => selectTemplate(template.id)}>
+                      <button key={template.id} type="button" className={selectedTemplateId === template.id ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); void selectTemplate(template.id); }}>
                         <span><b>{t(template.name)}</b><i>{t(template.category)}</i></span>
                         <small>{t(template.description)}</small>
                         <em>{t("支持画布直接编辑")}</em>
@@ -674,7 +752,7 @@ export default function MermaidWorkbench({
         <footer className="workbench-footer">
           <div className={formError ? 'error' : ''}>{formError ? <><CircleAlert size={14} /> {uiMessage(formError)}</> : <><Check size={14} />  {t("应用前会校验语法，文档不会被静默覆盖")}</>}</div>
           <button type="button" className="secondary-button" onClick={() => void requestClose()}>{t("取消")}</button>
-          <button type="button" className="confirm-button" onClick={() => void applySource()} disabled={applying || aiStatus.kind === 'running'}>{applying ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />}  {t("应用到文档")}</button>
+          <button type="button" className="confirm-button" onClick={() => void applySource()} disabled={applying || aiStatus.kind === 'running' || (tab === 'visual' && !!formError)}>{applying ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />}  {t("应用到文档")}</button>
         </footer>
       </section>
     </div>

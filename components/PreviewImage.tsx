@@ -10,6 +10,7 @@ export default function PreviewImage({ src = '', alt, title, documentPath }: Pro
   const [failed, setFailed] = useState<string | null>(null);
   const key = JSON.stringify([documentPath, src]);
   const desktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+  const blockedRemote = desktop && /^(?:https?:)?\/\//i.test(src);
 
   useEffect(() => {
     if (!relative || !documentPath || !desktop) return;
@@ -30,8 +31,8 @@ export default function PreviewImage({ src = '', alt, title, documentPath }: Pro
   }, [desktop, documentPath, key, relative, src]);
 
   const needsPath = relative && (!documentPath || !desktop);
-  if (needsPath || failed === key) {
-    return <span className="preview-image-error" role="status" title={src}>{alt && `${alt} — `}{needsPath ? t('请在桌面端打开或保存 Markdown 文件以加载相对路径图片') : t('图片加载失败，请检查路径和文件是否存在')}</span>;
+  if (blockedRemote || needsPath || failed === key) {
+    return <span className="preview-image-error" role="status" title={src}>{alt && `${alt} — `}{blockedRemote ? t('桌面应用不加载远程图片，请将图片保存到文档附近并使用相对路径') : needsPath ? t('请在桌面端打开或保存 Markdown 文件以加载相对路径图片') : t('图片加载失败，请检查路径和文件是否存在')}</span>;
   }
   const url = relative ? (loaded?.key === key ? loaded.url : undefined) : src;
   if (!url) return <span role="status">{t('正在加载图片…')}</span>;

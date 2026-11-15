@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ProseMap Development",
+  "identifier": "com.prosemap.editor.dev",
+  "bundle": {
+    "fileAssociations": []
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "ProseMap Development",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  }
+}

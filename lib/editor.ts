@@ -1,3 +1,7 @@
+import { markdownLanguage } from '@codemirror/lang-markdown';
+import { diffArrays } from 'diff';
+import { splitGraphemes } from 'unicode-segmenter/grapheme';
+
 export type ProviderKind = 'openai' | 'anthropic';
 export type AssistAction = 'polish' | 'continue' | 'summarize' | 'custom' | 'mermaid';
 
@@ -22,6 +26,7 @@ export type Proposal = {
   modified: string;
   reasoning: string;
   sourceDocument: string;
+  documentRevision: number;
   from: number;
   to: number;
   status: 'streaming' | 'ready' | 'error';
@@ -35,6 +40,8 @@ export type MermaidTarget = {
   fenced: string;
   linePrefix?: string;
   lineEnding?: '\n' | '\r\n';
+  /** Actual Markdown container/indent prefix for each source line. */
+  contentPrefixes?: string[];
 } | null;
 
 export type MermaidDocumentEdit = {
@@ -91,15 +98,29 @@ export const ACTION_LABELS: Record<AssistAction, string> = {
   mermaid: 'Mermaid 智能绘图',
 };
 
+// Cursor movement should reuse the document parse rather than reparsing long
+// Markdown on every selection update. Keep only the most recent document.
+let mermaidTargetTree: { markdown: string; tree: ReturnType<typeof markdownLanguage.parser.parse> } | null = null;
+
 export function findMermaidTarget(markdown: string, position: number): MermaidTarget {
-  const pattern = /```mermaid[\t ]*\r?\n([\s\S]*?)\r?\n```/gi;
-  for (const match of markdown.matchAll(pattern)) {
-    const from = match.index ?? 0;
-    const fenced = match[0];
-    const to = from + fenced.length;
-    if (position >= from && position <= to) {
-      return createMermaidTarget(markdown, from, to, match[1]);
-    }
+  if (!Number.isInteger(position) || position < 0 || position > markdown.length) return null;
+  if (!markdown.includes('```') && !markdown.includes('~~~')) return null;
+  if (mermaidTargetTree?.markdown !== markdown) {
+    mermaidTargetTree = { markdown, tree: markdownLanguage.parser.parse(markdown) };
+  }
+  // Resolve both sides so the opening/closing fence endpoints remain selectable.
+  for (const bias of [1, -1] as const) {
+    let node = mermaidTargetTree.tree.resolveInner(position, bias);
+    while (node.name !== 'FencedCode' && node.parent) node = node.parent;
+    if (node.name !== 'FencedCode' || position < node.from || position > node.to) continue;
+    const info = node.getChild('CodeInfo');
+    if (!info || markdown.slice(info.from, info.to).trim().split(/\s/)[0].toLowerCase() !== 'mermaid') continue;
+    const marks = node.getChildren('CodeMark');
+    if (marks.length !== 2) continue;
+    // Markdown's CodeText nodes already omit list/blockquote prefixes. Joining
+    // their original slices preserves Mermaid indentation and LF/CRLF bytes.
+    const source = node.getChildren('CodeText').map((part) => markdown.slice(part.from, part.to)).join('');
+    return createMermaidTarget(markdown, marks[0].from, marks[1].to, source);
   }
   return null;
 }
@@ -111,25 +132,102 @@ export function createMermaidTarget(
   source: string,
 ): MermaidTarget {
   if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to <= from || to > markdown.length) return null;
+  if (mermaidTargetTree?.markdown !== markdown) {
+    mermaidTargetTree = { markdown, tree: markdownLanguage.parser.parse(markdown) };
+  }
+  const firstMark = markdown.slice(from, to).search(/`{3,}|~{3,}/);
+  if (firstMark < 0) return null;
+  let node = mermaidTargetTree.tree.resolveInner(from + firstMark, 1);
+  while (node.name !== 'FencedCode' && node.parent) node = node.parent;
+  const marks = node.name === 'FencedCode' ? node.getChildren('CodeMark') : [];
+  if (marks.length !== 2 || marks[0].from < from || marks[1].to > to) return null;
+  // Preview and cursor parsers disagree about indentation/trailing spaces in
+  // the node range. Use the actual marks so both edit exactly the same bytes.
+  from = marks[0].from;
+  to = marks[1].to;
   const fenced = markdown.slice(from, to);
   const lineEnding = fenced.includes('\r\n') ? '\r\n' : '\n';
-  const rawLines = fenced.split(/\r?\n/);
-  const normalizedSource = source.trim();
-  const firstSourceLine = normalizedSource.split(/\r?\n/, 1)[0];
-  const firstRawContentLine = rawLines[1] ?? '';
-  let linePrefix = '';
-  if (firstSourceLine && firstRawContentLine.endsWith(firstSourceLine)) {
-    linePrefix = firstRawContentLine.slice(0, -firstSourceLine.length);
-  } else {
-    const closingLine = rawLines.at(-1) ?? '';
-    linePrefix = closingLine.match(/^(.*?)(?:`{3,}|~{3,})[\t ]*$/)?.[1] ?? '';
+  const lines = splitFenceLines(fenced);
+  const parts = node.getChildren('CodeText');
+  let offset = from + lines[0].text.length + lines[0].eol.length;
+  const body = lines.slice(1, -1).map(line => {
+    const part = parts.find(part => part.to > offset && part.from <= offset + line.text.length);
+    // CodeText starts after the Markdown container, while retaining Mermaid
+    // indentation. Closing-fence indentation is independent of content and
+    // must never be used to strip source lines.
+    const prefix = part ? line.text.slice(0, Math.max(0, part.from - offset))
+      : /^[\t >]*$/.test(line.text) ? line.text : '';
+    offset += line.text.length + line.eol.length;
+    return { ...line, text: line.text.slice(prefix.length), prefix };
+  });
+  const containerPrefix = body.find(line => line.text.trim())?.prefix ?? '';
+  const openingLineStart = Math.max(markdown.lastIndexOf('\n', from - 1), markdown.lastIndexOf('\r', from - 1)) + 1;
+  const openingPrefix = markdown.slice(openingLineStart, from);
+  const fenceIndent = Math.max(0, Math.min(3, openingPrefix.length - containerPrefix.length));
+  for (const line of body) {
+    const indent = Math.min(fenceIndent, line.text.match(/^ */)![0].length);
+    line.prefix += line.text.slice(0, indent);
+    line.text = line.text.slice(indent);
   }
-  return { from, to, source: normalizedSource, fenced, linePrefix, lineEnding };
+  const linePrefix = containerPrefix + ' '.repeat(fenceIndent);
+  // Preview libraries trim/normalize code text. Recover the editable source
+  // from the actual document so both entry points retain code-edge whitespace.
+  const exactSource = body.length
+    ? body.map((line, index) => line.text + (index < body.length - 1 ? line.eol : '')).join('')
+    : source;
+  return { from, to, source: exactSource, fenced, linePrefix, lineEnding, contentPrefixes: body.map(line => line.prefix) };
+}
+
+type FenceLine = { text: string; eol: string; prefix?: string };
+
+function splitFenceLines(source: string): FenceLine[] {
+  return source.split(/(\r\n|\n|\r)/).reduce<FenceLine[]>((lines, text, index, parts) => {
+    if (index % 2 === 0) lines.push({ text, eol: parts[index + 1] ?? '' });
+    return lines;
+  }, []);
+}
+
+function decodeFenceBody(lines: FenceLine[], prefix: string, prefixes?: string[]): FenceLine[] {
+  return lines.slice(1, -1).map((line, index) => {
+    const actualPrefix = prefixes?.[index] ?? (line.text.startsWith(prefix) ? prefix
+      : /^[\t >]*$/.test(line.text) ? line.text
+        : line.text.match(/^(?:[\t ]*>[\t ]*)+/)?.[0] ?? '');
+    return { text: line.text.slice(actualPrefix.length), prefix: actualPrefix, eol: line.eol };
+  });
 }
 
 export function formatMermaidFence(source: string, target: MermaidTarget = null): string {
   const lineEnding = target?.lineEnding ?? '\n';
   const linePrefix = target?.linePrefix ?? '';
+  if (target?.fenced) {
+    if (source === target.source) return target.fenced;
+    const lines = splitFenceLines(target.fenced);
+    const body = decodeFenceBody(lines, linePrefix, target.contentPrefixes);
+    const nextLines = source.replace(/\r\n?/g, '\n').split('\n');
+    const changes = diffArrays(body.map(line => line.text), nextLines);
+    const result: FenceLine[] = [];
+    let oldAt = 0;
+    for (let index = 0; index < changes.length; index++) {
+      const change = changes[index];
+      if (!change.added && !change.removed) {
+        result.push(...body.slice(oldAt, oldAt + change.value.length));
+        oldAt += change.value.length;
+      } else if (change.removed) {
+        const removed = body.slice(oldAt, oldAt + change.value.length);
+        oldAt += change.value.length;
+        if (changes[index + 1]?.added) {
+          result.push(...changes[++index].value.map((text, offset) => ({
+            text, prefix: removed[offset]?.prefix ?? linePrefix, eol: removed[offset]?.eol || lineEnding,
+          })));
+        }
+      } else {
+        result.push(...change.value.map(text => ({ text, prefix: linePrefix, eol: lineEnding })));
+      }
+    }
+    return lines[0].text + lines[0].eol
+      + result.map(line => (line.prefix ?? linePrefix) + line.text + (line.eol || lineEnding)).join('')
+      + lines.at(-1)!.text;
+  }
   const sourceLines = source.trim().replace(/\r\n?/g, '\n').split('\n');
   return ['```mermaid', ...sourceLines, '```']
     .map((line, index) => index === 0 ? line : `${linePrefix}${line}`)
@@ -209,5 +307,9 @@ export function safeDocumentName(value: string): string {
 }
 
 export function countReadableCharacters(value: string): number {
-  return value.replace(/\s/g, '').length;
+  // Count visible graphemes, not UTF-16 code units. Use the same Unicode rules
+  // on older WebViews that do not provide Intl.Segmenter.
+  let count = 0;
+  for (const grapheme of splitGraphemes(value)) if (/\S/u.test(grapheme)) count += 1;
+  return count;
 }

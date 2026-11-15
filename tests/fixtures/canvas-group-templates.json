@@ -1,0 +1,36 @@
+{
+  "synthetic": true,
+  "description": "Fabricated five-template group acceptance: three-level hierarchy, outside member, connected contents and group/node ID collision.",
+  "templates": [
+    {
+      "template": "basic-flowchart",
+      "source": "flowchart TD\n  Start([\"Synthetic_NodeBase\"])\n  Input[\"Receive request\"]\n  Check{\"Valid?\"}\n  Process[\"Process request\"]\n  Error[\"Return error\"]\n  End([\"End\"])\n  Start -->|Synthetic_EdgeBase| Input\n  Input --> Check\n  Check -->|Yes| Process\n  Check -->|No| Error\n  Process --> End\n  Error --> End\n  subgraph SyntheticOuter[\"SYNTHETIC Outer\"]\n    subgraph SyntheticMiddle[\"SYNTHETIC Middle\"]\n      Group5[\"SYNTHETIC Middle node\"]\n      subgraph SyntheticInner[\"SYNTHETIC Inner\"]\n        SyntheticLeaf[\"SYNTHETIC Leaf\"]\n      end\n    end\n  end\n  subgraph SyntheticOther[\"SYNTHETIC Other\"]\n    SyntheticOtherNode[\"SYNTHETIC Other node\"]\n  end\n  SyntheticOutside[\"SYNTHETIC Outside\"]\n  SyntheticOutside -->|SYNTHETIC incoming| Group5\n  Group5 --> SyntheticLeaf\n  SyntheticLeaf --> SyntheticOtherNode",
+      "collisionNode": "Group5",
+      "initialGroups": 4
+    },
+    {
+      "template": "four-plus-one",
+      "source": "flowchart TB\n  Logical[\"Synthetic_NodeBase\"]\n  Development[\"Development view: modules and code organization\"]\n  Scenario([\"Scenarios (+1): key use cases and requirements\"])\n  Process[\"Process view: runtime, concurrency, communication\"]\n  Physical[\"Physical view: deployment and infrastructure\"]\n  Logical -->|Synthetic_EdgeBase| Scenario\n  Development -->|implements| Scenario\n  Scenario -->|drives| Process\n  Scenario -->|deployed to| Physical\n  subgraph SyntheticOuter[\"SYNTHETIC Outer\"]\n    subgraph SyntheticMiddle[\"SYNTHETIC Middle\"]\n      Group5[\"SYNTHETIC Middle node\"]\n      subgraph SyntheticInner[\"SYNTHETIC Inner\"]\n        SyntheticLeaf[\"SYNTHETIC Leaf\"]\n      end\n    end\n  end\n  subgraph SyntheticOther[\"SYNTHETIC Other\"]\n    SyntheticOtherNode[\"SYNTHETIC Other node\"]\n  end\n  SyntheticOutside[\"SYNTHETIC Outside\"]\n  SyntheticOutside -->|SYNTHETIC incoming| Group5\n  Group5 --> SyntheticLeaf\n  SyntheticLeaf --> SyntheticOtherNode",
+      "collisionNode": "Group5",
+      "initialGroups": 4
+    },
+    {
+      "template": "architecture",
+      "source": "flowchart LR\n  Client[\"Synthetic_NodeBase\"]\n  Gateway[\"API gateway\"]\n  Service[\"Business service\"]\n  Database[(\"Database\")]\n  External[\"External service\"]\n  Client -->|Synthetic_EdgeBase| Gateway\n  Gateway --> Service\n  Service --> Database\n  Service --> External\n  subgraph SyntheticOuter[\"SYNTHETIC Outer\"]\n    subgraph SyntheticMiddle[\"SYNTHETIC Middle\"]\n      Group5[\"SYNTHETIC Middle node\"]\n      subgraph SyntheticInner[\"SYNTHETIC Inner\"]\n        SyntheticLeaf[\"SYNTHETIC Leaf\"]\n      end\n    end\n  end\n  subgraph SyntheticOther[\"SYNTHETIC Other\"]\n    SyntheticOtherNode[\"SYNTHETIC Other node\"]\n  end\n  SyntheticOutside[\"SYNTHETIC Outside\"]\n  SyntheticOutside -->|SYNTHETIC incoming| Group5\n  Group5 --> SyntheticLeaf\n  SyntheticLeaf --> SyntheticOtherNode",
+      "collisionNode": "Group5",
+      "initialGroups": 4
+    },
+    {
+      "template": "usecase",
+      "source": "flowchart LR\n  %% prosemap:usecase\n  User[\"Synthetic_NodeBase\"]\n  Admin[\"«actor» Admin\"]\n  subgraph System[\"Order system\"]\n    Browse([\"Browse products\"])\n    Order([\"Place order\"])\n    Login([\"Authentication\"])\n    Coupon([\"Apply coupon\"])\n    Manage([\"Manage products\"])\n  end\n  User ---|Synthetic_EdgeBase| Browse\n  User --- Order\n  Admin --- Manage\n  Order -.->|«include»| Login\n  Coupon -.->|«extend»| Order\n  subgraph SyntheticOuter[\"SYNTHETIC Outer\"]\n    subgraph SyntheticMiddle[\"SYNTHETIC Middle\"]\n      Group6[\"SYNTHETIC Middle node\"]\n      subgraph SyntheticInner[\"SYNTHETIC Inner\"]\n        SyntheticLeaf[\"SYNTHETIC Leaf\"]\n      end\n    end\n  end\n  subgraph SyntheticOther[\"SYNTHETIC Other\"]\n    SyntheticOtherNode[\"SYNTHETIC Other node\"]\n  end\n  SyntheticOutside[\"SYNTHETIC Outside\"]\n  SyntheticOutside -->|SYNTHETIC incoming| Group6\n  Group6 --> SyntheticLeaf\n  SyntheticLeaf --> SyntheticOtherNode",
+      "collisionNode": "Group6",
+      "initialGroups": 5
+    },
+    {
+      "template": "package",
+      "source": "flowchart TB\n  %% prosemap:package\n  subgraph App[\"Application\"]\n    subgraph Presentation[\"Presentation\"]\n      Pages[\"Synthetic_NodeBase\"]\n      Controllers[\"Controllers\"]\n    end\n    subgraph Domain[\"Domain\"]\n      Services[\"Domain services\"]\n      Models[\"Domain models\"]\n    end\n    subgraph Infrastructure[\"Infrastructure\"]\n      Repository[\"Repository\"]\n      Gateway[\"External APIs\"]\n    end\n  end\n  Pages -->|Synthetic_EdgeBase| Controllers\n  Controllers -.->|depends on| Services\n  Services --> Models\n  Services -.->|depends on| Repository\n  Services -.->|depends on| Gateway\n  subgraph SyntheticOuter[\"SYNTHETIC Outer\"]\n    subgraph SyntheticMiddle[\"SYNTHETIC Middle\"]\n      Group9[\"SYNTHETIC Middle node\"]\n      subgraph SyntheticInner[\"SYNTHETIC Inner\"]\n        SyntheticLeaf[\"SYNTHETIC Leaf\"]\n      end\n    end\n  end\n  subgraph SyntheticOther[\"SYNTHETIC Other\"]\n    SyntheticOtherNode[\"SYNTHETIC Other node\"]\n  end\n  SyntheticOutside[\"SYNTHETIC Outside\"]\n  SyntheticOutside -->|SYNTHETIC incoming| Group9\n  Group9 --> SyntheticLeaf\n  SyntheticLeaf --> SyntheticOtherNode",
+      "collisionNode": "Group9",
+      "initialGroups": 8
+    }
+  ]
+}

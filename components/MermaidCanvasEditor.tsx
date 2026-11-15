@@ -6,6 +6,8 @@ import { canvasEdgeGeometries } from '@/lib/canvas-edge-geometry';
 import { placeCanvasCopies } from '@/lib/canvas-placement';
 import { CANVAS_CONNECTION_MESSAGES, canvasConnectionIssue, connectionWouldCycle, validCanvasConnectionTarget, type CanvasConnectionIssue } from '@/lib/canvas-connection';
 import { sequenceCanvasResizeUpdate } from '@/lib/canvas-resize';
+import { canvasPointerDragMoved } from '@/lib/canvas-pointer';
+import { reconcileCanvasHistorySelection, type CanvasHistorySelection as Selection } from '@/lib/canvas-history-selection';
 import { beginCanvasLabelEdit, cancelCanvasLabelEdit, canvasLabelKeyAction, type CanvasLabelEdit } from '@/lib/canvas-label-edit';
 import { t } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
@@ -47,6 +49,7 @@ import {
 } from 'react';
 import {
   nextMermaidNodeId,
+  ganttDateFormat,
   suggestGanttStart,
   type MermaidEdgeStyle,
   type MermaidFlowDirection,
@@ -58,6 +61,7 @@ import {
 import {
   expandedMermaidCanvasStage,
   reconcileMermaidCanvasNodes,
+  reconcileMermaidCanvasGroups,
   graphLayoutSignature,
   graphNodeGeometrySignature,
   layoutMermaidGraph,
@@ -65,6 +69,7 @@ import {
   mermaidCanvasLayoutBounds,
   mermaidCanvasNodeSize,
   placeMermaidCanvasNode,
+  placeMermaidCanvasGroup,
   mermaidGroupBounds,
   mermaidSequenceLifelineHeight,
   mermaidSequenceMessageVisual,
@@ -87,8 +92,88 @@ type MermaidCanvasEditorProps = {
   suspended?: boolean;
   externalRevision?: number;
   graph: MermaidFlowGraph;
-  onChange: (graph: MermaidFlowGraph) => void;
+  onChange: (graph: MermaidFlowGraph, editBase?: MermaidFlowGraph) => boolean;
 };
+
+/** Rejected labels remain editable without becoming graph or history state. */
+function InlineLabelInput({ value, revision, active, onStart, onChange, onFinish, label, placeholder }: {
+  value: string;
+  revision: MermaidFlowGraph;
+  active: boolean;
+  onStart: () => void;
+  onChange: (value: string) => boolean;
+  onFinish: (cancel?: boolean, focusCanvas?: boolean) => void;
+  label: string;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState({ value, revision, invalid: false });
+  if (draft.revision !== revision) setDraft({ value, revision, invalid: false });
+  const current = draft.revision === revision ? draft : { value, invalid: false };
+  const started = useRef(false);
+  const wasActive = useRef(active);
+  useLayoutEffect(() => {
+    // Switching editing modes ends this inline session. The source contains
+    // only accepted changes; a hidden rejected draft must not outlive its error.
+    if (wasActive.current && !active) onFinish(false, false);
+    wasActive.current = active;
+  }, [active, onFinish]);
+  return <input autoFocus autoCapitalize="none" autoCorrect="off" spellCheck={false}
+    value={current.value} aria-invalid={current.invalid} aria-label={label} placeholder={placeholder}
+    onPointerDown={(event) => event.stopPropagation()}
+    onClick={(event) => event.stopPropagation()}
+    onFocus={(event) => {
+      if (!started.current) { started.current = true; onStart(); }
+      event.currentTarget.select();
+    }}
+    onPaste={(event) => {
+      const pasted = event.clipboardData.getData('text/plain');
+      if (!/[\r\n]/.test(pasted)) return;
+      // Single-line inputs normalize pasted line breaks before onChange. Send
+      // the unmodified text through validation and keep the accepted label.
+      event.preventDefault();
+      const input = event.currentTarget;
+      const nextValue = current.value.slice(0, input.selectionStart ?? 0)
+        + pasted + current.value.slice(input.selectionEnd ?? current.value.length);
+      const accepted = onChange(nextValue);
+      setDraft({ value: current.value, revision, invalid: !accepted });
+    }}
+    onChange={(event) => {
+      const nextValue = event.target.value;
+      const accepted = onChange(nextValue);
+      setDraft({ value: nextValue, revision, invalid: !accepted });
+    }}
+    onBlur={() => { if (!current.invalid) onFinish(false, false); }}
+    onKeyDown={(event) => {
+      event.stopPropagation();
+      const action = canvasLabelKeyAction(event.nativeEvent);
+      if (!action) return;
+      event.preventDefault();
+      if (action === 'cancel' || !current.invalid) onFinish(action === 'cancel');
+    }} />;
+}
+
+/** Keep incomplete input editable without adding rejected graphs to source/history. */
+function GanttInput({ value, revision, onChange, onFocus, onBlur, disabled, placeholder }: {
+  value: string;
+  revision: MermaidFlowGraph;
+  onChange: (value: string) => boolean;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState({ value, revision, invalid: false });
+  if (draft.revision !== revision) setDraft({ value, revision, invalid: false });
+  return <input value={draft.revision === revision ? draft.value : value}
+    autoCapitalize="none" autoCorrect="off" spellCheck={false}
+    disabled={disabled} placeholder={placeholder} aria-invalid={draft.invalid}
+    onFocus={onFocus} onBlur={onBlur}
+    onChange={(event) => {
+      const nextValue = event.target.value;
+      const accepted = onChange(nextValue);
+      setDraft({ value: nextValue, revision, invalid: !accepted });
+    }} />;
+}
 
 type Point = MermaidCanvasPoint;
 type NodePositions = MermaidCanvasNodePositions;
@@ -96,8 +181,8 @@ type NodePositions = MermaidCanvasNodePositions;
 function safeCanvasRecord<T>(source?: Record<string, T>): Record<string, T> {
   return Object.assign(Object.create(null) as Record<string, T>, source);
 }
-type Selection = { kind: 'node' | 'edge'; id: string; ids?: string[] } | null;
 type CanvasSnapshot = { graph: MermaidFlowGraph; layout: MermaidCanvasLayout };
+type CanvasPropertyEdit = { key: string; snapshot: CanvasSnapshot; undo: CanvasSnapshot[]; redo: CanvasSnapshot[] };
 type Marquee = { pointerId: number; start: Point; end: Point; initial: string[] };
 type DragState = {
   id: string;
@@ -158,6 +243,7 @@ type CanvasNodePreset = {
 };
 type AddNodeOptions = {
   parentId?: string;
+  direction?: QuickAddDirection;
   presetId?: CanvasNodePresetId;
   edgeDirection?: 'from-parent' | 'to-parent';
   editLabel?: boolean;
@@ -397,7 +483,7 @@ function defaultNode(kind: MermaidFlowGraph['kind'], id: string, graph: MermaidF
         ref: id,
         ganttSection: fallbackSection,
         ganttStatuses: [],
-        ganttStart: graph.nodes.length ? '' : suggestGanttStart(graph),
+        ganttStart: suggestGanttStart(graph),
         ganttTiming: ['1d'],
       },
     };
@@ -432,7 +518,7 @@ function applyNodePreset(node: MermaidFlowNode, presetId?: CanvasNodePresetId): 
   if (presetId === 'gantt-milestone') {
     const statuses = new Set(node.data?.ganttStatuses ?? []);
     statuses.add('milestone');
-    return { ...node, label: t("新里程碑"), shape: 'rounded', data: { ...node.data, ganttStatuses: [...statuses] } };
+    return { ...node, label: t("新里程碑"), shape: 'rounded', data: { ...node.data, ganttStatuses: [...statuses], ganttTiming: ['0d'] } };
   }
   if (presetId === 'gantt-task') return { ...node, label: t("新任务"), shape: 'rounded' };
   return node;
@@ -465,6 +551,20 @@ function parseClassToken(token = '-->') {
     relation: match?.[2] ?? '-->',
     toMultiplicity: match?.[3],
   };
+}
+
+type ClassRelationMarker = 'none' | 'open' | 'triangle' | 'diamond' | 'filled-diamond';
+
+function classRelationMarkers(relation: string): [ClassRelationMarker, ClassRelationMarker] {
+  switch (relation) {
+    case '<|--': return ['triangle', 'none'];
+    case '*--': return ['filled-diamond', 'none'];
+    case 'o--': return ['diamond', 'none'];
+    case '..|>': return ['none', 'triangle'];
+    case '-->':
+    case '..>': return ['none', 'open'];
+    default: return ['none', 'none'];
+  }
 }
 
 function classRelationLabel(token = '-->') {
@@ -514,6 +614,16 @@ function erRelationLabel(token?: string) {
   return `${from} → ${to}`;
 }
 
+function nodeDisplayLabel(node: MermaidFlowNode, kind: MermaidFlowGraph['kind']) {
+  // Pseudostates have no source label. Translate their UI name without changing
+  // graph data or translating ordinary state names supplied by the user.
+  if (kind === 'state') {
+    if (node.data?.stateRole === 'start') return t("开始");
+    if (node.data?.stateRole === 'end') return t("结束");
+  }
+  return node.label;
+}
+
 function nodeMeta(node: MermaidFlowNode, kind: MermaidFlowGraph['kind']) {
   if (kind === 'sequence') return node.data?.sequenceType === 'actor' ? t("角色") : t("参与者");
   if (kind === 'state') {
@@ -541,7 +651,9 @@ function nextSemanticRef(nodes: MermaidFlowNode[], prefix: string) {
 
 function ensureGanttStarts(graph: MermaidFlowGraph, nodes: MermaidFlowNode[], edges: MermaidFlowEdge[]) {
   const candidateGraph = { ...graph, nodes, edges };
-  const fallbackStart = suggestGanttStart(candidateGraph) || suggestGanttStart(graph);
+  // Keep the previous schedule anchor even when this edit removes or converts
+  // the final independent task; candidateGraph would otherwise suggest today.
+  const fallbackStart = suggestGanttStart(graph) || suggestGanttStart(candidateGraph);
   if (!fallbackStart) return nodes;
   const dependentIds = new Set(edges.map((edge) => edge.to));
   return nodes.map((node) => dependentIds.has(node.id) || node.data?.ganttStart
@@ -560,6 +672,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   const stageRef = useRef<HTMLDivElement>(null);
   const revealNodeRef = useRef<string | null>(null);
   const selectionAnchorRef = useRef<{ left: number; top: number } | null>(null);
+  const quickAddPressRef = useRef<HTMLButtonElement | null>(null);
   const labelEditRef = useRef<CanvasLabelEdit<CanvasSnapshot> | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const [canvasLayout, setCanvasLayout] = useState<MermaidCanvasLayout>(() => layoutMermaidGraph(graph));
@@ -597,19 +710,22 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   const shouldCenterViewport = useRef(true);
   const shouldAutoFitViewport = useRef(true);
   const initialViewportRef = useRef(true);
-  const lastNodePointerAt = useRef(0);
+  const blankClickCountRef = useRef(0);
+  const pointerStartedOnObject = useRef(false);
   const zoomRef = useRef(zoom);
   const spacePressedRef = useRef(false);
   const panStateRef = useRef<PanState | null>(null);
   const draggingRef = useRef<DragState | null>(null);
   const resizingRef = useRef<ResizeState | null>(null);
   const connectionDragRef = useRef<ConnectionDrag | null>(null);
+  const suppressConnectionClickRef = useRef(false);
   const interactionCaptureRef = useRef<{ pointerId: number; element: HTMLElement | SVGElement } | null>(null);
   const didPanRef = useRef(false);
   const pendingViewportRef = useRef<PendingViewport | null>(null);
   const zoomAtPointRef = useRef<(nextZoom: number, clientX: number, clientY: number) => void>(() => undefined);
   const undoStackRef = useRef<CanvasSnapshot[]>([]);
   const redoStackRef = useRef<CanvasSnapshot[]>([]);
+  const propertyEditRef = useRef<CanvasPropertyEdit | null>(null);
   const gestureHistoryRef = useRef<{ pointerId: number; snapshot: CanvasSnapshot; undo: CanvasSnapshot[]; redo: CanvasSnapshot[] } | null>(null);
   const onChangeRef = useRef(onChange);
   const currentGraphRef = useRef(graph);
@@ -629,7 +745,22 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     setHistoryStatus({ undo: undoStackRef.current.length, redo: redoStackRef.current.length });
   }
 
+  const finishPropertyEdit = useCallback(() => {
+    const edit = propertyEditRef.current;
+    propertyEditRef.current = null;
+    if (!edit || JSON.stringify(currentGraphRef.current) !== JSON.stringify(edit.snapshot.graph)) return;
+    // Local text undo can return to the starting value. An empty transaction
+    // must neither leave an extra canvas undo step nor discard an older redo.
+    undoStackRef.current = edit.undo;
+    redoStackRef.current = edit.redo;
+    layoutRef.current = edit.snapshot.layout;
+    setCanvasLayout(edit.snapshot.layout);
+    setHistoryStatus({ undo: edit.undo.length, redo: edit.redo.length });
+  }, []);
+  const propertyInputEvents = { onFocus: finishPropertyEdit, onBlur: finishPropertyEdit };
+
   function recordCanvasHistory() {
+    finishPropertyEdit();
     undoStackRef.current.push({ graph: currentGraphRef.current, layout: layoutRef.current });
     if (undoStackRef.current.length > 80) undoStackRef.current.shift();
     redoStackRef.current = [];
@@ -638,6 +769,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
 
   function recordGestureHistory(pointerId: number) {
     if (gestureHistoryRef.current) return;
+    finishPropertyEdit();
     gestureHistoryRef.current = {
       pointerId, snapshot: { graph: currentGraphRef.current, layout: layoutRef.current },
       undo: [...undoStackRef.current], redo: [...redoStackRef.current],
@@ -645,18 +777,42 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     recordCanvasHistory();
   }
 
-  function commitGraph(nextGraph: MermaidFlowGraph, recordHistory = true) {
+  function commitGraph(nextGraph: MermaidFlowGraph, recordHistory = true, insertionDirection?: MermaidFlowGraph['direction'], editBase?: MermaidFlowGraph) {
     const current = currentGraphRef.current;
-    if (JSON.stringify(current) === JSON.stringify(nextGraph)) return;
+    // The parent serializes first; a rejected edit must never enter undo/redo.
+    if (!onChange(nextGraph, editBase)) return false;
+    if (JSON.stringify(current) === JSON.stringify(nextGraph)) return true;
     if (recordHistory) {
       recordCanvasHistory();
     }
+    const groupedLayout = reconcileMermaidCanvasGroups(current, nextGraph, layoutRef.current, insertionDirection);
+    if (groupedLayout) {
+      layoutRef.current = groupedLayout;
+      setCanvasLayout(groupedLayout);
+      shouldCenterViewport.current = true;
+      shouldAutoFitViewport.current = true;
+    }
     currentGraphRef.current = nextGraph;
     updateHistoryStatus();
-    onChange(nextGraph);
+    return true;
+  }
+
+  function commitPropertyGraph(key: string, nextGraph: MermaidFlowGraph) {
+    if (propertyEditRef.current?.key !== key) finishPropertyEdit();
+    const firstChange = !propertyEditRef.current;
+    const changed = JSON.stringify(currentGraphRef.current) !== JSON.stringify(nextGraph);
+    const edit = firstChange && changed ? {
+      key, snapshot: { graph: currentGraphRef.current, layout: layoutRef.current },
+      undo: [...undoStackRef.current], redo: [...redoStackRef.current],
+    } : null;
+    const accepted = commitGraph(nextGraph, firstChange, undefined, propertyEditRef.current?.snapshot.graph);
+    // Rejected drafts and unchanged values do not consume the first boundary.
+    if (accepted && edit) propertyEditRef.current = edit;
+    return accepted;
   }
 
   function undoGraphChange() {
+    finishPropertyEdit();
     const cancelledGesture = gestureHistoryRef.current !== null;
     cancelPointerInteractions();
     if (cancelledGesture) return;
@@ -668,7 +824,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     layoutRef.current = previous.layout;
     setCanvasLayout(previous.layout);
     labelEditRef.current = null;
-    setSelection(null);
+    setSelection(current => reconcileCanvasHistorySelection(current, previous.graph));
     setEditingNodeId(null);
     setEditingEdgeId(null);
     updateHistoryStatus();
@@ -676,6 +832,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   }
 
   function redoGraphChange() {
+    finishPropertyEdit();
     const cancelledGesture = gestureHistoryRef.current !== null;
     cancelPointerInteractions();
     if (cancelledGesture) return;
@@ -687,7 +844,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     layoutRef.current = next.layout;
     setCanvasLayout(next.layout);
     labelEditRef.current = null;
-    setSelection(null);
+    setSelection(current => reconcileCanvasHistorySelection(current, next.graph));
     setEditingNodeId(null);
     setEditingEdgeId(null);
     updateHistoryStatus();
@@ -727,7 +884,22 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     }
   }, [releaseInteractionCapture]);
 
+  const finishMarqueeByPointerId = useCallback((pointerId?: number) => {
+    const box = marqueeRef.current;
+    if (!box || (pointerId !== undefined && box.pointerId !== pointerId)) return;
+    marqueeRef.current = null;
+    setMarquee(null);
+    const viewport = viewportRef.current;
+    try {
+      if (viewport?.hasPointerCapture(box.pointerId)) viewport.releasePointerCapture(box.pointerId);
+    } catch {
+      // The WebView may already have released capture outside the viewport.
+    }
+    window.setTimeout(() => { didPanRef.current = false; }, 0);
+  }, []);
+
   const cancelPointerInteractions = useCallback((pointerId?: number) => {
+    quickAddPressRef.current = null;
     const gesture = gestureHistoryRef.current;
     if (gesture && (pointerId === undefined || gesture.pointerId === pointerId)) {
       gestureHistoryRef.current = null;
@@ -743,10 +915,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         onChangeRef.current(gesture.snapshot.graph);
       }
     }
-    if (marqueeRef.current && (pointerId === undefined || marqueeRef.current.pointerId === pointerId)) {
-      marqueeRef.current = null;
-      setMarquee(null);
-    }
+    finishMarqueeByPointerId(pointerId);
     const activeDrag = draggingRef.current;
     if (activeDrag && (pointerId === undefined || activeDrag.pointerId === pointerId)) {
       draggingRef.current = null;
@@ -760,11 +929,12 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     }
     const activeConnection = connectionDragRef.current;
     if (activeConnection && (pointerId === undefined || activeConnection.pointerId === pointerId)) {
+      if (activeConnection.source === 'lifeline') suppressConnectionClickRef.current = true;
       connectionDragRef.current = null;
       setConnectionDrag(null);
     }
     releaseInteractionCapture(pointerId);
-  }, [releaseInteractionCapture]);
+  }, [releaseInteractionCapture, finishMarqueeByPointerId]);
 
   const finishViewportPanByPointerId = useCallback((pointerId?: number) => {
     const pan = panStateRef.current;
@@ -791,6 +961,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     finishViewportPanByPointerId();
     undoStackRef.current = [];
     redoStackRef.current = [];
+    propertyEditRef.current = null;
     labelEditRef.current = null;
     setHistoryStatus({ undo: 0, redo: 0 });
     setSelection(null);
@@ -801,10 +972,18 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     setConnectionIssue(null);
   }, [externalRevision, cancelPointerInteractions, finishViewportPanByPointerId]);
 
-  function applyAutomaticLayout(nextGraph = graph, autoFit = true) {
-    setCanvasLayout(layoutMermaidGraph(nextGraph));
+  function applyAutomaticLayout() {
+    finishPropertyEdit();
+    const nextLayout = layoutMermaidGraph(graph);
+    // Repeating the same arrangement may recenter the view, but it must not
+    // consume an undo step or discard a redo that still applies to the graph.
+    if (JSON.stringify(nextLayout) !== JSON.stringify(layoutRef.current)) {
+      recordCanvasHistory();
+    }
+    layoutRef.current = nextLayout;
     shouldCenterViewport.current = true;
-    if (autoFit) shouldAutoFitViewport.current = true;
+    shouldAutoFitViewport.current = true;
+    setCanvasLayout(nextLayout);
   }
 
   useLayoutEffect(() => {
@@ -840,6 +1019,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     if (kindChanged) {
       undoStackRef.current = [];
       redoStackRef.current = [];
+      propertyEditRef.current = null;
       updateHistoryStatus();
       setSelection(null);
       setEditingNodeId(null);
@@ -897,6 +1077,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
 
   useLayoutEffect(() => {
     if (!active) {
+      finishPropertyEdit();
       cancelPointerInteractions();
       finishViewportPanByPointerId(panStateRef.current?.pointerId);
       return;
@@ -952,14 +1133,15 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       canvasY: (bounds.minY + bounds.maxY) / 2,
     }, zoom);
     shouldCenterViewport.current = false;
-  }, [active, cancelPointerInteractions, canvasLayout, finishViewportPanByPointerId, graph, positions, stageHeight, stageWidth, zoom]);
+  }, [active, cancelPointerInteractions, canvasLayout, finishPropertyEdit, finishViewportPanByPointerId, graph, positions, stageHeight, stageWidth, zoom]);
 
   useLayoutEffect(() => {
     if (!suspended) return;
+    finishPropertyEdit();
     spacePressedRef.current = false;
     cancelPointerInteractions();
     finishViewportPanByPointerId(panStateRef.current?.pointerId);
-  }, [cancelPointerInteractions, finishViewportPanByPointerId, suspended]);
+  }, [cancelPointerInteractions, finishPropertyEdit, finishViewportPanByPointerId, suspended]);
 
   useEffect(() => {
     if (!active || suspended) return;
@@ -1048,8 +1230,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       const point = canvasPoint(event.clientX, event.clientY);
       const activeDrag = draggingRef.current;
       if (activeDrag && event.pointerId === activeDrag.pointerId) {
-        const moved = activeDrag.moved
-          || Math.hypot(event.clientX - activeDrag.startClientX, event.clientY - activeDrag.startClientY) > 3;
+        const moved = canvasPointerDragMoved(activeDrag, event, 3);
         if (!moved) return;
         if (!activeDrag.moved) {
           recordGestureHistory(event.pointerId);
@@ -1057,7 +1238,6 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           draggingRef.current = movedDrag;
           setDragging(movedDrag);
         }
-        lastNodePointerAt.current = event.timeStamp;
         const node = graph.nodes.find((candidate) => candidate.id === activeDrag.id);
         if (node) {
           const desired = { x: point.x - activeDrag.offsetX, y: point.y - activeDrag.offsetY };
@@ -1098,8 +1278,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       }
       const activeResize = resizingRef.current;
       if (activeResize && event.pointerId === activeResize.pointerId) {
-        const moved = activeResize.moved
-          || Math.hypot(event.clientX - activeResize.startClientX, event.clientY - activeResize.startClientY) > 2;
+        const moved = canvasPointerDragMoved(activeResize, event, 2);
         if (!moved) return;
         if (!activeResize.moved) recordGestureHistory(event.pointerId);
         const rawDelta = {
@@ -1121,7 +1300,6 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         const nextResize = { ...activeResize, moved: true };
         resizingRef.current = nextResize;
         if (!activeResize.moved) setResizing(nextResize);
-        lastNodePointerAt.current = event.timeStamp;
         setCanvasLayout((current) => ({
           ...current,
           positions: safeCanvasRecord({ ...current.positions, [activeResize.id]: resized.position }),
@@ -1136,8 +1314,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       }
       const activeConnection = connectionDragRef.current;
       if (activeConnection && event.pointerId === activeConnection.pointerId) {
-        const moved = activeConnection.moved
-          || Math.hypot(event.clientX - activeConnection.startClientX, event.clientY - activeConnection.startClientY) > 4;
+        const moved = canvasPointerDragMoved(activeConnection, event, 4);
         const nextConnection = {
           ...activeConnection,
           pointer: point,
@@ -1150,6 +1327,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     }
 
     function handlePointerUp(event: PointerEvent) {
+      finishMarqueeByPointerId(event.pointerId);
       finishViewportPanByPointerId(event.pointerId);
       const activeDrag = draggingRef.current;
       if (activeDrag?.pointerId === event.pointerId) {
@@ -1179,8 +1357,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       if (activeConnection?.pointerId === event.pointerId) {
         connectionDragRef.current = null;
         setConnectionDrag(null);
-        const moved = activeConnection.moved
-          || Math.hypot(event.clientX - activeConnection.startClientX, event.clientY - activeConnection.startClientY) > 4;
+        const moved = activeConnection.moved;
+        if (activeConnection.source === 'lifeline') suppressConnectionClickRef.current = moved;
         if (!moved) {
           if (activeConnection.source === 'lifeline') {
             setSelection({ kind: 'node', id: activeConnection.from });
@@ -1219,9 +1397,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       const interaction = draggingRef.current ?? connectionDragRef.current;
       const viewport = viewportRef.current;
       let scrolled = false;
-      const crossedThreshold = pointer && interaction && (interaction.moved
-        || Math.hypot(pointer.clientX - interaction.startClientX, pointer.clientY - interaction.startClientY)
-          > (draggingRef.current ? 3 : 4));
+      const crossedThreshold = pointer && interaction
+        && canvasPointerDragMoved(interaction, pointer, draggingRef.current ? 3 : 4);
       if (pointer && interaction?.pointerId === pointer.pointerId && crossedThreshold && viewport) {
         const rect = viewport.getBoundingClientRect();
         const delta = canvasEdgeScroll({ x: pointer.clientX - rect.left, y: pointer.clientY - rect.top },
@@ -1246,12 +1423,17 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     };
     const up = (event: PointerEvent) => {
       cancelAnimationFrame(frame);
+      frame = 0;
       lastPointer = null;
       previousTime = 0;
-      // Flush the release position even when pointer-up arrives before paint.
+      // A quick drag may release before its pressed move reaches a frame. Start
+      // it from that move, then finish at the release position. A release alone
+      // must not start a drag and snap an otherwise stationary click.
+      const lastMove = pending;
+      pending = null;
+      if (lastMove?.pointerId === event.pointerId) pointerHandlersRef.current?.move(lastMove);
       const interaction = draggingRef.current ?? resizingRef.current ?? connectionDragRef.current;
-      if (interaction?.pointerId === event.pointerId) pending = event;
-      flush(0);
+      if (interaction?.pointerId === event.pointerId) pointerHandlersRef.current?.move(event);
       pointerHandlersRef.current?.up(event);
     };
     const cancel = (event: PointerEvent) => {
@@ -1287,7 +1469,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   const selectedGanttHasDependency = Boolean(selectedNode && graph.kind === 'gantt'
     && graph.edges.some((edge) => edge.to === selectedNode.id));
   const selectedGanttStart = selectedNode && graph.kind === 'gantt' && !selectedGanttHasDependency
-    ? selectedNode.data?.ganttStart || suggestGanttStart(graph)
+    ? selectedNode.data?.ganttStart ?? suggestGanttStart(graph)
     : selectedNode?.data?.ganttStart ?? '';
   const selectedNodeIncoming = selectedNode ? graph.edges.filter((edge) => edge.to === selectedNode.id).length : 0;
   const selectedNodeOutgoing = selectedNode ? graph.edges.filter((edge) => edge.from === selectedNode.id).length : 0;
@@ -1346,6 +1528,10 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   }
 
   function addNode(point?: Point, options?: AddNodeOptions) {
+    // A quick-arrow press captures the parent's screen anchor. Creating a new
+    // object deliberately reveals that object; restoring the parent anchor
+    // afterwards would undo the reveal scroll.
+    selectionAnchorRef.current = null;
     const prefix = graph.kind === 'sequence' ? 'Participant'
       : graph.kind === 'state' ? 'State'
         : graph.kind === 'class' ? 'Class'
@@ -1359,6 +1545,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       ? selectedNode?.id ?? graph.nodes.find((candidate) => candidate.data?.mindRoot)?.id ?? graph.nodes[0].id
       : undefined;
     const parentId = options?.parentId ?? automaticMindParent;
+    if (graph.kind === 'gantt' && parentId) node.data = { ...node.data, ganttStart: '' };
     const parentPosition = parentId ? positions[parentId] : undefined;
     const fallbackIndex = graph.nodes.length;
     const size = nodeSize(node, graph.kind);
@@ -1383,13 +1570,26 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       ? { x: (viewportRect.left + viewport.clientWidth / 2 - stageRect.left) / zoom - size.width / 2,
           y: (viewportRect.top + viewport.clientHeight / 2 - stageRect.top) / zoom - size.height / 2 }
       : fallback;
-    const preferred = point ? { x: point.x - size.width / 2, y: point.y - size.height / 2 }
+    const desired = point ? { x: point.x - size.width / 2, y: point.y - size.height / 2 }
       : graph.kind === 'sequence' && graph.nodes.length
         ? { x: Math.max(...graph.nodes.map((other) => (positions[other.id]?.x ?? 0) + nodeSize(other, graph.kind).width)) + 76, y: 58 }
         : parentPosition ? fallback : visibleCenter;
-    const position = placeMermaidCanvasNode(graph, positions, node, preferred);
+    // Make room at the stage's leading edges before applying a directional
+    // placement limit. Translate the whole scene so existing relative positions
+    // are preserved, and keep the original layout in the undo snapshot.
+    const offset = {
+      x: options?.direction === 'left' ? Math.max(0, 18 - desired.x) : 0,
+      y: options?.direction === 'top' ? Math.max(0, 18 - desired.y) : 0,
+    };
+    const preferred = { x: desired.x + offset.x, y: desired.y + offset.y };
+    const shifted = (source: NodePositions) => safeCanvasRecord(Object.fromEntries(Object.entries(source).map(([key, p]) => [key, { x: p.x + offset.x, y: p.y + offset.y }])));
+    const limits = options?.direction === 'right' ? { minX: preferred.x }
+      : options?.direction === 'bottom' ? { minY: preferred.y }
+        : options?.direction === 'left' ? { maxX: preferred.x }
+          : options?.direction === 'top' ? { maxY: preferred.y } : {};
+    const position = placeMermaidCanvasNode(graph, shifted(positions), node, preferred, limits);
     setCanvasLayout((current) => {
-      const nextPositions = safeCanvasRecord({ ...current.positions, [id]: position });
+      const nextPositions = safeCanvasRecord({ ...shifted(current.positions), [id]: position });
       return { ...current, positions: nextPositions, ...expandedMermaidCanvasStage(nextGraph, nextPositions, current) };
     });
     revealNodeRef.current = id;
@@ -1397,7 +1597,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       const nextPositions = { ...positions, [id]: position };
       nextGraph.nodes.sort((a, b) => nextPositions[a.id].x - nextPositions[b.id].x);
     }
-    commitGraph(nextGraph);
+    const insertionDirection = options?.direction === 'right' ? 'LR'
+      : options?.direction === 'bottom' ? 'TB'
+        : options?.direction === 'left' ? 'RL'
+          : options?.direction === 'top' ? 'BT' : undefined;
+    commitGraph(nextGraph, true, insertionDirection);
     setSelection({ kind: 'node', id });
     setEditingNodeId(options?.editLabel === false || options?.presetId === 'state-start' || options?.presetId === 'state-end' ? null : id);
     setEditingEdgeId(null);
@@ -1431,6 +1635,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   ) {
     addNode(quickAddPoint(fromId, direction, presetId), {
       parentId: fromId,
+      direction,
       presetId,
       edgeDirection,
     });
@@ -1482,6 +1687,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       details: selectedNode.data.details ? [...selectedNode.data.details] : undefined,
       ganttStatuses: selectedNode.data.ganttStatuses ? [...selectedNode.data.ganttStatuses] : undefined,
       ganttTiming: selectedNode.data.ganttTiming ? [...selectedNode.data.ganttTiming] : undefined,
+      ...(graph.kind === 'gantt' ? { ganttStart: selectedNode.data.ganttStart || suggestGanttStart(graph) } : {}),
       mindRoot: false,
     } : undefined;
     const duplicate: MermaidFlowNode = {
@@ -1529,7 +1735,23 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     const groups = graph.data?.groups ?? [];
     let index = groups.length + 1;
     while (groups.some((group) => group.id === `Group${index}`) || graph.nodes.some((node) => node.id === `Group${index}`)) index += 1;
-    commitGraph({ ...graph, data: { ...graph.data, groups: [...groups, { id: `Group${index}`, label: graph.data?.diagramType === 'usecase' ? t("系统边界") : t("新包") }] } });
+    const id = `Group${index}`;
+    const nextGraph = { ...graph, data: { ...graph.data, groups: [...groups, { id, label: graph.data?.diagramType === 'usecase' ? t("系统边界") : t("新包") }] } };
+    const viewport = viewportRef.current;
+    const viewportRect = viewport?.getBoundingClientRect();
+    const stageRect = stageRef.current?.getBoundingClientRect();
+    const preferred = viewport && viewportRect && stageRect
+      ? { x: (viewportRect.left + viewport.clientWidth / 2 - stageRect.left) / zoomRef.current - 110,
+          y: (viewportRect.top + viewport.clientHeight / 2 - stageRect.top) / zoomRef.current - 60 }
+      : { x: 70, y: 70 };
+    const point = placeMermaidCanvasGroup(graph, layoutRef.current.positions, preferred);
+    if (!commitGraph(nextGraph)) return;
+    const nextPositions = safeCanvasRecord({ ...layoutRef.current.positions, [id]: point });
+    const nextLayout = { ...layoutRef.current, positions: nextPositions, ...expandedMermaidCanvasStage(nextGraph, nextPositions, layoutRef.current) };
+    shouldCenterViewport.current = true;
+    shouldAutoFitViewport.current = true;
+    layoutRef.current = nextLayout;
+    setCanvasLayout(nextLayout);
   }
 
   function removeGroup(id: string) {
@@ -1672,22 +1894,31 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     editorRef.current?.focus({ preventScroll: true });
   }
 
+  function startInlineLabel() {
+    // A newly opened input owns a fresh transaction. Refocusing the same
+    // rejected draft must keep its existing accepted-edit rollback snapshot.
+    labelEditRef.current = null;
+    onChange(currentGraphRef.current);
+  }
+
   function updateInlineLabel(kind: 'node' | 'edge', id: string, label: string) {
     const current = (kind === 'node' ? graph.nodes : graph.edges).find((item) => item.id === id);
-    if (!current || current.label === label) return;
+    if (!current) return false;
     const key = `${kind}:${id}`;
     const next = kind === 'node'
       ? { ...graph, nodes: graph.nodes.map((node) => node.id === id ? { ...node, label } : node) }
       : { ...graph, edges: graph.edges.map((edge) => edge.id === id ? { ...edge, label } : edge) };
     const firstChange = labelEditRef.current?.key !== key;
-    if (firstChange) {
-      labelEditRef.current = beginCanvasLabelEdit(key,
-        { graph: currentGraphRef.current, layout: layoutRef.current }, undoStackRef.current, redoStackRef.current);
-    }
-    commitGraph(next, firstChange);
+    const edit = firstChange && current.label !== label ? beginCanvasLabelEdit(key,
+      { graph: currentGraphRef.current, layout: layoutRef.current }, undoStackRef.current, redoStackRef.current) : null;
+    // Rejected drafts cannot consume the first accepted undo boundary. Even an
+    // unchanged label is validated so repairing back to it clears the error.
+    const accepted = commitGraph(next, firstChange);
+    if (accepted && edit) labelEditRef.current = edit;
+    return accepted;
   }
 
-  function finishInlineLabel(cancel = false) {
+  function finishInlineLabel(cancel = false, focusCanvas = true) {
     const edit = labelEditRef.current;
     labelEditRef.current = null;
     if (cancel && edit) {
@@ -1700,10 +1931,14 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       setCanvasLayout(restored.snapshot.layout);
       updateHistoryStatus();
       onChange(restored.snapshot.graph);
+    } else if (cancel) {
+      // A session containing only rejected text has no history snapshot, but
+      // Escape must still dismiss its validation error.
+      onChange(currentGraphRef.current);
     }
     setEditingNodeId(null);
     setEditingEdgeId(null);
-    editorRef.current?.focus({ preventScroll: true });
+    if (focusCanvas) editorRef.current?.focus({ preventScroll: true });
   }
 
   function updateNode(id: string, update: Partial<MermaidFlowNode>) {
@@ -1756,11 +1991,21 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     commitGraph({ ...graph, nodes, edges });
   }
 
-  function updateNodeData(id: string, update: Partial<NodeData>) {
-    commitGraph({
+  function updateNodeData(id: string, update: Partial<NodeData>, propertyKey?: string) {
+    const previousRef = graph.nodes.find((node) => node.id === id)?.data?.ref ?? id;
+    let nodes = graph.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, ...update } } : node);
+    if (graph.kind === 'gantt' && update.ref !== undefined && update.ref !== previousRef) {
+      // End-at-task expressions are references too, independent of after edges.
+      nodes = nodes.map((node) => node.data?.ganttTiming ? { ...node, data: { ...node.data,
+        ganttTiming: node.data.ganttTiming.map((timing) => timing.replace(/^(\s*until\s+)(.*)$/, (_match, prefix: string, refs: string) =>
+          prefix + refs.replace(/\S+/g, (ref) => ref === previousRef ? update.ref! : ref))),
+      } } : node);
+    }
+    const next = {
       ...graph,
-      nodes: graph.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, ...update } } : node),
-    });
+      nodes,
+    };
+    return propertyKey ? commitPropertyGraph(propertyKey, next) : commitGraph(next);
   }
 
   function updateNodeDetail(id: string, index: number, value: string) {
@@ -1768,7 +2013,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     if (!node) return;
     const details = [...(node.data?.details ?? [])];
     details[index] = value;
-    updateNodeData(id, { details });
+    updateNodeData(id, { details }, `node:${id}:detail:${index}`);
   }
 
   function addNodeDetail(id: string) {
@@ -1784,8 +2029,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     updateNodeData(id, { details: (node.data?.details ?? []).filter((_, detailIndex) => detailIndex !== index) });
   }
 
-  function updateEdgeToken(id: string, token: string) {
-    commitGraph({
+  function updateEdgeToken(id: string, token: string, propertyKey?: string) {
+    const next = {
       ...graph,
       edges: graph.edges.map((edge) => {
         if (edge.id !== id) return edge;
@@ -1798,7 +2043,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
             : edge.style;
         return { ...edge, style, data: { ...edge.data, token } };
       }),
-    });
+    };
+    return propertyKey ? commitPropertyGraph(propertyKey, next) : commitGraph(next);
   }
 
   function moveEdge(id: string, offset: -1 | 1) {
@@ -1814,10 +2060,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     if (!selectedEdge) return;
     if (graph.kind === 'mindmap' || selectedEdgeTouchesStatePseudo) return;
     const otherEdges = graph.edges.filter((edge) => edge.id !== selectedEdge.id);
-    if (graph.kind === 'gantt' && (
-      otherEdges.some((edge) => edge.from === selectedEdge.to && edge.to === selectedEdge.from)
-      || connectionWouldCycle(otherEdges, selectedEdge.to, selectedEdge.from)
-    )) return;
+    if (graph.kind === 'gantt') {
+      const issue = canvasConnectionIssue({ ...graph, edges: otherEdges }, selectedEdge.to, selectedEdge.from);
+      setConnectionIssue(issue);
+      if (issue) return;
+    }
     const token = graph.kind === 'er'
       ? reverseErToken(selectedEdge.data?.token)
       : graph.kind === 'class' ? reverseClassToken(selectedEdge.data?.token) : selectedEdge.data?.token;
@@ -1848,8 +2095,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     const node = graph.nodes.find((candidate) => candidate.id === id);
     const timing = [...(node?.data?.ganttTiming ?? [])];
     timing[index] = value;
-    while (timing.length && !timing[timing.length - 1]) timing.pop();
-    updateNodeData(id, { ganttTiming: timing });
+    return updateNodeData(id, { ganttTiming: timing }, `node:${id}:timing:${index}`);
   }
 
   function changeStateRole(id: string, role: 'start' | 'end' | 'state') {
@@ -1868,7 +2114,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       ...graph,
       nodes: graph.nodes.map((candidate) => candidate.id === id ? {
         ...candidate,
-        label: role === 'start' ? t("开始") : role === 'end' ? t("结束") : candidate.label,
+        label: role === 'start' ? t("开始") : role === 'end' ? t("结束") : nodeDisplayLabel(candidate, graph.kind),
         shape: role === 'state' ? 'rounded' : 'circle',
         data: { ...candidate.data, ref, stateRole: role },
       } : candidate),
@@ -1878,10 +2124,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   function handleNodePointerDown(event: ReactPointerEvent<HTMLDivElement>, node: MermaidFlowNode) {
     if (event.button !== 0 || editingNodeId === node.id || connectMode || handTool || spacePressedRef.current) return;
     event.stopPropagation();
-    // Selecting rich nodes (class, ER and Gantt) reveals an inspector and can
-    // resize the viewport between pointer-down and click. Remember the press so
-    // a retargeted click on the shifted canvas cannot immediately clear it.
-    lastNodePointerAt.current = event.timeStamp;
+    // Keep the pressed object under the pointer when its inspector appears.
     editorRef.current?.focus({ preventScroll: true });
     const stageRect = stageRef.current?.getBoundingClientRect();
     if (stageRect) selectionAnchorRef.current = { left: stageRect.left, top: stageRect.top };
@@ -1927,7 +2170,20 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   function handleNodeClick(event: ReactMouseEvent<HTMLDivElement>, node: MermaidFlowNode) {
     event.stopPropagation();
     if (connectMode && event.detail > 1) return;
-    if (connectMode) activateNode(node);
+    // Accessibility activation has no pointerdown. Select it here as well,
+    // without replaying selection for ordinary pointer clicks or drags.
+    if (connectMode || event.detail === 0) activateNode(node);
+  }
+
+  function handleSequenceLifelineClick(event: ReactMouseEvent<HTMLElement | SVGElement>, node: MermaidFlowNode, selectWhenIdle = false) {
+    event.stopPropagation();
+    const suppressed = suppressConnectionClickRef.current;
+    suppressConnectionClickRef.current = false;
+    // A completed/cancelled drag can still emit a click. It must not append a
+    // second message; keyboard activation (detail 0) is a separate action.
+    if (suppressed && event.detail > 0) return;
+    if (connectMode && event.detail > 1) return;
+    if ((connectMode || selectWhenIdle) && !handTool && !spacePressedRef.current) activateNode(node);
   }
 
   function beginConnectionFrom(nodeId: string) {
@@ -1946,7 +2202,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
 
   function handleCanvasDoubleClick(event: ReactMouseEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement;
-    if (event.timeStamp - lastNodePointerAt.current < 750
+    const independentBlankPair = blankClickCountRef.current === 2;
+    blankClickCountRef.current = 0;
+    if (!independentBlankPair
       || handTool || spacePressedRef.current || target.closest('[data-mermaid-node-id], [data-mermaid-edge-id], .canvas-edge-label')) return;
     addNode(pointFromEvent(event));
   }
@@ -1962,9 +2220,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       return;
     }
     if (event.metaKey || event.ctrlKey) {
-      if (!isControl && event.key.toLowerCase() === 'a' && supportsMultiSelect) {
+      if (!isControl && event.key.toLowerCase() === 'a') {
         event.preventDefault();
-        selectNodes(graph.nodes.map((node) => node.id));
+        if (supportsMultiSelect) selectNodes(graph.nodes.map((node) => node.id));
         return;
       }
       if (!isControl && event.key.toLowerCase() === 'z') {
@@ -1983,17 +2241,22 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         duplicateSelection();
         return;
       }
-      if (event.key === '+' || event.key === '=' || event.code === 'NumpadAdd') {
+      if (!isControl && (event.key === '+' || event.key === '=' || event.code === 'NumpadAdd')) {
         event.preventDefault();
         zoomAroundViewportCenter(zoomRef.current + 0.1);
         return;
       }
-      if (event.key === '-' || event.key === '_' || event.code === 'NumpadSubtract') {
+      // The native Ctrl+Shift+Minus path can report two em dashes. Keep this
+      // alias narrow so other layouts' physical Minus keys retain their meaning.
+      const localizedMinus = event.key === '\u2014\u2014' && event.code === 'Minus'
+        && event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey
+        && !event.nativeEvent.isComposing;
+      if (!isControl && (event.key === '-' || event.key === '_' || event.code === 'NumpadSubtract' || localizedMinus)) {
         event.preventDefault();
         zoomAroundViewportCenter(zoomRef.current - 0.1);
         return;
       }
-      if (event.key === '0' || event.code === 'Numpad0') {
+      if (!isControl && (event.key === '0' || event.code === 'Numpad0')) {
         event.preventDefault();
         zoomAroundViewportCenter(1);
         return;
@@ -2089,6 +2352,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     event.preventDefault();
     event.stopPropagation();
     cancelPointerInteractions();
+    suppressConnectionClickRef.current = false;
     setConnectionIssue(null);
     setSelection({ kind: 'node', id: nodeId });
     setEditingNodeId(null);
@@ -2162,6 +2426,10 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     const viewport = viewportRef.current;
     const stage = stageRef.current;
     if (!viewport || !stage) return;
+    // At a zoom limit, preserve the existing scroll position. Reapplying an
+    // unchanged anchor can accumulate rounding of fractional layout offsets.
+    // Explicit fit/reset still uses setZoomWithTarget to reposition the view.
+    if (Math.abs(clampZoom(nextZoom) - zoom) <= 0.0005) return;
     const viewportRect = viewport.getBoundingClientRect();
     const stageRect = stage.getBoundingClientRect();
     const viewportX = Math.max(0, Math.min(viewport.clientWidth, clientX - viewportRect.left));
@@ -2211,7 +2479,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     if (!id || !positions[id]) return;
     revealNodeRef.current = null;
     const viewport = viewportRef.current;
-    const element = stageRef.current?.querySelector<HTMLElement>(`[data-mermaid-node-id="${CSS.escape(id)}"]`);
+    // Sequence lifeline hit targets share this ID but have zero width.
+    // Reveal the full participant card rather than only its center line.
+    const element = stageRef.current?.querySelector<HTMLElement>(`.mermaid-canvas-node[data-mermaid-node-id="${CSS.escape(id)}"]`);
     if (!viewport || !element) return;
     const rect = element.getBoundingClientRect();
     const view = viewport.getBoundingClientRect();
@@ -2284,6 +2554,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   function handleViewportPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const box = marqueeRef.current;
     if (box && box.pointerId === event.pointerId) {
+      // A lost/retargeted release must not turn a later hover into selection.
+      if ((event.buttons & 1) === 0) {
+        finishMarqueeByPointerId(event.pointerId);
+        return;
+      }
       const end = pointFromEvent(event);
       const moved = Math.hypot(end.x - box.start.x, end.y - box.start.y) * zoom > 3;
       if (moved) {
@@ -2323,12 +2598,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   }
 
   function finishViewportPan(event: ReactPointerEvent<HTMLDivElement>) {
-    if (marqueeRef.current?.pointerId === event.pointerId) {
-      marqueeRef.current = null;
-      setMarquee(null);
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-      window.setTimeout(() => { didPanRef.current = false; }, 0);
-    }
+    finishMarqueeByPointerId(event.pointerId);
     finishViewportPanByPointerId(event.pointerId);
   }
 
@@ -2341,7 +2611,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       tabIndex={0}
       onKeyDown={handleEditorKeyDown}
     >
-      <div className="canvas-editor-toolbar" onMouseDown={(event) => { if ((event.target as Element).closest('button')) event.preventDefault(); }}>
+      <div className="canvas-editor-toolbar" onMouseDown={(event) => {
+        // Let an inline label blur and finish before the clicked tool runs.
+        // Property fields retain focus so their existing toolbar/history flow stays intact.
+        if ((event.target as Element).closest('button') && !editingNodeId && !editingEdgeId) event.preventDefault();
+      }}>
         <div className="canvas-tool-group" role="group" aria-label={t("画布工具")}>
           <button type="button" className={!handTool && !connectMode ? 'active' : ''} aria-pressed={!handTool && !connectMode} title={t("选择工具（V）")} onClick={() => { setHandTool(false); setConnectMode(false); setConnectionIssue(null); }}><MousePointer2 size={14} />{t("选择")}</button>
           <button type="button" className={handTool ? 'active' : ''} aria-pressed={handTool} title={t("平移工具（H），或按住空格拖动")} onClick={() => { setHandTool(true); setConnectMode(false); setConnectionIssue(null); }}><Hand size={14} />{t("平移")}</button>
@@ -2377,7 +2651,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           >
             <Link2 size={15} /> {copy.connect}
           </button>
-          <button type="button" onClick={() => { recordCanvasHistory(); applyAutomaticLayout(); }} title={t("重新排列{0}", copy.nodes)}><RefreshCcw size={14} />  {t("自动排列")}</button>
+          <button type="button" onClick={applyAutomaticLayout} title={t("重新排列{0}", copy.nodes)}><RefreshCcw size={14} />  {t("自动排列")}</button>
         </div>
 
         <div className="canvas-node-library" role="group" aria-label={t("{0}库", copy.node)}>
@@ -2430,7 +2704,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           <button type="button" className="canvas-zoom-value" onClick={() => zoomAroundViewportCenter(1)} aria-label={t("当前缩放 {0}%，点击重置", Math.round(zoom * 100))} title={t("重置为 100%（0 或 ⌘/Ctrl 0）")}>{Math.round(zoom * 100)}%</button>
           <button type="button" onClick={() => zoomAroundViewportCenter(zoomRef.current + 0.1)} aria-label={t("放大画布")} title={t("放大（⌘/Ctrl +）")}><ZoomIn size={15} /></button>
           <button type="button" className="canvas-fit-button" onClick={() => fitContent()} title={t("适配全部内容（F）")}><Maximize2 size={14} />  {t("适配")}</button>
-          {selectedIds.length ? <button type="button" onClick={() => fitContent(MAX_ZOOM, true)} title={t("适配选中对象（Shift F）")}>{t("选区")}</button> : null}
+          <button type="button" disabled={!selectedIds.length} onClick={() => fitContent(MAX_ZOOM, true)} title={t("适配选中对象（Shift F）")}>{t("选区")}</button>
         </div>
       </div>
 
@@ -2442,201 +2716,205 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         </span>
         <span>{t("滚轮平移 · ⌘/Ctrl + 滚轮缩放 · 空格拖动画布")}</span>
       </div>
-      <div className="canvas-context-bar" aria-live="polite" onMouseDown={(event) => { if ((event.target as Element).closest('button')) event.preventDefault(); }}>
-        {connectMode ? (
-          <>
-            <span className="canvas-selection-title"><Link2 size={13} /><b>{connectingNode ? t("起点：{0}", connectingNode.label || connectingNode.id) : t("添加{0}", copy.edge)}</b></span>
-            <span className="canvas-context-divider" />
-            <span className="canvas-connect-guidance">
-              {connectingNode
-                ? t("点击目标{0}{1}完成{2}；可连续添加", copy.node, graph.kind === 'sequence' ? t("或其生命线") : '', copy.edge)
-                : t("先点击一个{0}作为起点", copy.node)}
+      <div className="canvas-selection-panel">
+        <div className="canvas-context-bar" aria-live="polite" onMouseDown={(event) => { if ((event.target as Element).closest('button')) event.preventDefault(); }}>
+          {connectMode ? (
+            <>
+              <span className="canvas-selection-title"><Link2 size={13} /><b>{connectingNode ? t("起点：{0}", nodeDisplayLabel(connectingNode, graph.kind) || connectingNode.id) : t("添加{0}", copy.edge)}</b></span>
+              <span className="canvas-context-divider" />
+              <span className="canvas-connect-guidance">
+                {connectingNode
+                  ? t("点击目标{0}{1}完成{2}；可连续添加", copy.node, graph.kind === 'sequence' ? t("或其生命线") : '', copy.edge)
+                  : t("先点击一个{0}作为起点", copy.node)}
+              </span>
+              {connectingNode ? <button type="button" onClick={() => { setConnectionIssue(null); setConnectingFrom(null); setSelection(null); }}>{t("重选起点")}</button> : null}
+              <button type="button" onClick={() => { setConnectionIssue(null); setConnectMode(false); setConnectingFrom(null); }}>{t("完成")}</button>
+            </>
+          ) : selectedIds.length > 1 ? (
+            <>
+              <span className="canvas-selection-title"><b>{t("已选择 {0} 个对象", selectedIds.length)}</b></span>
+              <button type="button" onClick={() => arrangeSelection('left')}>{t("左对齐")}</button>
+              <button type="button" onClick={() => arrangeSelection('center')}>{t("水平居中")}</button>
+              <button type="button" onClick={() => arrangeSelection('top')}>{t("顶端对齐")}</button>
+              <button type="button" onClick={() => arrangeSelection('middle')}>{t("垂直居中")}</button>
+              <button type="button" disabled={selectedIds.length < 3} onClick={() => arrangeSelection('horizontal')}>{t("水平分布")}</button>
+              <button type="button" disabled={selectedIds.length < 3} onClick={() => arrangeSelection('vertical')}>{t("垂直分布")}</button>
+              <button type="button" onClick={duplicateSelection} title={t("复制选中对象（⌘/Ctrl D）")}><Copy size={13} />{t("复制")}</button>
+              <button type="button" className="danger" onClick={removeSelection}><Trash2 size={13} />{t("删除")}</button>
+            </>
+          ) : selectedNode ? (
+            <>
+              <span className="canvas-selection-title"><MousePointer2 size={13} /><b>{nodeDisplayLabel(selectedNode, graph.kind) || selectedNode.id}</b></span>
+              {graph.data?.groups?.length ? <label className="canvas-group-membership">{t("所属包 / 边界")} <select aria-label={t("所属包 / 边界")} value={selectedNode.data?.groupId ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { groupId: event.target.value || undefined })}>
+                <option value="">{t("外部")}</option>
+                {graph.data.groups.map((group) => <option key={group.id} value={group.id}>{group.label}</option>)}
+              </select></label> : null}
+              <span className="canvas-context-divider" />
+              {canRenameSelectedNode ? <button type="button" onClick={() => setEditingNodeId(selectedNode.id)}><Pencil size={13} />  {t("改名")}</button> : null}
+              {!(graph.kind === 'state' && selectedNode.data?.stateRole !== 'state') ? <button type="button" onClick={duplicateSelectedNode} title={t("复制（⌘/Ctrl D）")}><Plus size={13} />  {t("复制")}</button> : null}
+              {graph.kind === 'flowchart' ? (
+                <div className="canvas-shape-tools" role="group" aria-label={t("节点形状与快速创建")}>
+                  {SHAPE_OPTIONS.map(({ value, label, icon: Icon }) => (
+                    <button
+                      type="button"
+                      key={value}
+                      className={selectedNode.shape === value ? 'active' : ''}
+                      onClick={() => updateNode(selectedNode.id, { shape: value })}
+                      title={label}
+                      aria-label={label}
+                    >
+                      <Icon size={13} /><span>{label}</span>
+                    </button>
+                  ))}
+                  <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'flow-process')}><ArrowRight size={13} />  {t("下游流程")}</button>
+                  <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'bottom', 'flow-decision')}><Diamond size={13} />  {t("分支判断")}</button>
+                </div>
+              ) : null}
+              {graph.kind === 'sequence' ? (
+                <div className="canvas-semantic-tools" role="group" aria-label={t("参与者类型")}>
+                  <button type="button" className={selectedNode.data?.sequenceType === 'actor' ? 'active' : ''} onClick={() => updateNodeData(selectedNode.id, { sequenceType: 'actor' })}>{t("角色")}</button>
+                  <button type="button" className={selectedNode.data?.sequenceType !== 'actor' ? 'active' : ''} onClick={() => updateNodeData(selectedNode.id, { sequenceType: 'participant' })}>{t("参与者")}</button>
+                  <button type="button" onClick={() => beginConnectionFrom(selectedNode.id)}><Link2 size={13} />  {t("从这里发消息")}</button>
+                  <button type="button" disabled={selectedNodeIndex <= 0} onClick={() => addSequenceMessageToNeighbor(selectedNode.id, -1)}><ArrowLeft size={13} />  {t("发给上一个")}</button>
+                  <button type="button" disabled={selectedNodeIndex < 0 || selectedNodeIndex >= graph.nodes.length - 1} onClick={() => addSequenceMessageToNeighbor(selectedNode.id, 1)}><ArrowRight size={13} />  {t("发给下一个")}</button>
+                  <button type="button" onClick={() => addConnection(selectedNode.id, selectedNode.id)}>{t("自消息")}</button>
+                  <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'sequence-participant')}><Plus size={13} />  {t("新参与者并发送")}</button>
+                </div>
+              ) : null}
+              {graph.kind === 'state' ? (
+                <div className="canvas-semantic-tools" role="group" aria-label={t("状态类型")}>
+                  <button type="button" className={selectedNode.data?.stateRole === 'state' ? 'active' : ''} onClick={() => changeStateRole(selectedNode.id, 'state')}>{t("普通状态")}</button>
+                  <button type="button" className={selectedNode.data?.stateRole === 'start' ? 'active' : ''} disabled={selectedNode.data?.stateRole !== 'start' && (selectedNodeIncoming !== 0 || selectedNodeOutgoing !== 1)} onClick={() => changeStateRole(selectedNode.id, 'start')}>{t("开始")}</button>
+                  <button type="button" className={selectedNode.data?.stateRole === 'end' ? 'active' : ''} disabled={selectedNode.data?.stateRole !== 'end' && (selectedNodeIncoming !== 1 || selectedNodeOutgoing !== 0)} onClick={() => changeStateRole(selectedNode.id, 'end')}>{t("结束")}</button>
+                  {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'state-state')}><ArrowRight size={13} />  {t("下一状态")}</button> : null}
+                  {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'top', 'state-start', 'to-parent')}><Circle size={12} />  {t("添加起点")}</button> : null}
+                  {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'bottom', 'state-end')}><Circle size={12} />  {t("添加终点")}</button> : null}
+                </div>
+              ) : null}
+              {graph.kind === 'mindmap' ? (
+                <div className="canvas-semantic-tools" role="group" aria-label={t("主题结构")}>
+                  <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'mind-topic')}><Plus size={13} />  {t("子主题")}</button>
+                  <button type="button" onClick={() => addMindmapSibling(selectedNode.id)}><ArrowDown size={13} />  {t("同级主题")}</button>
+                </div>
+              ) : null}
+              {graph.kind === 'gantt' ? (
+                <div className="canvas-semantic-tools" role="group" aria-label={t("任务结构")}>
+                  <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'gantt-task')}><ArrowRight size={13} />  {t("后续任务")}</button>
+                  <button type="button" onClick={() => addGanttParallel(selectedNode.id)}><ArrowDown size={13} />  {t("并行任务")}</button>
+                  <button type="button" onClick={() => addGanttParallel(selectedNode.id, 'gantt-milestone')}><Diamond size={12} />  {t("里程碑")}</button>
+                </div>
+              ) : null}
+              {graph.kind === 'class' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'class-class')}><Plus size={13} />  {t("关联类")}</button> : null}
+              {graph.kind === 'er' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'er-entity')}><Plus size={13} />  {t("关联实体")}</button> : null}
+              <button type="button" className="danger" disabled={(graph.kind === 'mindmap' || graph.kind === 'gantt') && graph.nodes.length === 1} onClick={removeSelection}><Trash2 size={13} />  {t("删除")}</button>
+            </>
+          ) : selectedEdge ? (
+            <>
+              <span className="canvas-selection-title"><Link2 size={13} /><b>{selectedEdge.label || t("已选{0}", copy.edge)}</b></span>
+              <span className="canvas-context-divider" />
+              {edgeSupportsLabel ? <button type="button" onClick={() => setEditingEdgeId(selectedEdge.id)}><Pencil size={13} /> {selectedEdge.label ? t("改{0}", graph.kind === 'sequence' ? t("消息") : t("说明")) : t("加{0}", graph.kind === 'sequence' ? t("消息") : t("说明"))}</button> : null}
+              {graph.kind === 'flowchart' ? (
+                <div className="canvas-edge-style-tools" role="group" aria-label={t("连线样式")}>
+                  {EDGE_OPTIONS.map(({ value, label }) => (
+                    <button type="button" key={value} className={selectedEdge.style === value ? 'active' : ''} onClick={() => updateEdge(selectedEdge.id, { style: value })}>{label}</button>
+                  ))}
+                </div>
+              ) : null}
+              {graph.kind === 'sequence' ? (
+                <div className="canvas-semantic-tools" role="group" aria-label={t("消息顺序")}>
+                  <label className="canvas-context-select"><span>{t("类型")}</span><select value={selectedEdge.data?.token ?? '->>'} onChange={(event) => updateEdgeToken(selectedEdge.id, event.target.value)}>{SEQUENCE_MESSAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                  <button type="button" disabled={selectedSequenceIndex <= 0} onClick={() => moveEdge(selectedEdge.id, -1)}><ArrowUp size={13} />  {t("提前")}</button>
+                  <button type="button" disabled={selectedSequenceIndex < 0 || selectedSequenceIndex >= graph.edges.length - 1} onClick={() => moveEdge(selectedEdge.id, 1)}><ArrowDown size={13} />  {t("延后")}</button>
+                </div>
+              ) : null}
+              {canReverseSelectedEdge ? <button type="button" onClick={reverseSelectedEdge}><RefreshCcw size={13} />  {t("反向")}{copy.edge}</button> : null}
+              {canRemoveSelectedEdge ? <button type="button" className="danger" onClick={removeSelection}><Trash2 size={13} /> {graph.kind === 'mindmap' ? t("移到根主题") : t("删除")}</button> : null}
+            </>
+          ) : (
+            <span className="canvas-idle-hint">
+              {connectMode
+                ? connectingFrom ? t("再点一个{0}完成{1}；可连续操作", copy.node, copy.edge) : t("点一个{0}作为{1}起点", copy.node, copy.edge)
+                : graph.kind === 'sequence'
+                  ? t("移入对象生命线显示调整区域 · 左右拖动调宽 · 底部拖动调长 · 从连接点或生命线拖动创建消息")
+                  : t("选择{0}后用方向箭头快速创建 · 右下角端点可连接已有{1} · 双击空白新增", copy.node, copy.node)}
             </span>
-            {connectingNode ? <button type="button" onClick={() => { setConnectionIssue(null); setConnectingFrom(null); setSelection(null); }}>{t("重选起点")}</button> : null}
-            <button type="button" onClick={() => { setConnectionIssue(null); setConnectMode(false); setConnectingFrom(null); }}>{t("完成")}</button>
-          </>
-        ) : selectedIds.length > 1 ? (
-          <>
-            <span className="canvas-selection-title"><b>{t("已选择 {0} 个对象", selectedIds.length)}</b></span>
-            <button type="button" onClick={() => arrangeSelection('left')}>{t("左对齐")}</button>
-            <button type="button" onClick={() => arrangeSelection('center')}>{t("水平居中")}</button>
-            <button type="button" onClick={() => arrangeSelection('top')}>{t("顶端对齐")}</button>
-            <button type="button" onClick={() => arrangeSelection('middle')}>{t("垂直居中")}</button>
-            <button type="button" disabled={selectedIds.length < 3} onClick={() => arrangeSelection('horizontal')}>{t("水平分布")}</button>
-            <button type="button" disabled={selectedIds.length < 3} onClick={() => arrangeSelection('vertical')}>{t("垂直分布")}</button>
-            <button type="button" onClick={duplicateSelection} title={t("复制选中对象（⌘/Ctrl D）")}><Copy size={13} />{t("复制")}</button>
-            <button type="button" className="danger" onClick={removeSelection}><Trash2 size={13} />{t("删除")}</button>
-          </>
-        ) : selectedNode ? (
-          <>
-            <span className="canvas-selection-title"><MousePointer2 size={13} /><b>{selectedNode.label || selectedNode.id}</b></span>
-            {graph.data?.groups?.length ? <label className="canvas-group-membership">{t("所属包 / 边界")} <select aria-label={t("所属包 / 边界")} value={selectedNode.data?.groupId ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { groupId: event.target.value || undefined })}>
-              <option value="">{t("外部")}</option>
-              {graph.data.groups.map((group) => <option key={group.id} value={group.id}>{group.label}</option>)}
-            </select></label> : null}
-            <span className="canvas-context-divider" />
-            {canRenameSelectedNode ? <button type="button" onClick={() => setEditingNodeId(selectedNode.id)}><Pencil size={13} />  {t("改名")}</button> : null}
-            {!(graph.kind === 'state' && selectedNode.data?.stateRole !== 'state') ? <button type="button" onClick={duplicateSelectedNode} title={t("复制（⌘/Ctrl D）")}><Plus size={13} />  {t("复制")}</button> : null}
-            {graph.kind === 'flowchart' ? (
-              <div className="canvas-shape-tools" role="group" aria-label={t("节点形状与快速创建")}>
-                {SHAPE_OPTIONS.map(({ value, label, icon: Icon }) => (
-                  <button
-                    type="button"
-                    key={value}
-                    className={selectedNode.shape === value ? 'active' : ''}
-                    onClick={() => updateNode(selectedNode.id, { shape: value })}
-                    title={label}
-                    aria-label={label}
-                  >
-                    <Icon size={13} /><span>{label}</span>
-                  </button>
-                ))}
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'flow-process')}><ArrowRight size={13} />  {t("下游流程")}</button>
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'bottom', 'flow-decision')}><Diamond size={13} />  {t("分支判断")}</button>
-              </div>
+          )}
+        </div>
+
+        {selectedNode && (graph.kind === 'class' || graph.kind === 'er') ? (
+          <div className="canvas-semantic-inspector canvas-details-inspector">
+            <span className="canvas-inspector-heading">{graph.kind === 'class' ? t("类成员") : t("实体字段")}</span>
+            <div className="canvas-detail-list">
+              {(selectedNode.data?.details ?? []).map((detail, index) => (
+                <label key={`${selectedNode.id}-detail-editor-${index}`}>
+                  <span>{index + 1}</span>
+                  <input
+                    {...propertyInputEvents}
+                    value={detail}
+                    onChange={(event) => updateNodeDetail(selectedNode.id, index, event.target.value)}
+                    placeholder={graph.kind === 'class' ? t("+String id 或 +save()") : 'string id PK'}
+                    aria-label={`${graph.kind === 'class' ? t("类成员") : t("实体字段")} ${index + 1}`}
+                  />
+                  <button type="button" className="canvas-detail-remove" onClick={() => removeNodeDetail(selectedNode.id, index)} aria-label={t("删除第 {0} 项", index + 1)}><Trash2 size={12} /></button>
+                </label>
+              ))}
+              <button type="button" className="canvas-detail-add" onClick={() => addNodeDetail(selectedNode.id)}><Plus size={12} />  {t("添加")}{graph.kind === 'class' ? t("成员") : t("字段")}</button>
+            </div>
+          </div>
+        ) : null}
+
+        {selectedNode && graph.kind === 'gantt' ? (
+          <div className="canvas-semantic-inspector canvas-gantt-inspector">
+            <label><span>{t("分组")}</span><input {...propertyInputEvents} value={selectedNode.data?.ganttSection ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { ganttSection: event.target.value }, `node:${selectedNode.id}:section`)} placeholder={t("例如：设计")} /></label>
+            <label><span>{t("任务 ID")}</span><GanttInput {...propertyInputEvents} key={`${selectedNode.id}-ref`} revision={graph} value={selectedNode.data?.ref ?? selectedNode.id} onChange={(value) => updateNodeData(selectedNode.id, { ref: value }, `node:${selectedNode.id}:ref`)} placeholder={t("唯一 ID")} /></label>
+            <label><span>{t("开始")}</span><GanttInput {...propertyInputEvents} key={`${selectedNode.id}-start`} revision={graph} disabled={selectedGanttHasDependency} value={selectedGanttStart} onChange={(value) => updateNodeData(selectedNode.id, { ganttStart: value }, `node:${selectedNode.id}:start`)} placeholder={selectedGanttHasDependency ? t("由依赖关系决定") : ganttDateFormat(graph)} /></label>
+            <label><span>{t("工期 / 结束")}</span><GanttInput {...propertyInputEvents} key={`${selectedNode.id}-timing`} revision={graph} value={selectedNode.data?.ganttTiming?.[0] ?? '1d'} onChange={(value) => updateGanttTiming(selectedNode.id, 0, value)} placeholder={t("例如：5d 或 2026-01-10")} /></label>
+            <div className="canvas-gantt-statuses" role="group" aria-label={t("任务状态")}>
+              <span>{t("状态")}</span>
+              {GANTT_STATUS_OPTIONS.map((option) => (
+                <button type="button" key={option.value} aria-pressed={selectedNode.data?.ganttStatuses?.includes(option.value) ?? false} className={selectedNode.data?.ganttStatuses?.includes(option.value) ? 'active' : ''} onClick={() => toggleGanttStatus(selectedNode.id, option.value)}>{option.label}</button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {selectedEdge ? (
+          <div className="canvas-semantic-inspector canvas-edge-inspector">
+            {!selectedEdgeTouchesStatePseudo ? (
+              <>
+                <label>
+                  <span>{graph.kind === 'mindmap' ? t("父主题") : graph.kind === 'gantt' ? t("前置任务") : t("起点")}</span>
+                  <select value={selectedEdge.from} onChange={(event) => retargetEdge(selectedEdge.id, 'from', event.target.value)}>
+                    {graph.nodes.map((node) => <option key={node.id} value={node.id} disabled={!canRetargetEdge(selectedEdge, 'from', node.id)}>{nodeDisplayLabel(node, graph.kind) || node.id}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>{graph.kind === 'mindmap' ? t("子主题") : graph.kind === 'gantt' ? t("后续任务") : t("终点")}</span>
+                  <select value={selectedEdge.to} onChange={(event) => retargetEdge(selectedEdge.id, 'to', event.target.value)}>
+                    {graph.nodes.map((node) => <option key={node.id} value={node.id} disabled={!canRetargetEdge(selectedEdge, 'to', node.id)}>{nodeDisplayLabel(node, graph.kind) || node.id}</option>)}
+                  </select>
+                </label>
+              </>
+            ) : <span className="canvas-inspector-note">{t("开始或结束状态的连接端点由状态语义固定")}</span>}
+            {graph.kind === 'class' && selectedClassRelation ? (
+              <>
+                <label><span>{t("关系类型")}</span><select value={selectedClassRelation.relation} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassRelation(selectedEdge.data?.token, event.target.value))}>{CLASS_RELATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                <label><span>{t("起点多重性")}</span><input {...propertyInputEvents} value={selectedClassRelation.fromMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'from', event.target.value), `edge:${selectedEdge.id}:fromMultiplicity`)} placeholder={t("例如 1")} /></label>
+                <label><span>{t("终点多重性")}</span><input {...propertyInputEvents} value={selectedClassRelation.toMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'to', event.target.value), `edge:${selectedEdge.id}:toMultiplicity`)} placeholder={t("例如 0..*")} /></label>
+              </>
             ) : null}
-            {graph.kind === 'sequence' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label={t("参与者类型")}>
-                <button type="button" className={selectedNode.data?.sequenceType === 'actor' ? 'active' : ''} onClick={() => updateNodeData(selectedNode.id, { sequenceType: 'actor' })}>{t("角色")}</button>
-                <button type="button" className={selectedNode.data?.sequenceType !== 'actor' ? 'active' : ''} onClick={() => updateNodeData(selectedNode.id, { sequenceType: 'participant' })}>{t("参与者")}</button>
-                <button type="button" onClick={() => beginConnectionFrom(selectedNode.id)}><Link2 size={13} />  {t("从这里发消息")}</button>
-                <button type="button" disabled={selectedNodeIndex <= 0} onClick={() => addSequenceMessageToNeighbor(selectedNode.id, -1)}><ArrowLeft size={13} />  {t("发给上一个")}</button>
-                <button type="button" disabled={selectedNodeIndex < 0 || selectedNodeIndex >= graph.nodes.length - 1} onClick={() => addSequenceMessageToNeighbor(selectedNode.id, 1)}><ArrowRight size={13} />  {t("发给下一个")}</button>
-                <button type="button" onClick={() => addConnection(selectedNode.id, selectedNode.id)}>{t("自消息")}</button>
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'sequence-participant')}><Plus size={13} />  {t("新参与者并发送")}</button>
-              </div>
+            {graph.kind === 'er' && selectedErRelation ? (
+              <>
+                <label><span>{t("起点基数")}</span><select value={selectedErRelation.from} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(event.target.value as ErCardinality, selectedErRelation.to, selectedErRelation.identifying))}>{ER_CARDINALITIES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                <label><span>{t("终点基数")}</span><select value={selectedErRelation.to} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(selectedErRelation.from, event.target.value as ErCardinality, selectedErRelation.identifying))}>{ER_CARDINALITIES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                <label><span>{t("关系")}</span><select value={selectedErRelation.identifying ? 'identifying' : 'non-identifying'} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(selectedErRelation.from, selectedErRelation.to, event.target.value === 'identifying'))}><option value="identifying">{t("标识关系")}</option><option value="non-identifying">{t("非标识关系")}</option></select></label>
+              </>
             ) : null}
-            {graph.kind === 'state' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label={t("状态类型")}>
-                <button type="button" className={selectedNode.data?.stateRole === 'state' ? 'active' : ''} onClick={() => changeStateRole(selectedNode.id, 'state')}>{t("普通状态")}</button>
-                <button type="button" className={selectedNode.data?.stateRole === 'start' ? 'active' : ''} disabled={selectedNode.data?.stateRole !== 'start' && (selectedNodeIncoming !== 0 || selectedNodeOutgoing !== 1)} onClick={() => changeStateRole(selectedNode.id, 'start')}>{t("开始")}</button>
-                <button type="button" className={selectedNode.data?.stateRole === 'end' ? 'active' : ''} disabled={selectedNode.data?.stateRole !== 'end' && (selectedNodeIncoming !== 1 || selectedNodeOutgoing !== 0)} onClick={() => changeStateRole(selectedNode.id, 'end')}>{t("结束")}</button>
-                {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'state-state')}><ArrowRight size={13} />  {t("下一状态")}</button> : null}
-                {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'top', 'state-start', 'to-parent')}><Circle size={12} />  {t("添加起点")}</button> : null}
-                {selectedNode.data?.stateRole === 'state' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'bottom', 'state-end')}><Circle size={12} />  {t("添加终点")}</button> : null}
-              </div>
-            ) : null}
-            {graph.kind === 'mindmap' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label={t("主题结构")}>
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'mind-topic')}><Plus size={13} />  {t("子主题")}</button>
-                <button type="button" onClick={() => addMindmapSibling(selectedNode.id)}><ArrowDown size={13} />  {t("同级主题")}</button>
-              </div>
-            ) : null}
-            {graph.kind === 'gantt' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label={t("任务结构")}>
-                <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'gantt-task')}><ArrowRight size={13} />  {t("后续任务")}</button>
-                <button type="button" onClick={() => addGanttParallel(selectedNode.id)}><ArrowDown size={13} />  {t("并行任务")}</button>
-                <button type="button" onClick={() => addGanttParallel(selectedNode.id, 'gantt-milestone')}><Diamond size={12} />  {t("里程碑")}</button>
-              </div>
-            ) : null}
-            {graph.kind === 'class' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'class-class')}><Plus size={13} />  {t("关联类")}</button> : null}
-            {graph.kind === 'er' ? <button type="button" onClick={() => addConnectedNode(selectedNode.id, 'right', 'er-entity')}><Plus size={13} />  {t("关联实体")}</button> : null}
-            <button type="button" className="danger" disabled={(graph.kind === 'mindmap' || graph.kind === 'gantt') && graph.nodes.length === 1} onClick={removeSelection}><Trash2 size={13} />  {t("删除")}</button>
-          </>
-        ) : selectedEdge ? (
-          <>
-            <span className="canvas-selection-title"><Link2 size={13} /><b>{selectedEdge.label || t("已选{0}", copy.edge)}</b></span>
-            <span className="canvas-context-divider" />
-            {edgeSupportsLabel ? <button type="button" onClick={() => setEditingEdgeId(selectedEdge.id)}><Pencil size={13} /> {selectedEdge.label ? t("改{0}", graph.kind === 'sequence' ? t("消息") : t("说明")) : t("加{0}", graph.kind === 'sequence' ? t("消息") : t("说明"))}</button> : null}
-            {graph.kind === 'flowchart' ? (
-              <div className="canvas-edge-style-tools" role="group" aria-label={t("连线样式")}>
-                {EDGE_OPTIONS.map(({ value, label }) => (
-                  <button type="button" key={value} className={selectedEdge.style === value ? 'active' : ''} onClick={() => updateEdge(selectedEdge.id, { style: value })}>{label}</button>
-                ))}
-              </div>
-            ) : null}
-            {graph.kind === 'sequence' ? (
-              <div className="canvas-semantic-tools" role="group" aria-label={t("消息顺序")}>
-                <label className="canvas-context-select"><span>{t("类型")}</span><select value={selectedEdge.data?.token ?? '->>'} onChange={(event) => updateEdgeToken(selectedEdge.id, event.target.value)}>{SEQUENCE_MESSAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                <button type="button" disabled={selectedSequenceIndex <= 0} onClick={() => moveEdge(selectedEdge.id, -1)}><ArrowUp size={13} />  {t("提前")}</button>
-                <button type="button" disabled={selectedSequenceIndex < 0 || selectedSequenceIndex >= graph.edges.length - 1} onClick={() => moveEdge(selectedEdge.id, 1)}><ArrowDown size={13} />  {t("延后")}</button>
-              </div>
-            ) : null}
-            {canReverseSelectedEdge ? <button type="button" onClick={reverseSelectedEdge}><RefreshCcw size={13} />  {t("反向")}{copy.edge}</button> : null}
-            {canRemoveSelectedEdge ? <button type="button" className="danger" onClick={removeSelection}><Trash2 size={13} /> {graph.kind === 'mindmap' ? t("移到根主题") : t("删除")}</button> : null}
-          </>
-        ) : (
-          <span className="canvas-idle-hint">
-            {connectMode
-              ? connectingFrom ? t("再点一个{0}完成{1}；可连续操作", copy.node, copy.edge) : t("点一个{0}作为{1}起点", copy.node, copy.edge)
-              : graph.kind === 'sequence'
-                ? t("移入对象生命线显示调整区域 · 左右拖动调宽 · 底部拖动调长 · 从连接点或生命线拖动创建消息")
-                : t("选择{0}后用方向箭头快速创建 · 右下角端点可连接已有{1} · 双击空白新增", copy.node, copy.node)}
-          </span>
-        )}
+            {graph.kind === 'class' ? <span className="canvas-inspector-note">{classRelationLabel(selectedEdge.data?.token)}  {t("· 可直接更换连接两端")}</span> : null}
+          </div>
+        ) : null}
+
       </div>
-
-      {selectedNode && (graph.kind === 'class' || graph.kind === 'er') ? (
-        <div className="canvas-semantic-inspector canvas-details-inspector">
-          <span className="canvas-inspector-heading">{graph.kind === 'class' ? t("类成员") : t("实体字段")}</span>
-          <div className="canvas-detail-list">
-            {(selectedNode.data?.details ?? []).map((detail, index) => (
-              <label key={`${selectedNode.id}-detail-editor-${index}`}>
-                <span>{index + 1}</span>
-                <input
-                  value={detail}
-                  onChange={(event) => updateNodeDetail(selectedNode.id, index, event.target.value)}
-                  placeholder={graph.kind === 'class' ? t("+String id 或 +save()") : 'string id PK'}
-                  aria-label={`${graph.kind === 'class' ? t("类成员") : t("实体字段")} ${index + 1}`}
-                />
-                <button type="button" className="canvas-detail-remove" onClick={() => removeNodeDetail(selectedNode.id, index)} aria-label={t("删除第 {0} 项", index + 1)}><Trash2 size={12} /></button>
-              </label>
-            ))}
-            <button type="button" className="canvas-detail-add" onClick={() => addNodeDetail(selectedNode.id)}><Plus size={12} />  {t("添加")}{graph.kind === 'class' ? t("成员") : t("字段")}</button>
-          </div>
-        </div>
-      ) : null}
-
-      {selectedNode && graph.kind === 'gantt' ? (
-        <div className="canvas-semantic-inspector canvas-gantt-inspector">
-          <label><span>{t("分组")}</span><input value={selectedNode.data?.ganttSection ?? ''} onChange={(event) => updateNodeData(selectedNode.id, { ganttSection: event.target.value })} placeholder={t("例如：设计")} /></label>
-          <label><span>{t("任务 ID")}</span><input value={selectedNode.data?.ref ?? selectedNode.id} onChange={(event) => updateNodeData(selectedNode.id, { ref: event.target.value })} placeholder={t("唯一 ID")} /></label>
-          <label><span>{t("开始")}</span><input disabled={selectedGanttHasDependency} value={selectedGanttStart} onChange={(event) => updateNodeData(selectedNode.id, { ganttStart: event.target.value })} placeholder={selectedGanttHasDependency ? t("由依赖关系决定") : 'YYYY-MM-DD'} /></label>
-          <label><span>{t("工期 / 结束")}</span><input value={selectedNode.data?.ganttTiming?.[0] || '1d'} onChange={(event) => updateGanttTiming(selectedNode.id, 0, event.target.value)} placeholder={t("例如：5d 或 2026-01-10")} /></label>
-          <div className="canvas-gantt-statuses" role="group" aria-label={t("任务状态")}>
-            <span>{t("状态")}</span>
-            {GANTT_STATUS_OPTIONS.map((option) => (
-              <button type="button" key={option.value} className={selectedNode.data?.ganttStatuses?.includes(option.value) ? 'active' : ''} onClick={() => toggleGanttStatus(selectedNode.id, option.value)}>{option.label}</button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {selectedEdge ? (
-        <div className="canvas-semantic-inspector canvas-edge-inspector">
-          {!selectedEdgeTouchesStatePseudo ? (
-            <>
-              <label>
-                <span>{graph.kind === 'mindmap' ? t("父主题") : graph.kind === 'gantt' ? t("前置任务") : t("起点")}</span>
-                <select value={selectedEdge.from} onChange={(event) => retargetEdge(selectedEdge.id, 'from', event.target.value)}>
-                  {graph.nodes.map((node) => <option key={node.id} value={node.id} disabled={!canRetargetEdge(selectedEdge, 'from', node.id)}>{node.label || node.id}</option>)}
-                </select>
-              </label>
-              <label>
-                <span>{graph.kind === 'mindmap' ? t("子主题") : graph.kind === 'gantt' ? t("后续任务") : t("终点")}</span>
-                <select value={selectedEdge.to} onChange={(event) => retargetEdge(selectedEdge.id, 'to', event.target.value)}>
-                  {graph.nodes.map((node) => <option key={node.id} value={node.id} disabled={!canRetargetEdge(selectedEdge, 'to', node.id)}>{node.label || node.id}</option>)}
-                </select>
-              </label>
-            </>
-          ) : <span className="canvas-inspector-note">{t("开始或结束状态的连接端点由状态语义固定")}</span>}
-          {graph.kind === 'class' && selectedClassRelation ? (
-            <>
-              <label><span>{t("关系类型")}</span><select value={selectedClassRelation.relation} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassRelation(selectedEdge.data?.token, event.target.value))}>{CLASS_RELATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label><span>{t("起点多重性")}</span><input value={selectedClassRelation.fromMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'from', event.target.value))} placeholder={t("例如 1")} /></label>
-              <label><span>{t("终点多重性")}</span><input value={selectedClassRelation.toMultiplicity ?? ''} onChange={(event) => updateEdgeToken(selectedEdge.id, replaceClassMultiplicity(selectedEdge.data?.token, 'to', event.target.value))} placeholder={t("例如 0..*")} /></label>
-            </>
-          ) : null}
-          {graph.kind === 'er' && selectedErRelation ? (
-            <>
-              <label><span>{t("起点基数")}</span><select value={selectedErRelation.from} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(event.target.value as ErCardinality, selectedErRelation.to, selectedErRelation.identifying))}>{ER_CARDINALITIES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label><span>{t("终点基数")}</span><select value={selectedErRelation.to} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(selectedErRelation.from, event.target.value as ErCardinality, selectedErRelation.identifying))}>{ER_CARDINALITIES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label><span>{t("关系")}</span><select value={selectedErRelation.identifying ? 'identifying' : 'non-identifying'} onChange={(event) => updateEdgeToken(selectedEdge.id, makeErToken(selectedErRelation.from, selectedErRelation.to, event.target.value === 'identifying'))}><option value="identifying">{t("标识关系")}</option><option value="non-identifying">{t("非标识关系")}</option></select></label>
-            </>
-          ) : null}
-          {graph.kind === 'class' ? <span className="canvas-inspector-note">{classRelationLabel(selectedEdge.data?.token)}  {t("· 可直接更换连接两端")}</span> : null}
-        </div>
-      ) : null}
 
       {graph.kind === 'sequence' && graph.data?.sequenceItems ? <details className="canvas-groups-panel canvas-sequence-structure">
         <summary>{t("时序控制结构已保留")}</summary>
@@ -2646,7 +2924,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       {graph.data?.groups?.length ? <details className="canvas-groups-panel">
         <summary>{t("包与系统边界（")}{graph.data.groups.length}）</summary>
         <div>{graph.data.groups.map((group) => <div key={group.id}>
-          <input aria-label={t("分组名称 {0}", group.id)} value={group.label} onChange={(event) => commitGraph({ ...graph, data: { ...graph.data, groups: graph.data!.groups!.map((entry) => entry.id === group.id ? { ...entry, label: event.target.value } : entry) } })} />
+          <input {...propertyInputEvents} aria-label={t("分组名称 {0}", group.id)} value={group.label} onChange={(event) => commitPropertyGraph(`group:${group.id}:label`, { ...graph, data: { ...graph.data, groups: graph.data!.groups!.map((entry) => entry.id === group.id ? { ...entry, label: event.target.value } : entry) } })} />
           <select aria-label={t("父级分组 {0}", group.id)} value={group.parentId ?? ''} onChange={(event) => commitGraph({ ...graph, data: { ...graph.data, groups: graph.data!.groups!.map((entry) => entry.id === group.id ? { ...entry, parentId: event.target.value || undefined } : entry) } })}>
             <option value="">{t("顶层")}</option>
             {graph.data!.groups!.filter((candidate) => {
@@ -2665,12 +2943,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       <div
         className={`canvas-editor-viewport${connectMode ? ' connect-mode' : ''}${(spacePressed || handTool) && !panning ? ' pan-ready' : ''}${supportsMultiSelect && !handTool ? ' selection-mode' : ''}${panning ? ' is-panning' : ''}`}
         onPointerDownCapture={(event) => {
-          if (!(event.target as Element).closest('[data-mermaid-node-id], [data-mermaid-edge-id]')) return;
+          quickAddPressRef.current = null;
+          pointerStartedOnObject.current = !!(event.target as Element).closest('[data-mermaid-node-id], [data-mermaid-edge-id]');
+          if (!pointerStartedOnObject.current) return;
           const rect = stageRef.current?.getBoundingClientRect();
           if (rect) selectionAnchorRef.current = { left: rect.left, top: rect.top };
-          // Edge inspectors can wrap just like node inspectors. Keep the
-          // second click on its original target and never create on blank.
-          lastNodePointerAt.current = event.timeStamp;
         }}
         ref={viewportRef}
         onPointerDown={handleViewportPointerDown}
@@ -2679,13 +2956,21 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         onPointerCancel={finishViewportPan}
         onLostPointerCapture={finishViewportPan}
         onClickCapture={(event) => {
+          const blank = !pointerStartedOnObject.current && !didPanRef.current
+            && !(event.target as Element).closest('[data-mermaid-node-id], [data-mermaid-edge-id], .canvas-edge-label, button, input, textarea, select');
+          // Require two independent blank clicks. A retargeted object/drag
+          // release must not create, but a new blank pair needs no cooldown.
+          blankClickCountRef.current = event.detail === 1 ? (blank ? 1 : 0)
+            : event.detail === 2 && blankClickCountRef.current === 1 && blank ? 2 : 0;
           if (!didPanRef.current) return;
           event.preventDefault();
           event.stopPropagation();
         }}
         onClick={(event) => {
           const target = event.target as HTMLElement;
-          if (event.timeStamp - lastNodePointerAt.current < 750
+          // Ignore a click retargeted from an object, but let a new blank
+          // pointer gesture clear selection immediately after an object click.
+          if (pointerStartedOnObject.current
             || target.closest('[data-mermaid-node-id], [data-mermaid-edge-id], .canvas-edge-label')) return;
           setSelection(null);
           setEditingNodeId(null);
@@ -2717,6 +3002,22 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                 <marker id={asyncMarkerId} markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
                   <path className="canvas-marker-async" d="M 1 1 L 8 5 L 1 9" />
                 </marker>
+                {(['open', 'triangle', 'diamond', 'filled-diamond'] as const).map((shape) => {
+                  const diamond = shape === 'diamond' || shape === 'filled-diamond';
+                  return <marker key={shape} id={`canvas-class-${shape}-${canvasId}`} markerWidth={diamond ? 13 : 11} markerHeight="10" refX={diamond ? 11 : 9} refY="5" orient="auto-start-reverse" markerUnits="strokeWidth">
+                    <path className={`canvas-marker-class ${shape}`} d={diamond ? 'M 1 5 L 6 1 L 11 5 L 6 9 Z' : `M 1 1 L 9 5 L 1 9${shape === 'triangle' ? ' Z' : ''}`} />
+                  </marker>;
+                })}
+                {ER_CARDINALITIES.map(({ value }) => {
+                  const many = value.endsWith('many'), zero = value.startsWith('zero');
+                  const path = many
+                    ? `M 10 6 L 17 1 M 10 6 L 17 11${zero ? '' : ' M 4 1 V 11'}`
+                    : zero ? 'M 15 1 V 11' : 'M 10 1 V 11 M 15 1 V 11';
+                  return <marker key={value} id={`canvas-er-${value}-${canvasId}`} markerWidth="19" markerHeight="12" refX="18" refY="6" orient="auto-start-reverse" markerUnits="strokeWidth">
+                    <path className="canvas-marker-er" d={path} />
+                    {zero ? <circle className="canvas-marker-er circle" cx="4" cy="6" r="3" /> : null}
+                  </marker>;
+                })}
                 <filter id={sketchFilterId} filterUnits="userSpaceOnUse" x={-120} y={-120} width={stageWidth + 240} height={stageHeight + 240} colorInterpolationFilters="sRGB">
                   <feTurbulence type="fractalNoise" baseFrequency="0.015 0.075" numOctaves="1" seed="7" result="sketchNoise" />
                   <feDisplacementMap in="SourceGraphic" in2="sketchNoise" scale="1.35" xChannelSelector="R" yChannelSelector="G" />
@@ -2748,18 +3049,29 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                   const selected = selection?.kind === 'edge' && selection.id === edge.id;
                   const rawRelation = graph.kind === 'class' ? parseClassToken(edge.data?.token).relation : edge.data?.token ?? '';
                   const sequenceVisual = graph.kind === 'sequence' ? mermaidSequenceMessageVisual(rawRelation) : null;
-                  const tokenDashed = sequenceVisual?.dashed ?? rawRelation.startsWith('..');
+                  const classMarkers = graph.kind === 'class' ? classRelationMarkers(rawRelation) : null;
+                  const erRelation = graph.kind === 'er' ? parseErToken(rawRelation) : null;
+                  const tokenDashed = sequenceVisual?.dashed ?? (erRelation ? !erRelation.identifying : rawRelation.startsWith('..'));
                   const markerEnd = graph.kind === 'flowchart'
                     ? edge.style !== 'line'
-                    : graph.kind === 'state' || graph.kind === 'gantt'
-                      || (graph.kind === 'class' && rawRelation.endsWith('>') && !rawRelation.startsWith('<|'));
-                  const markerStartUrl = sequenceVisual ? sequenceMarkerUrl(sequenceVisual.startMarker) : undefined;
+                    : graph.kind === 'state' || graph.kind === 'gantt';
+                  const classMarkerUrl = (marker: ClassRelationMarker) => marker === 'none' ? undefined : `url(#canvas-class-${marker}-${canvasId})`;
+                  const erMarkerUrl = (cardinality: ErCardinality) => `url(#canvas-er-${cardinality}-${canvasId})`;
+                  const markerStartUrl = sequenceVisual
+                    ? sequenceMarkerUrl(sequenceVisual.startMarker)
+                    : classMarkers ? classMarkerUrl(classMarkers[0]) : erRelation ? erMarkerUrl(erRelation.from) : undefined;
                   const markerEndUrl = sequenceVisual
                     ? sequenceMarkerUrl(sequenceVisual.endMarker)
-                    : markerEnd ? `url(#${markerId})` : undefined;
+                    : classMarkers ? classMarkerUrl(classMarkers[1]) : erRelation ? erMarkerUrl(erRelation.to) : markerEnd ? `url(#${markerId})` : undefined;
+                  const markerShapeKey = sequenceVisual
+                    ? `${sequenceVisual.startMarker}:${sequenceVisual.endMarker}`
+                    : classMarkers ? classMarkers.join(':') : erRelation ? `er:${erRelation.from}:${erRelation.to}`
+                      : graph.kind === 'flowchart' ? `flow:${markerEnd ? 'arrow' : 'none'}` : undefined;
                   return (
                     <g key={edge.id} className={`canvas-edge kind-${graph.kind} ${edge.style}${tokenDashed ? ' token-dashed' : ''}${selected ? ' selected' : ''}`} data-mermaid-edge-id={edge.id}>
-                      <path className="canvas-edge-visible" d={geometry.path} markerStart={markerStartUrl} markerEnd={markerEndUrl} />
+                      {/* WebKit can retain stale marker paint after an attribute change.
+                          Replace only the visible path when its marker shapes change. */}
+                      <path key={markerShapeKey} className="canvas-edge-visible" d={geometry.path} markerStart={markerStartUrl} markerEnd={markerEndUrl} />
                       <path
                         className="canvas-edge-hit"
                         d={geometry.path}
@@ -2788,11 +3100,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                       onPointerDown={(event) => startConnectionDrag(event, node.id, 'lifeline')}
                       onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                       onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (connectMode && event.detail > 1) return;
-                        if (!handTool && !spacePressedRef.current) activateNode(node);
-                      }}
+                      onClick={(event) => handleSequenceLifelineClick(event, node, true)}
                     />
                   );
                 }) : null}
@@ -2828,7 +3136,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                   ? classRelationLabel(edge.data?.token)
                   : graph.kind === 'er'
                     ? erRelationLabel(edge.data?.token)
-                    : graph.kind === 'gantt' ? t("依赖") : t("添加说明");
+                    : graph.kind === 'gantt' ? t("依赖") : graph.kind === 'mindmap' ? copy.edge : t("添加说明");
               return (
                 <div
                   key={`label-${edge.id}`}
@@ -2840,21 +3148,15 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                 >
                   {graph.kind === 'sequence' ? <small className="canvas-edge-order">{edgeIndex + 1}</small> : null}
                   {editing ? (
-                    <input
-                      autoFocus
+                    <InlineLabelInput
+                      revision={graph}
+                      active={active}
                       value={edge.label}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => event.stopPropagation()}
-                      onChange={(event) => updateInlineLabel('edge', edge.id, event.target.value)}
-                      onFocus={(event) => { labelEditRef.current = null; event.currentTarget.select(); }}
-                      onBlur={() => { labelEditRef.current = null; setEditingEdgeId(null); }}
-                      onKeyDown={(event) => {
-                        event.stopPropagation();
-                        const action = canvasLabelKeyAction(event.nativeEvent);
-                        if (action) { event.preventDefault(); finishInlineLabel(action === 'cancel'); }
-                      }}
+                      onStart={startInlineLabel}
+                      onChange={(value) => updateInlineLabel('edge', edge.id, value)}
+                      onFinish={finishInlineLabel}
                       placeholder={t("{0}说明", copy.edge)}
-                      aria-label={t("{0}说明", copy.edge)}
+                      label={t("{0}说明", copy.edge)}
                     />
                   ) : <span>{edge.label || fallbackLabel}</span>}
                   {graph.kind === 'class' && edge.label ? <small>{classRelationLabel(edge.data?.token)}</small> : null}
@@ -2871,6 +3173,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                 ? mermaidSequenceLifelineHeight(node, stageHeight, position.y)
                 : size.height;
               const selected = selectedIds.includes(node.id);
+              const displayLabel = nodeDisplayLabel(node, graph.kind);
               const editing = editingNodeId === node.id;
               const connectionOrigin = connectingFrom === node.id || connectionDrag?.from === node.id;
               const connectionTarget = connectionDrag?.target === node.id;
@@ -2893,6 +3196,13 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                   onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                   onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
                   onClick={(event) => handleNodeClick(event, node)}
+                  onContextMenu={(event) => {
+                    // macOS also opens a native menu after Control-click selection.
+                    const textOrControl = (event.target as Element).closest('input, textarea, select, button, a, [contenteditable="true"]');
+                    if (supportsMultiSelect && event.ctrlKey && !handTool && !spacePressedRef.current && !connectMode && !textOrControl) {
+                      event.preventDefault();
+                    }
+                  }}
                   onDoubleClick={(event) => {
                     event.stopPropagation();
                     if (connectMode) return;
@@ -2900,7 +3210,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                     if (!(graph.kind === 'state' && node.data?.stateRole !== 'state')) setEditingNodeId(node.id);
                   }}
                   role="button"
-                  aria-label={`${node.label} ${copy.node}`}
+                  aria-label={`${displayLabel} ${copy.node}`}
                   aria-pressed={selected}
                   tabIndex={-1}
                 >
@@ -2911,7 +3221,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                       data-mermaid-node-id={node.id}
                       role="button"
                       tabIndex={-1}
-                      aria-label={t("选择 {0} 对象生命线", node.label)}
+                      aria-label={t("选择 {0} 对象生命线", displayLabel)}
                       onPointerDown={(event) => {
                         if (event.button !== 0 || handTool || spacePressedRef.current) return;
                         event.preventDefault();
@@ -2934,8 +3244,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                         onPointerDown={(event) => startConnectionDrag(event, node.id, 'lifeline')}
                         onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                         onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
-                        onClick={(event) => event.stopPropagation()}
-                        aria-label={t("从 {0} 生命线拖动创建消息", node.label)}
+                        onClick={(event) => handleSequenceLifelineClick(event, node)}
+                        aria-label={t("从 {0} 生命线拖动创建消息", displayLabel)}
                         title={t("拖动生命线创建消息")}
                       />
                     </div>
@@ -2949,22 +3259,16 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                   ) : null}
                   <div className="canvas-node-content">
                     {editing ? (
-                      <input
-                        autoFocus
+                      <InlineLabelInput
+                        revision={graph}
+                        active={active}
                         value={node.label}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => event.stopPropagation()}
-                        onChange={(event) => updateInlineLabel('node', node.id, event.target.value)}
-                        onFocus={(event) => { labelEditRef.current = null; event.currentTarget.select(); }}
-                        onBlur={() => { labelEditRef.current = null; setEditingNodeId(null); }}
-                        onKeyDown={(event) => {
-                          event.stopPropagation();
-                          const action = canvasLabelKeyAction(event.nativeEvent);
-                          if (action) { event.preventDefault(); finishInlineLabel(action === 'cancel'); }
-                        }}
-                        aria-label={t("{0}名称", copy.node)}
+                        onStart={startInlineLabel}
+                        onChange={(value) => updateInlineLabel('node', node.id, value)}
+                        onFinish={finishInlineLabel}
+                        label={t("{0}名称", copy.node)}
                       />
-                    ) : <span className="canvas-node-title">{node.label || node.id}</span>}
+                    ) : <span className="canvas-node-title">{displayLabel || node.id}</span>}
                     <small className="canvas-node-meta">{nodeMeta(node, graph.kind)}</small>
                     {(graph.kind === 'class' || graph.kind === 'er') ? (
                       <div className="canvas-node-details">
@@ -2983,7 +3287,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                     <div
                       className="canvas-node-resize-frame"
                       style={{ height: lifelineHeight + 14 }}
-                      aria-label={t("调整 {0} 对象生命线大小", node.label)}
+                      aria-label={t("调整 {0} 对象生命线大小", displayLabel)}
                     >
                       {([
                         ['west', t("左边缘"), t("横向调整宽度")],
@@ -3001,14 +3305,14 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                           onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                           onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
                           onClick={(event) => event.stopPropagation()}
-                          aria-label={t("从{0}{1} {2}", label, action, node.label)}
+                          aria-label={t("从{0}{1} {2}", label, action, displayLabel)}
                           title={t("拖动{0}{1}", label, action)}
                         />
                       ))}
                     </div>
                   ) : null}
                   {graph.kind === 'sequence' && !editing ? (
-                    <div className="canvas-node-connection-points" aria-label={t("从 {0} 拖动创建消息", node.label)}>
+                    <div className="canvas-node-connection-points" aria-label={t("从 {0} 拖动创建消息", displayLabel)}>
                       {(['top', 'right', 'bottom', 'left'] as const).map((side) => (
                         <button
                           type="button"
@@ -3019,23 +3323,33 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                           onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                           onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
                           onClick={(event) => event.stopPropagation()}
-                          aria-label={t("从 {0} 的{1}连接点拖动创建消息", node.label, side === 'top' ? t("上方") : side === 'right' ? t("右侧") : side === 'bottom' ? t("下方") : t("左侧"))}
+                          aria-label={t("从 {0} 的{1}连接点拖动创建消息", displayLabel, side === 'top' ? t("上方") : side === 'right' ? t("右侧") : side === 'bottom' ? t("下方") : t("左侧"))}
                           title={t("拖动以连接（Drag to connect）")}
                         />
                       ))}
                     </div>
                   ) : null}
                   {selected && selectedIds.length === 1 && quickAddDirections.length ? (
-                    <div className="canvas-node-quick-add" aria-label={t("围绕 {0} 快速创建", node.label)}>
+                    <div className="canvas-node-quick-add" aria-label={t("围绕 {0} 快速创建", displayLabel)}>
                       {QUICK_ADD_OPTIONS.filter((option) => quickAddDirections.includes(option.value)).map(({ value, label, icon: Icon }) => (
                         <button
                           type="button"
                           key={value}
                           className={`quick-add-${value}`}
-                          onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            if (event.button === 0) quickAddPressRef.current = event.currentTarget;
+                          }}
+                          onPointerCancel={() => { quickAddPressRef.current = null; }}
                           onClick={(event) => {
                             event.stopPropagation();
-                            if (event.timeStamp - lastNodePointerAt.current < 400) return;
+                            // A real press on this button is intentional even
+                            // immediately after selection. Reject a click that
+                            // was retargeted here when the inspector moved it.
+                            const pressedHere = quickAddPressRef.current === event.currentTarget;
+                            quickAddPressRef.current = null;
+                            if (event.detail !== 0 && !pressedHere) return;
                             addConnectedNode(node.id, value, defaultQuickPreset(graph.kind));
                           }}
                           aria-label={`${label}${copy.node}`}
@@ -3054,7 +3368,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                       onPointerCancel={(event) => cancelPointerInteractions(event.pointerId)}
                       onLostPointerCapture={(event) => cancelPointerInteractions(event.pointerId)}
                       onClick={(event) => event.stopPropagation()}
-                      aria-label={t("从 {0} 创建{1}", node.label, copy.edge)}
+                      aria-label={t("从 {0} 创建{1}", displayLabel, copy.edge)}
                       title={t("点击后再选目标，或直接拖到另一{0}", copy.node)}
                     >
                       <Plus size={13} />

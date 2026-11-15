@@ -86,8 +86,12 @@ for (const [width, height] of [[1440, 900], [1200, 800], [900, 600]]) {
         // CodeMirror leaves a small scroll margin around the first line.
         await expect.poll(() => editorScroll.evaluate(element => element.scrollTop)).toBeLessThan(100);
         const editorTop = await editorScroll.evaluate(element => element.scrollTop);
-        await fileList.hover(); await page.mouse.wheel(0, 1200);
-        await expect.poll(() => fileList.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+        const fileBottom = await fileList.evaluate(element => element.scrollHeight - element.clientHeight);
+        expect(fileBottom).toBeGreaterThan(0);
+        await fileList.hover(); await page.mouse.wheel(0, fileBottom + 1);
+        // WebKit animates native wheel scrolling. Wait for this gesture to
+        // finish before using its offset to check another panel's independence.
+        await expect.poll(() => fileList.evaluate(element => element.scrollTop)).toBe(fileBottom);
         expect(await editorScroll.evaluate(element => element.scrollTop)).toBe(editorTop);
         const fileTop = await fileList.evaluate(element => element.scrollTop);
         await editorScroll.hover(); await page.mouse.wheel(0, 600);

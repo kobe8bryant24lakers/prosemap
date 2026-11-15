@@ -2,7 +2,9 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 60_000,
+  // Multi-step scenarios can take a minute on shared Linux WebKit runners.
+  // Give CI time to finish the sequence without relaxing individual assertions.
+  timeout: process.env.CI ? 120_000 : 60_000,
   expect: { timeout: 12_000 },
   fullyParallel: false,
   workers: process.env.CI ? 2 : 1,

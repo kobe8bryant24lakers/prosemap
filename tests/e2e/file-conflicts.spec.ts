@@ -44,6 +44,10 @@ async function releaseSave(page: Page) {
 
 for (const saveAs of [false, true]) {
   test(`large document ${saveAs ? 'Save As' : 'Save'} pending: new input and applied diagram remain dirty`, async ({ page }, info) => {
+    // This 600-section scenario renders multiple edits while a save is held.
+    // Linux WebKit can spend nearly a minute before the final save assertions.
+    // Keep the normal assertion timeout, allowing the whole scenario to finish.
+    test.setTimeout(120_000);
     const baseline = '# SYNTHETIC_SAVE_INFLIGHT\n\n' + fixture('long-document-600-sections.md');
     const before = '\nSYNTHETIC_BEFORE_SAVE\n';
     const during = '\nSYNTHETIC_DURING_SAVE\n';

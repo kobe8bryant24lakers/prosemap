@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { parseMermaidVisualSource } from '../../lib/mermaid-workbench';
 import fixtures from '../fixtures/canvas-navigation-templates.json' with { type: 'json' };
-import { draftSource, launchDocument, openDiagram, showCanvas } from './helpers';
+import { editorSource, draftSource, launchDocument, openDiagram, showCanvas } from './helpers';
 
 const directions = [
   { value: 'TD', label: '向下', prior: '向右' },
@@ -23,7 +23,7 @@ for (const item of fixtures.templates.filter(item => ['flowchart', 'state'].incl
   for (const direction of directions) {
     test(`${item.template}: ${direction.value} rearranges and fits without reversing edges; one undo restores manual layout`, async ({ page }) => {
       await launchDocument(page, `# SYNTHETIC direction history\n\n\`\`\`mermaid\n${item.source}\n\`\`\`\n`);
-      const document = await page.locator('.cm-content').innerText();
+      const document = await editorSource(page);
       await openDiagram(page);
       const tools = page.locator('.canvas-direction-tools');
       await tools.getByRole('button', { name: direction.prior, exact: true }).click();
@@ -60,7 +60,7 @@ for (const item of fixtures.templates.filter(item => ['flowchart', 'state'].incl
       await page.locator('.history-tools button').nth(1).click();
       await expect.poll(() => geometry(page)).toEqual(arranged);
       expect(await draftSource(page)).toBe(changedSource);
-      expect(await page.locator('.cm-content').innerText()).toBe(document);
+      expect(await editorSource(page)).toBe(document);
     });
   }
 }

@@ -81,6 +81,13 @@ export async function launchDocument(page: Page, content: string, name = 'accept
   if (modelLoad === 'ready') await expect(page.getByRole('button', { name: '管理模型', exact: true })).toBeEnabled();
 }
 
+export async function editorSource(page: Page) {
+  // CodeMirror virtualizes offscreen lines. DOM innerText is only the rendered
+  // viewport, so document-integrity assertions must read the complete state.
+  return page.locator('.cm-content').evaluate(element =>
+    (element as any).cmTile.root.view.state.doc.toString() as string);
+}
+
 export async function savedSource(page: Page) {
   const count = await page.evaluate(() => (window as any).__acceptance.saved.length);
   await page.getByRole('button', { name: '保存', exact: true }).click();

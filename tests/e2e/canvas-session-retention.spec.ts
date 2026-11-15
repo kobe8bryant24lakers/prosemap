@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import fixtures from '../fixtures/canvas-navigation-templates.json' with { type: 'json' };
-import { draftSource, launchDocument, openDiagram, showCanvas } from './helpers';
+import { editorSource, draftSource, launchDocument, openDiagram, showCanvas } from './helpers';
 
 async function state(page: Page) {
   return page.locator('.mermaid-canvas-editor').evaluate(root => ({
@@ -19,7 +19,7 @@ for (const item of fixtures.templates) {
   test(`${item.template}: tab changes retain manual positions, zoom, selection and both history directions`, async ({ page }) => {
     const document = `# SYNTHETIC manual session retention\n\n\`\`\`mermaid\n${item.source}\n\`\`\`\n`;
     await launchDocument(page, document);
-    const originalDocument = await page.locator('.cm-content').innerText();
+    const originalDocument = await editorSource(page);
     await openDiagram(page);
     await page.locator('.canvas-fit-button').click();
     const node = page.locator(`.mermaid-canvas-node[data-mermaid-node-id="${item.nodeId}"]`);
@@ -46,7 +46,7 @@ for (const item of fixtures.templates) {
     await page.locator('.history-tools button').first().click();
     expect(await state(page)).toEqual(before);
     expect(await draftSource(page)).toBe(item.source);
-    expect(await page.locator('.cm-content').innerText()).toBe(originalDocument);
+    expect(await editorSource(page)).toBe(originalDocument);
   });
 }
 
@@ -54,7 +54,7 @@ for (const key of ['Delete', 'Backspace']) {
   test(`mindmap: ${key} deletes a child but preserves the last topic and redo`, async ({ page }) => {
     const source = 'mindmap\n  root((SYNTHETIC Root))\n    child["SYNTHETIC Child"]';
     await launchDocument(page, `# SYNTHETIC final topic protection\n\n\`\`\`mermaid\n${source}\n\`\`\`\n`);
-    const document = await page.locator('.cm-content').innerText();
+    const document = await editorSource(page);
     await openDiagram(page);
     await page.locator('.mermaid-canvas-node[data-mermaid-node-id="child"]').click();
     await page.locator('.mermaid-canvas-node[data-mermaid-node-id="child"]').press(key);
@@ -80,6 +80,6 @@ for (const key of ['Delete', 'Backspace']) {
     expect((await state(page)).nodes[0].left).toBe(before.nodes[0].left + 10);
     await page.locator('.history-tools button').first().click();
     expect(await state(page)).toEqual(before);
-    expect(await page.locator('.cm-content').innerText()).toBe(document);
+    expect(await editorSource(page)).toBe(document);
   });
 }

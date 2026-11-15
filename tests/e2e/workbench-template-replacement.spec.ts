@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { MERMAID_TEMPLATES, parseMermaidVisualSource } from '../../lib/mermaid-workbench';
 import fixtures from '../fixtures/canvas-navigation-templates.json' with { type: 'json' };
-import { draftSource, launchDocument, openDiagram, showCanvas } from './helpers';
+import { editorSource, draftSource, launchDocument, openDiagram, showCanvas } from './helpers';
 
 async function snapshot(page: Page) {
   return page.locator('.mermaid-canvas-editor').evaluate(root => ({
@@ -23,7 +23,7 @@ async function choose(page: Page, id: string) {
 for (const [index, item] of fixtures.templates.entries()) {
   test(`${item.template}: cancel preserves the edited draft and history; confirmed replacement resets only the workbench`, async ({ page }, testInfo) => {
     await launchDocument(page, `# SYNTHETIC template replacement\n\n\`\`\`mermaid\n${item.source}\n\`\`\`\n`);
-    const beforeDocument = await page.locator('.cm-content').innerText();
+    const beforeDocument = await editorSource(page);
     await openDiagram(page);
     await draftSource(page);
     await page.getByRole('textbox', { name: 'Mermaid 源码编辑器', exact: true }).fill(item.source.replace('Synthetic_NodeBase', 'SYNTHETIC_UNSAVED_DRAFT'));
@@ -67,7 +67,7 @@ for (const [index, item] of fixtures.templates.entries()) {
     await expect(root.locator('.history-tools button').nth(1)).toBeDisabled();
     await expect(root.locator('.mermaid-canvas-node.selected')).toHaveCount(0);
     await expect(root.locator('.mermaid-canvas-node')).toHaveCount(parseMermaidVisualSource(target.source)!.nodes.length);
-    expect(await page.locator('.cm-content').innerText()).toBe(beforeDocument);
+    expect(await editorSource(page)).toBe(beforeDocument);
     const replacement = await snapshot(page);
     await choose(page, target.id);
     await expect(page.locator('.confirmation-dialog')).toHaveCount(0);

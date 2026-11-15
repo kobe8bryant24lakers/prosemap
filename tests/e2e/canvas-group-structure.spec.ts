@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { parseMermaidVisualSource } from '../../lib/mermaid-workbench';
 import fixtures from '../fixtures/canvas-group-templates.json' with { type: 'json' };
-import { draftSource, launchDocument, openDiagram, showCanvas } from './helpers';
+import { editorSource, draftSource, launchDocument, openDiagram, showCanvas } from './helpers';
 
 async function graph(page: Page) {
   const parsed = parseMermaidVisualSource(await draftSource(page));
@@ -40,8 +40,9 @@ async function expectGroupGeometry(page: Page, current: NonNullable<ReturnType<t
 
 for (const item of fixtures.templates) {
   test(`${item.template}: group controls, cycle exclusion, reparenting and dissolve preserve contents`, async ({ page }) => {
-    await launchDocument(page, `# SYNTHETIC group hierarchy\n\n\`\`\`mermaid\n${item.source}\n\`\`\`\n`);
-    const document = await page.locator('.cm-content').innerText();
+    const document = `# SYNTHETIC group hierarchy\n\n\`\`\`mermaid\n${item.source}\n\`\`\`\n`;
+    await launchDocument(page, document);
+    expect(await editorSource(page)).toBe(document);
     await openDiagram(page);
     const before = parseMermaidVisualSource(item.source)!;
     const panel = page.locator('.canvas-groups-panel');
@@ -90,7 +91,7 @@ for (const item of fixtures.templates) {
     current = await graph(page);
     expect(byId(current.data!.groups!)).toEqual(byId(before.data!.groups!));
     expect(byId(current.nodes)).toEqual(byId(before.nodes));
-    expect(await page.locator('.cm-content').innerText()).toBe(document);
+    expect(await editorSource(page)).toBe(document);
   });
 
   test(`${item.template}: membership changes preserve edges and new connected nodes inherit the group`, async ({ page }) => {

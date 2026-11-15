@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { parseMermaidVisualSource } from '../../lib/mermaid-workbench';
 import fixtures from '../fixtures/canvas-navigation-templates.json' with { type: 'json' };
-import { draftSource, launchDocument, openDiagram, showCanvas } from './helpers';
+import { editorSource, draftSource, launchDocument, openDiagram, showCanvas } from './helpers';
 
 async function layout(page: Page) {
   return page.locator('.mermaid-canvas-editor').evaluate(root => ({
@@ -38,7 +38,7 @@ test('an unchanged automatic layout preserves a future redo and creates no empty
 for (const item of fixtures.templates) {
   test(`${item.template}: equivalent whitespace retains positions and starts a fresh history; exact recovery retains the new history`, async ({ page }) => {
     await launchDocument(page, `# SYNTHETIC equivalent source\n\n\`\`\`mermaid\n${item.source}\n\`\`\`\n`);
-    const document = await page.locator('.cm-content').innerText();
+    const document = await editorSource(page);
     await openDiagram(page);
     const node = page.locator(`.mermaid-canvas-node[data-mermaid-node-id="${item.nodeId}"]`);
     await node.click();
@@ -77,12 +77,12 @@ for (const item of fixtures.templates) {
     await page.locator('.history-tools button').nth(1).click();
     expect((await layout(page)).nodes).toEqual(newHistory.nodes);
     expect(await draftSource(page)).toBe(formatted);
-    expect(await page.locator('.cm-content').innerText()).toBe(document);
+    expect(await editorSource(page)).toBe(document);
   });
 
   test(`${item.template}: automatic layout is reversible and an identical repeat does not consume undo`, async ({ page }) => {
     await launchDocument(page, `# SYNTHETIC automatic layout\n\n\`\`\`mermaid\n${item.source}\n\`\`\`\n`);
-    const document = await page.locator('.cm-content').innerText();
+    const document = await editorSource(page);
     await openDiagram(page);
     const node = page.locator(`.mermaid-canvas-node[data-mermaid-node-id="${item.nodeId}"]`);
     await node.click();
@@ -112,6 +112,6 @@ for (const item of fixtures.templates) {
     await page.locator('.history-tools button').nth(1).click();
     expect((await layout(page)).nodes).toEqual(arranged.nodes);
     expect(await draftSource(page)).toBe(item.source);
-    expect(await page.locator('.cm-content').innerText()).toBe(document);
+    expect(await editorSource(page)).toBe(document);
   });
 }

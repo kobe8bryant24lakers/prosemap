@@ -37,6 +37,13 @@ async function fit(page: Page) {
   await expect(page.locator('.mermaid-fullscreen-header small')).toContainText('总览中');
 }
 
+async function expectReadable(page: Page) {
+  // Native wheel events schedule a React render; dispatchEvent only waits for
+  // event dispatch, so observe the rendered font size after that update lands.
+  await expect.poll(async () => (await geometry(page)).smallest).toBeGreaterThanOrEqual(11.99);
+  await expect(page.locator('.mermaid-fullscreen-header small')).not.toContainText('总览中');
+}
+
 async function resize(page: Page, width: number, height: number) {
   await page.setViewportSize({ width, height });
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -78,22 +85,19 @@ for (const diagram of diagrams) {
       }
     }
     await page.getByRole('button', { name: '放大全屏图表', exact: true }).click();
-    expect((await geometry(page)).smallest).toBeGreaterThanOrEqual(11.99);
-    await expect(page.locator('.mermaid-fullscreen-header small')).not.toContainText('总览中');
+    await expectReadable(page);
     await fit(page);
     await page.locator('.mermaid-fullscreen-stage').dispatchEvent('wheel', { deltaY: -100, clientX: 500, clientY: 300 });
-    expect((await geometry(page)).smallest).toBeGreaterThanOrEqual(11.99);
-    await expect(page.locator('.mermaid-fullscreen-header small')).not.toContainText('总览中');
+    await expectReadable(page);
     await fit(page);
     await page.getByRole('button', { name: /^重置全屏图表，当前/ }).click();
-    expect((await geometry(page)).smallest).toBeGreaterThanOrEqual(11.99);
+    await expectReadable(page);
     await fit(page);
     await page.keyboard.press('Escape');
     expect(await savedSource(page)).toBe(original);
     await page.getByRole('button', { name: '全屏查看图表', exact: true }).click();
     await expect(page.locator('.mermaid-fullscreen-svg > svg')).toBeVisible();
-    expect((await geometry(page)).smallest).toBeGreaterThanOrEqual(11.99);
-    await expect(page.locator('.mermaid-fullscreen-header small')).not.toContainText('总览中');
+    await expectReadable(page);
   });
 }
 

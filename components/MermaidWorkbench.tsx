@@ -696,7 +696,7 @@ export default function MermaidWorkbench({
                     spellCheck={false}
                     aria-label={t("Mermaid 源码编辑器")}
                   />
-                  <p className="workbench-hint">{t("支持 Mermaid v11 常规语法。为保证本地文档安全，保存时会拒绝 click、HTML 和初始化指令。")}</p>
+                  <p className="workbench-hint">{t("支持 Mermaid v11 常规语法及不带属性的 <br> 换行。保存时会拒绝其他 HTML、click 和初始化指令。")}</p>
                 </div>
               ) : null}
             </div>

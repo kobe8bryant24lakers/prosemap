@@ -200,9 +200,15 @@ function createAiPrompts(
 
 export default function Home() {
   const locale = useLocale();
+  const documentSessionRef = useRef(0);
+  const documentSession = documentSessionRef.current;
   const [content, setContent] = useState(initialDocument);
   const [rawDocument, setRawDocument] = useState(initialDocument);
-  const previewContent = useDeferredValue(content);
+  // Defer content together with its document identity. A replaced document must
+  // not expose the previous document's diagram actions while its preview lags.
+  const previewSnapshot = useMemo(() => ({ content, session: documentSession }), [content, documentSession]);
+  const deferredPreview = useDeferredValue(previewSnapshot);
+  const previewContent = deferredPreview.content;
   const [documentName, setDocumentName] = useState(t("ProseMap 入门"));
   const [selection, setSelection] = useState<SelectionRange>({ from: 0, to: 0, text: '' });
   const [cursorLine, setCursorLine] = useState(1);
@@ -250,7 +256,6 @@ export default function Home() {
   const abortRef = useRef<AbortController | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const proposalIdRef = useRef(0);
-  const documentSessionRef = useRef(0);
   const documentRevisionRef = useRef(0);
   const documentOpenRequestRef = useRef(0);
   const saveRequestIdRef = useRef(0);
@@ -1448,7 +1453,7 @@ export default function Home() {
               <button type="button" className="ai-chip" onClick={() => openAssistant('custom')}><Sparkles size={13} />  {t("AI 助手")}</button>
             </div>
           </header>
-          <div ref={previewScrollRef} className="preview-scroll"><MarkdownPreview key={JSON.stringify([documentSessionRef.current, localPath])} markdown={previewContent} documentPath={localPath} onEditMermaid={editPreviewMermaid} /></div>
+          <div ref={previewScrollRef} className="preview-scroll"><MarkdownPreview key={JSON.stringify([documentSessionRef.current, localPath])} markdown={previewContent} documentPath={localPath} onEditMermaid={deferredPreview.session === documentSession ? editPreviewMermaid : undefined} /></div>
         </section>
 
         {assistantOpen ? (

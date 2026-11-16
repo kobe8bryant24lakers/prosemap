@@ -260,6 +260,31 @@ function preserveMemberEdits(source: string, before: MermaidVisualGraph, after: 
   } catch { return null; }
 }
 
+/** A single new sequence message has an unambiguous ordinal source slot,
+ * even if neighboring messages have identical text. Keep every old byte. */
+function preserveSequenceInsertion(source: string, before: MermaidVisualGraph, after: MermaidVisualGraph, expected: string) {
+  if (before.kind !== 'sequence' || after.kind !== 'sequence' || after.edges.length !== before.edges.length + 1) return null;
+  const ids = new Set(before.edges.map(edge => edge.id));
+  const added = after.edges.filter(edge => !ids.has(edge.id));
+  if (added.length !== 1 || JSON.stringify(after.edges.filter(edge => ids.has(edge.id))) !== JSON.stringify(before.edges)) return null;
+  const index = after.edges.indexOf(added[0]);
+  const raw = sourceLines(source, 'sequence');
+  const slots = raw.flatMap((line, at) => parseMermaidVisualSource(`sequenceDiagram\n${line.text}`)?.edges.length === 1 ? [at] : []);
+  if (slots.length !== before.edges.length) return null;
+  const at = slots[index] ?? raw.length;
+  const indent = at < raw.length ? raw[at].text.match(/^\s*/)![0] : '  ';
+  const eol = raw[at]?.eol || raw.find(line => line.eol)?.eol || '\n';
+  const message = serializeMermaidVisualGraph({ ...after, edges: added, data: undefined }).split('\n').at(-1)!.trim();
+  const noFinalEol = at === raw.length && raw.at(-1)?.eol === '';
+  if (noFinalEol) raw[raw.length - 1].eol = eol;
+  raw.splice(at, 0, { text: indent + message, eol: noFinalEol ? '' : eol, key: '' });
+  const candidate = raw.map(line => line.text + line.eol).join('');
+  try {
+    const parsed = parseMermaidVisualSource(candidate);
+    return parsed && serializeMermaidVisualGraph(parsed) === expected ? candidate : null;
+  } catch { return null; }
+}
+
 /** Reordering sequence messages changes message slots, not the intervening
  * directives. A generic line diff can instead move/reformat those directives.
  * Handle only a pure permutation with unambiguous, exact message spellings. */
@@ -323,6 +348,8 @@ export function preserveMermaidSource(source: string, before: MermaidVisualGraph
   } catch { return next; }
   if (previous === next) return source;
   if (before.kind !== after.kind) return next;
+  const sequenceInsertion = preserveSequenceInsertion(source, before, after, next);
+  if (sequenceInsertion !== null) return sequenceInsertion;
   const sequenceOrder = preserveSequenceMessageOrder(source, before, after, previous, next);
   if (sequenceOrder !== null) return sequenceOrder;
   if (before.kind === 'flowchart') {

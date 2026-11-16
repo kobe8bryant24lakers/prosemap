@@ -74,6 +74,8 @@ export const english: Record<string, string> = {
   "请在桌面应用中选择上下文文件夹": "Choose a context folder in the desktop application.",
   "会话历史格式无效": "Invalid conversation history format",
   "会话历史超过长度限制": "Conversation history exceeds the length limit",
+  "增加缩进": "Increase indent",
+  "减少缩进": "Decrease indent",
   "大纲": "Outline",
   "无标题": "Untitled",
   "文档大纲": "Document outline",

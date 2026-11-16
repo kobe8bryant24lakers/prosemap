@@ -2,6 +2,7 @@
 
 import { arrangeCanvasSelection, moveCanvasSelection, nodesInCanvasRect, toggleCanvasSelection, type CanvasArrangement } from '@/lib/canvas-selection';
 import { canvasEdgeScroll, initialCanvasView } from '@/lib/canvas-viewport';
+import { insertSequenceMessage, sequenceInsertionIndex } from '@/lib/sequence-insertion';
 import { canvasEdgeGeometries } from '@/lib/canvas-edge-geometry';
 import { placeCanvasCopies } from '@/lib/canvas-placement';
 import { CANVAS_CONNECTION_MESSAGES, canvasConnectionIssue, connectionWouldCycle, validCanvasConnectionTarget, type CanvasConnectionIssue } from '@/lib/canvas-connection';
@@ -733,7 +734,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   const restoredGraphRef = useRef<MermaidFlowGraph | null>(null);
   useLayoutEffect(() => { layoutRef.current = canvasLayout; }, [canvasLayout]);
   const pointerHandlersRef = useRef<{ move: (event: PointerEvent) => void; up: (event: PointerEvent) => void; cancel: (event: PointerEvent) => void } | null>(null);
-  const addConnectionRef = useRef<(from: string, to: string) => void>(() => undefined);
+  const addConnectionRef = useRef<(from: string, to: string, timelineY?: number) => void>(() => undefined);
   const beginConnectionFromRef = useRef<(nodeId: string) => void>(() => undefined);
 
   useLayoutEffect(() => {
@@ -1370,7 +1371,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           // Keep the raw hit here so an invalid drop can explain why it failed.
           const target = connectionTargetAt(event.clientX, event.clientY);
           if (target) {
-            addConnectionRef.current(activeConnection.from, target);
+            addConnectionRef.current(activeConnection.from, target, activeConnection.origin.y);
           }
         }
       }
@@ -1508,7 +1509,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     return { x: (event.clientX - rect.left) / zoom, y: (event.clientY - rect.top) / zoom };
   }
 
-  function addConnection(from: string, to: string) {
+  function addConnection(from: string, to: string, timelineY?: number) {
     const issue = canvasConnectionIssue(graph, from, to);
     setConnectionIssue(issue);
     if (issue) return;
@@ -1521,7 +1522,9 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       : graph.kind === 'gantt'
         ? graph.nodes.map((node) => node.id === to ? { ...node, data: { ...node.data, ganttStart: '' } } : node)
       : graph.nodes;
-    commitGraph({ ...graph, nodes, edges });
+    commitGraph(graph.kind === 'sequence' && timelineY !== undefined
+      ? insertSequenceMessage(graph, edge, sequenceInsertionIndex(graph, edgeGeometries, timelineY))
+      : { ...graph, nodes, edges });
     setSelection({ kind: 'edge', id: edge.id });
     if (graph.kind === 'sequence') setEditingEdgeId(edge.id);
     setConnectingFrom(connectMode ? to : null);

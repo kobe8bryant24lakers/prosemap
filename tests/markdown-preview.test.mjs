@@ -71,7 +71,7 @@ test('preview leaves HTML in code blocks escaped and headings linkable', () => {
   assert.equal(renderPreview('```html\n<div>示例</div>\n```'),
     '<pre><code class="language-html">&lt;div&gt;示例&lt;/div&gt;\n</code></pre>');
   assert.equal(renderPreview('## 标题 <em>强调</em>'),
-    '<h2 id="标题-强调">标题 <em>强调</em></h2>');
+    '<h2 id="标题-强调" data-heading-line="1">标题 <em>强调</em></h2>');
 });
 
 test('preview preserves single line endings including Windows line endings', () => {

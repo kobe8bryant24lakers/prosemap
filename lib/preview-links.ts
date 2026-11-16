@@ -26,6 +26,7 @@ export function previewHeadingIds() {
         while (slugs.has(id)) id = `${base}-${++suffix}`;
         slugs.add(id);
         node.properties.id = id;
+        if (node.position) node.properties.dataHeadingLine = node.position.start.line;
       }
       for (const child of node.children) if (child.type === 'element') visit(child);
     };

@@ -22,6 +22,7 @@ import {
   Redo2,
   Search,
   ListChecks,
+  ListTree,
   Bot,
   Braces,
   Check,
@@ -52,6 +53,8 @@ import AssistantPanel from '@/components/AssistantPanel';
 import ConfirmDialog, { type ConfirmationRequest } from '@/components/ConfirmDialog';
 import DiffModal from '@/components/DiffModal';
 import MarkdownPreview from '@/components/MarkdownPreview';
+import DocumentOutline from '@/components/DocumentOutline';
+import type { OutlineHeading } from '@/lib/document-outline';
 import MermaidWorkbench from '@/components/MermaidWorkbench';
 import SettingsModal from '@/components/SettingsModal';
 import { isDesktopRuntime, streamAi } from '@/lib/ai-client';
@@ -221,7 +224,18 @@ export default function Home() {
   const [dragging, setDragging] = useState(false);
   const [localPath, setLocalPath] = useState<string | null>(null);
   const [localWorkspace, setLocalWorkspace] = useState<LocalWorkspace | null>(null);
-  const [fileExplorerOpen, setFileExplorerOpen] = useState(false);
+  const [navigationPanel, setNavigationPanel] = useState<'files' | 'outline' | null>(() => {
+    try { return window.localStorage.getItem('prosemap.outlineOpen') === 'true' ? 'outline' : null; }
+    catch { return null; }
+  });
+  const fileExplorerOpen = navigationPanel === 'files';
+  const outlineOpen = navigationPanel === 'outline';
+  const [previewOutlineLine, setPreviewOutlineLine] = useState(1);
+  const outlineToggleRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    try { window.localStorage.setItem('prosemap.outlineOpen', String(outlineOpen)); }
+    catch { /* Keep the panel usable when storage is unavailable. */ }
+  }, [outlineOpen]);
   const [aiContextDocuments, setAiContextDocuments] = useState<AiContextDocument[]>([]);
   const aiContextDocumentsRef = useRef<AiContextDocument[]>([]);
   const [isDirty, setIsDirty] = useState(false);
@@ -707,7 +721,7 @@ export default function Home() {
             void commitDocumentReplacement(requestId, target.document);
           } else {
             setLocalWorkspace(target.workspace);
-            setFileExplorerOpen(true);
+            setNavigationPanel('files');
             showToast('success', t("已打开文件夹 {0}", target.workspace.name));
           }
         }, (message) => {
@@ -720,7 +734,7 @@ export default function Home() {
           await commitDocumentReplacement(launchRequestId, target.document, false);
         } else {
           setLocalWorkspace(target.workspace);
-          setFileExplorerOpen(true);
+          setNavigationPanel('files');
         }
       } catch (reason) {
         if (active) showToast('error', uiMessage(typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("无法读取启动文件")));
@@ -901,6 +915,50 @@ export default function Home() {
     return () => window.cancelAnimationFrame(animationFrame);
   }, [previewContent, viewMode]);
 
+  // Reading in preview mode has no editor selection; track its visible heading.
+  useEffect(() => {
+    const preview = previewScrollRef.current;
+    if (!outlineOpen || viewMode !== 'preview' || !preview) return;
+    let frame: number | null = null;
+    const update = () => {
+      frame = null;
+      const top = preview.getBoundingClientRect().top + 32;
+      let line = 1;
+      for (const heading of preview.querySelectorAll<HTMLElement>('[data-heading-line]')) {
+        if (!heading.getClientRects().length) continue;
+        if (heading.getBoundingClientRect().top > top) break;
+        line = Number(heading.dataset.headingLine);
+      }
+      setPreviewOutlineLine(line);
+    };
+    const onScroll = () => { if (frame === null) frame = window.requestAnimationFrame(update); };
+    preview.addEventListener('scroll', onScroll, { passive: true });
+    update();
+    return () => { preview.removeEventListener('scroll', onScroll); if (frame !== null) window.cancelAnimationFrame(frame); };
+  }, [outlineOpen, viewMode, previewContent]);
+
+  function navigateToHeading(heading: OutlineHeading) {
+    const view = editorRef.current?.view;
+    // A deferred outline must never move the caret using a different document.
+    if (!view || view.state.doc.toString() !== previewContent) return;
+    const line = view.state.doc.line(heading.line);
+    view.dispatch({ selection: { anchor: line.from },
+      ...(viewMode !== 'preview' ? { effects: EditorView.scrollIntoView(line.from, { y: 'start', yMargin: 20 }) } : {}) });
+    const preview = previewScrollRef.current;
+    const target = preview?.querySelector<HTMLElement>(`[id="${CSS.escape(heading.id)}"]`);
+    if (target && preview) {
+      // A heading can live inside an HTML details block.
+      for (let parent = target.parentElement; parent && parent !== preview; parent = parent.parentElement) {
+        if (parent instanceof HTMLDetailsElement) parent.open = true;
+      }
+      if (viewMode === 'preview') {
+        preview.scrollTop += target.getBoundingClientRect().top - preview.getBoundingClientRect().top - 20;
+        setPreviewOutlineLine(heading.line);
+      }
+    }
+    // Keep keyboard focus in the outline so successive headings are reachable.
+  }
+
   function changeViewMode(nextMode: ViewMode) {
     const preview = previewScrollRef.current;
     if (viewMode === 'preview' && nextMode === 'split' && preview && editorView) {
@@ -1014,7 +1072,7 @@ export default function Home() {
       const workspace = await pickMarkdownFolder();
       if (!workspace) return;
       setLocalWorkspace(workspace);
-      setFileExplorerOpen(true);
+      setNavigationPanel('files');
       showToast('success', t("已打开文件夹 {0}", workspace.name));
     } catch (reason) {
       showToast('error', typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("文件夹打开失败，请重试"));
@@ -1274,16 +1332,17 @@ export default function Home() {
       </header>
 
       <div className="view-controls" role="group" aria-label={t("编辑器视图")}>
+        <button ref={outlineToggleRef} type="button" className={outlineOpen ? 'active' : ''} aria-expanded={outlineOpen} aria-controls="document-outline" onClick={() => setNavigationPanel(current => current === 'outline' ? null : 'outline')}><ListTree size={14} /> {t("大纲")}</button>
         <button type="button" aria-pressed={viewMode === 'editor'} className={viewMode === 'editor' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('editor'); }}><PenLine size={14} />  {t("纯编辑")}</button>
         <button type="button" aria-pressed={viewMode === 'preview'} className={viewMode === 'preview' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('preview'); }}><Eye size={14} />  {t("纯预览")}</button>
         <button type="button" aria-pressed={viewMode === 'split'} className={viewMode === 'split' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('split'); }}><PanelLeft size={14} /> {t("左编辑右预览")}</button>
         {localPath && <button type="button" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); void reloadDocument(); }} title={t("重新读取磁盘文件；未保存的修改会先确认")}><RefreshCw size={14} /> {t("重新载入")}</button>}
       </div>
 
-      <section className={`workspace ${assistantOpen ? 'with-assistant' : ''} ${fileExplorerOpen ? 'with-files' : ''}`}>
+      <section className={`workspace ${assistantOpen ? 'with-assistant' : ''} ${navigationPanel ? 'with-files' : ''}`}>
         <nav className="rail" aria-label={t("主要工具")}>
           <button type="button" className={`rail-button ${viewMode !== 'preview' ? 'active' : ''}`} aria-pressed={viewMode !== 'preview'} onClick={returnToDocument} aria-label={t("文档编辑")} title={t("文档编辑")}><PanelLeft size={18} /></button>
-          <button type="button" className={`rail-button ${fileExplorerOpen ? 'active' : ''}`} onClick={() => setFileExplorerOpen((open) => !open)} aria-label={t("本地文件")} title={t("本地文件")}><FolderOpen size={18} /></button>
+          <button type="button" className={`rail-button ${fileExplorerOpen ? 'active' : ''}`} onClick={() => setNavigationPanel(current => current === 'files' ? null : 'files')} aria-label={t("本地文件")} title={t("本地文件")}><FolderOpen size={18} /></button>
           <button type="button" className="rail-button" onClick={() => openAssistant('polish')} aria-label={t("AI 文字助手")} title={t("AI 文字助手")}><Bot size={18} /></button>
           <button type="button" className="rail-button mermaid-rail" onClick={() => openAssistant('mermaid')} aria-label={t("Mermaid 智能绘图")} title={t("Mermaid 智能绘图")}><Workflow size={19} /></button>
           <button type="button" className="rail-button diagram-workbench-rail" onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onMouseDown={(event) => event.preventDefault()} onClick={() => openMermaidWorkbench()} aria-label={t("Mermaid 可视化画布")} title={mermaidTarget ? t("编辑光标所在图表") : t("新建 Mermaid 图表")}><Braces size={18} /></button>
@@ -1298,7 +1357,7 @@ export default function Home() {
                 <span>{t("本地文件夹")}</span>
                 <strong title={localWorkspace?.root}>{localWorkspace?.name ?? t("尚未打开文件夹")}</strong>
               </div>
-              <button type="button" className="icon-button" onClick={() => setFileExplorerOpen(false)} aria-label={t("关闭文件列表")}><X size={15} /></button>
+              <button type="button" className="icon-button" onClick={() => setNavigationPanel(null)} aria-label={t("关闭文件列表")}><X size={15} /></button>
             </header>
             {localWorkspace && <div className="file-scan-status" role="status">
               <span>{t("已列出 {0} 个文件", localWorkspace.files.length.toLocaleString(locale))}</span>
@@ -1325,6 +1384,10 @@ export default function Home() {
             )}
           </aside>
         ) : null}
+
+        {outlineOpen && <DocumentOutline key={documentSessionRef.current} markdown={previewContent}
+          activeLine={viewMode === 'preview' ? previewOutlineLine : cursorLine}
+          onNavigate={navigateToHeading} onClose={() => { setNavigationPanel(null); outlineToggleRef.current?.focus(); }} />}
 
         <section className="editor-pane">
           <header className="pane-header editor-header">

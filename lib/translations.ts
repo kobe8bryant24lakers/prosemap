@@ -1,5 +1,13 @@
 // UI copy only. Never pass document content through this dictionary.
 export const english: Record<string, string> = {
+  "大纲": "Outline",
+  "无标题": "Untitled",
+  "文档大纲": "Document outline",
+  "章节导航": "Section navigation",
+  "收起大纲": "Collapse outline",
+  "展开 {0}": "Expand {0}",
+  "收起 {0}": "Collapse {0}",
+  "暂无标题。使用 Markdown 标题（# 至 ######）创建大纲。": "No headings yet. Add Markdown headings (# through ######) to create an outline.",
   "未完成": "Incomplete",
   "已列出 {0} 个文件": "Files listed: {0}",
   "本次扫描达到 {0} 个文件上限，可能还有文件未显示。": "This scan reached the {0}-file limit. Additional files may be omitted.",

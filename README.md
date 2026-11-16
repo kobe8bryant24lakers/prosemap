@@ -33,6 +33,7 @@ Screenshots show the actual production frontend with sample documents. Native fi
 - Save multiple named model connections and switch from the header, writing assistant, or Mermaid AI panel. Each profile keeps its own provider, endpoint, model, and API key; the last selection is restored on restart. Existing single-model credentials migrate automatically when saved.
 - Open individual Markdown files or browse every Markdown document in a local folder.
 - Edit Markdown in editor-only, preview-only, or side-by-side views using the persistent view controls.
+- Open **Outline / 大纲** to navigate headings in any view. Collapse individual sections or the whole panel; the panel preference is saved locally. The outline and file browser share the left sidebar.
 - Preview relative local images resolved against the saved Markdown document, including parent directories, Unicode names, and URL-encoded paths.
 - Open relative links to local spreadsheets, documents, images, and media in the system's default application directly from the preview.
 - Paste screenshots or copied local images into the editor; the desktop app saves them in a sibling `images` folder and inserts relative Markdown references.

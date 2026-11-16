@@ -106,7 +106,7 @@ test('AI examples replace only the prompt; whitespace cannot run and all mutatio
     workbench.getByRole('button', { name: '添加文件', exact: true }),
     workbench.getByRole('button', { name: '手动编辑', exact: true }),
     workbench.getByRole('button', { name: '应用到文档', exact: true }),
-    ...await examples.all(), ...await workbench.locator('.workbench-context-files button[aria-label]').all(),
+    ...await examples.all(), ...await workbench.getByRole('region', { name: 'AI 上下文资料', exact: true }).getByRole('button').all(),
   ]) await expect(control).toBeDisabled();
   await unchangedDocument(page);
   await finish(page, index);
@@ -121,12 +121,15 @@ for (const useCurrent of [true, false]) {
     const workbench = await setup(page);
     await page.evaluate(files => { (window as any).__aiLifecycle.context = files; }, contextFiles);
     await workbench.getByRole('button', { name: '添加文件', exact: true }).click();
-    const list = workbench.locator('.workbench-context-files');
-    for (const file of contextFiles) await expect(list.locator(`[title="${file.path}"]`)).toContainText(file.name);
-    await expect(list.locator('footer')).toContainText(`${contextFiles[0].content.length + contextFiles[1].content.length} 字符`);
+    const list = workbench.getByRole('region', { name: 'AI 上下文资料', exact: true });
+    for (const file of contextFiles) {
+      await expect(list.locator(`[title="${file.name}"]`)).toContainText(file.name);
+      await expect(list.locator(`[title="${file.name}"]`)).toContainText(`${file.content.length} 字符`);
+    }
+    await expect(list.locator('footer')).toContainText('已选择 2/12 个文件');
     await workbench.getByRole('button', { name: `移除上下文 ${contextFiles[0].name}`, exact: true }).click();
     await expect(list).not.toContainText(contextFiles[0].name);
-    await expect(list.locator('footer')).toContainText(`1 个文件 · ${contextFiles[1].content.length} 字符`);
+    await expect(list.locator('footer')).toContainText('已选择 1/12 个文件');
     await workbench.locator('.workbench-ai-context input').setChecked(useCurrent);
     const index = await start(page);
     const request = await page.evaluate(index => (window as any).__aiLifecycle.streams[index].request, index);
@@ -145,8 +148,9 @@ test('AI context truncates the actual request at the advertised 80000 characters
   const files = [{ path: '/synthetic-ai/long.txt', name: 'synthetic-long.txt', content: 'SYNTHETIC_BEGIN\n' + 'x'.repeat(80000) + '\nSYNTHETIC_OMITTED_END' }];
   await page.evaluate(files => { (window as any).__aiLifecycle.context = files; }, files);
   await workbench.getByRole('button', { name: '添加文件', exact: true }).click();
-  await expect(workbench.locator('.workbench-context-files footer')).toHaveClass(/truncated/);
-  await expect(workbench.locator('.workbench-context-files footer')).toContainText('截取前 80,000');
+  const context = workbench.getByRole('region', { name: 'AI 上下文资料', exact: true });
+  await expect(context.locator('footer')).toHaveClass(/truncated/);
+  await expect(context.locator('footer')).toContainText('最多 80,000 字符，超出时截断');
   const index = await start(page);
   const prompt = await page.evaluate((index: number): string => (window as any).__aiLifecycle.streams[index].request.prompt, index);
   const included = prompt.match(/<reference_file[^>]*>\n([\s\S]*?)\n\n\[内容因上下文长度限制而截断\]/)?.[1];
@@ -162,9 +166,10 @@ test('removing the middle AI reference preserves both neighbors and excludes onl
   await page.evaluate(files => { (window as any).__aiLifecycle.context = files; }, files);
   await workbench.getByRole('button', { name: '添加文件', exact: true }).click();
   await workbench.getByRole('button', { name: `移除上下文 ${files[1].name}`, exact: true }).click();
-  const list = workbench.locator('.workbench-context-files');
-  await expect(list.locator('b')).toHaveText([files[0].name, files[2].name]);
-  await expect(list.locator('footer')).toContainText(`2 个文件 · ${files[0].content.length + files[2].content.length} 字符`);
+  const list = workbench.getByRole('region', { name: 'AI 上下文资料', exact: true });
+  expect(await list.locator('.assistant-context-list > div').evaluateAll(elements => elements.map(element => element.getAttribute('title')))).toEqual([files[0].name, files[2].name]);
+  for (const file of [files[0], files[2]]) await expect(list.locator(`[title="${file.name}"]`)).toContainText(`${file.content.length} 字符`);
+  await expect(list.locator('footer')).toContainText('已选择 2/12 个文件');
   const index = await start(page);
   const prompt = await page.evaluate((index: number): string => (window as any).__aiLifecycle.streams[index].request.prompt, index);
   expect(prompt).toContain(files[0].content); expect(prompt).toContain(files[2].content);

@@ -1,5 +1,5 @@
 import { isDesktopRuntime } from './ai-client';
-import type { AiContextDocument } from './ai-context';
+import type { AiContextDocument, AiContextFolder } from './ai-context';
 import { validatePastedImage } from './image-paste';
 
 export type LocalDocument = {
@@ -45,6 +45,23 @@ export async function pickMarkdownFolder(): Promise<LocalWorkspace | null> {
 export async function pickAiContextFiles(): Promise<AiContextDocument[]> {
   if (!(await isDesktopRuntime())) return [];
   return desktopInvoke<AiContextDocument[]>('pick_ai_context_files');
+}
+
+export async function pickAiContextFolder(): Promise<AiContextFolder | null> {
+  if (!(await isDesktopRuntime())) throw new Error('请在桌面应用中选择上下文文件夹');
+  return desktopInvoke<AiContextFolder | null>('pick_ai_context_folder');
+}
+
+export async function refreshAiContextFolder(folderId: string): Promise<AiContextFolder> {
+  return desktopInvoke<AiContextFolder>('refresh_ai_context_folder', { folderId });
+}
+
+export async function readAiContextFolderFiles(folderId: string, paths: string[]): Promise<AiContextDocument[]> {
+  return desktopInvoke<AiContextDocument[]>('read_ai_context_folder_files', { folderId, paths });
+}
+
+export async function releaseAiContextFolder(folderId: string): Promise<void> {
+  return desktopInvoke<void>('release_ai_context_folder', { folderId });
 }
 
 export async function readLocalMarkdown(path: string): Promise<LocalDocument> {

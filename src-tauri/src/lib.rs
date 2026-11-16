@@ -1,10 +1,12 @@
 mod ai;
+mod context;
 mod endpoint;
 mod files;
 mod links;
 mod secure_config;
 
 use ai::AiState;
+use context::AiContextState;
 #[cfg(target_os = "macos")]
 use files::launch_target_from_paths;
 use files::{launch_target_from_args, FileAccessState};
@@ -93,6 +95,7 @@ pub fn run() {
     let initial_target = launch_target_from_args();
     let app = tauri::Builder::default()
         .manage(AiState::default())
+        .manage(AiContextState::default())
         .manage(FileAccessState::with_pending(initial_target))
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -117,6 +120,10 @@ pub fn run() {
             files::pick_markdown_file,
             files::pick_markdown_folder,
             files::pick_ai_context_files,
+            context::pick_ai_context_folder,
+            context::refresh_ai_context_folder,
+            context::read_ai_context_folder_files,
+            context::release_ai_context_folder,
             files::read_local_markdown,
             files::read_local_image,
             files::open_relative_file,

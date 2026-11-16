@@ -18,6 +18,8 @@ type AssistantPanelProps = {
   hasSelection: boolean;
   hasMermaidTarget: boolean;
   contextDocuments: AiContextDocument[];
+  contextPanel?: ReactNode;
+  conversation?: ReactNode;
   onActionChange: (action: AssistAction) => void;
   onInstructionChange: (instruction: string) => void;
   onPickContext: () => void;
@@ -43,6 +45,8 @@ export default function AssistantPanel({
   hasSelection,
   hasMermaidTarget,
   contextDocuments,
+  contextPanel,
+  conversation,
   onActionChange,
   onInstructionChange,
   onPickContext,
@@ -99,9 +103,10 @@ export default function AssistantPanel({
             <span><Bot size={14} /> {t(ACTION_LABELS[action])}</span>
             <small>{action === 'mermaid' ? (hasMermaidTarget ? t("将修改光标所在的 Mermaid 图") : t("将在光标位置创建新图")) : hasSelection ? t("已选中 {0} 个字符", targetLength) : t("将处理全文 · {0} 个字符", targetLength)}</small>
           </div>
+          {conversation}
           <label htmlFor="ai-instruction">{instructionRequired ? t("告诉 AI 你的要求") : t("补充要求")}</label>
           <textarea id="ai-instruction" value={instruction} onChange={(event) => onInstructionChange(event.target.value)} placeholder={placeholder} rows={4} />
-          <section className="assistant-context-files" aria-label={t("AI 上下文资料")}>
+          {contextPanel ?? <section className="assistant-context-files" aria-label={t("AI 上下文资料")}>
             <header>
               <span><Paperclip size={13} />  {t("上下文资料")}</span>
               <button type="button" onClick={onPickContext}><Paperclip size={12} />  {t("添加文件")}</button>
@@ -122,7 +127,7 @@ export default function AssistantPanel({
                 ? t("{0} 个文件 · {1} 字符{2}", contextDocuments.length, contextCharacters.toLocaleString('zh-CN'), contextCharacters > MAX_AI_CONTEXT_CHARACTERS ? t(" · 请求时截取前 {0}", MAX_AI_CONTEXT_CHARACTERS.toLocaleString('zh-CN')) : '')
                 : t("仅在本次文档会话中使用，不会修改这些文件")}
             </footer>
-          </section>
+          </section>}
           {!configured ? (
             <button type="button" className="configure-callout" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); onOpenSettings(); }}>
               <KeyRound size={16} /><span><strong>{t("先连接一个模型")}</strong><small>{t("支持 OpenAI-compatible 与 Anthropic Claude")}</small></span><ChevronRight size={15} />

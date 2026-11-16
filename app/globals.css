@@ -549,3 +549,6 @@ fieldset.settings-body { margin: 0; border: 0; min-width: 0; }
 @media (max-width: 820px) {
   .topbar { grid-template-columns: minmax(0, 1fr) max-content; }
 }
+
+.diff-request-notice { padding: 8px 22px; background: #fff8eb; color: #704b19; font-size: var(--font-caption); }
+.diff-request-notice p { margin: 2px 0; }

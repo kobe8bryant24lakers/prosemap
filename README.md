@@ -52,9 +52,29 @@ Screenshots show the actual production frontend with sample documents. Native fi
 - Import class/ER directions and Unicode identifiers, separate class member declarations, standalone states and state descriptions, and plain-text mind map roots into the canvas. Isolated states survive document updates.
 - Use AI on the full document or a selection for polishing, continuation, summarization, and custom transformations.
 - Attach up to 12 explicitly selected UTF-8 reference, configuration, and source-code files so text and Mermaid AI edits can use project context beyond the active document.
+- Choose a local repository or reference folder, search its file paths, and select project files shared by the writing assistant and Mermaid workbench. Selected project files are read again before every generation.
+- Continue a conversation while creating or editing Markdown and diagrams. Review earlier outputs, keep refining an unapplied suggestion, or start a new conversation while keeping the current document.
 - Review streamed AI output as a line-by-line diff before accepting or rejecting it.
 - Connect to OpenAI-compatible Chat Completions endpoints or Anthropic Claude Messages endpoints.
 - Save safely back to the original file or export with Save As.
+
+## Project context and conversations
+
+In the writing assistant or the Mermaid workbench's **AI assist** tab, choose **Choose repository or folder / 选择代码仓或文件夹**. Select a local clone or reference directory, search file paths, and check the files to include. Selecting a folder lists candidate files; only the checked files are read into model requests. Use the refresh button after adding or removing files. This folder selection is shared by both assistants for the current document.
+
+Ask for a new document, a rewrite, an architecture view, or another supported Mermaid diagram, then keep adding instructions. Markdown suggestions open in the diff preview; **Continue conversation / 继续对话** keeps the proposal in history without applying it. Accepted and rejected suggestions are marked accordingly, and the next request includes the current editor content. Mermaid conversations use the latest workbench draft, including manual changes. **New conversation / 新对话** clears both history and its compressed summary, keeping the current content and selected references.
+
+The initial implementation has explicit limits:
+
+- Supports local folders and locally cloned repositories. Remote repository cloning, automatic repository exploration, content indexing, and shell execution are not included; choose reference files explicitly.
+- Lists up to 2,000 supported files, visits up to 20,000 entries, and scans up to 12 directory levels. An incomplete scan is identified in the UI. Hidden files, common generated/dependency directories, credential-like filenames, symbolic links, and files excluded by nested `.gitignore` rules are skipped. These filters do not inspect source code for embedded secrets; check your selections before sending them.
+- Accepts up to 12 files across attachments and folder selections, at most 2 MB per file, using UTF-8 text. Reference content is capped at 80,000 characters and reduced further when needed to fit the full request. Truncation is shown with the generated proposal or diagram.
+- Sends selected content to the configured model service when generating. Reference files are read-only. Folder reads recheck authorization, ignore rules, file types, and size before each request.
+- Keeps conversation history and its compressed summary in memory for the current document or open diagram workbench. Requests fit at most 6 history pairs and 20,000 history characters, reduced further for long inputs. Before a request would exceed that budget, the current model automatically summarizes older turns, carrying forward any previous summary and retaining up to 3 recent complete turns as space permits. A summary occupies one history pair and is limited to 4,000 characters. Goals, continuing constraints, confirmed decisions, rejected alternatives, application status, and pending work are requested explicitly; the latest document and instructions remain authoritative. The expandable summary and its covered-turn count are visible in the conversation panel.
+- Compression makes additional requests to the selected model and can add latency and provider charges. Large historical exchanges are processed in bounded batches, with up to 12 requests per compression operation. If compression fails, returns an empty/oversized summary, is cancelled, or becomes stale, no partial summary replaces the source history and the pending edit does not run. Retry or start a new conversation; history is never silently evicted to bypass a compression failure. After successful compression, summarized raw turns are replaced by the summary. Summaries may lose details; this is conversation-memory compression, not repository indexing or automatic compression of reference files.
+- Failed, cancelled, and stale edits are excluded from history. Changing documents clears references, history, and summary; closing the diagram workbench ends its conversation. Restart recovery is not included.
+
+Automated checks use synthetic repositories and model responses. They validate request construction, file boundaries, conversation state, and editing behavior; they do not establish real-model output quality or native Windows/Linux acceptance.
 
 ## Code editing
 

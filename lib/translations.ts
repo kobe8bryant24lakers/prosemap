@@ -1,5 +1,7 @@
 // UI copy only. Never pass document content through this dictionary.
 export const english: Record<string, string> = {
+  "增加缩进": "Increase indent",
+  "减少缩进": "Decrease indent",
   "大纲": "Outline",
   "无标题": "Untitled",
   "文档大纲": "Document outline",

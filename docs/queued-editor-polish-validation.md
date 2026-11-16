@@ -1,6 +1,6 @@
 # Queued editor and preview improvements
 
-Local validation on macOS, 2026-11-16. Baseline: merged document outline commit `067ebb2`. This work does not change the version, signing configuration or installed application and is not a release acceptance report.
+Local validation on macOS, 2026-11-16. Baseline: merged document outline commit `067ebb2`. This implementation validation did not change the signing configuration or installed application and is not a release acceptance report. The subsequent authorized v0.12.1 release is documented in [release notes](releases/v0.12.1.md).
 
 ## Behavior
 
@@ -38,4 +38,4 @@ The first browser group passed 84/84; the second passed 48/48. The entire reposi
 
 Playwright runs real CodeMirror, Mermaid rendering, pointer/wheel input, selection and history in local Chromium and WebKit. Only desktop IPC is mocked using identifiable synthetic documents. These checks do not establish installed native WebView behavior or physical mouse/trackpad behavior. No installed App was replaced, no real Keychain was accessed, and no native historical acceptance was repeated.
 
-No push, PR, merge, release, version bump or signing change is part of this work. Raw logs, reports, screenshots, caches and built assets remain excluded from commits.
+The implementation was initially completed locally; publication was subsequently authorized. Signing configuration remains unchanged. Raw logs, reports, screenshots, caches and built assets remain excluded from commits.

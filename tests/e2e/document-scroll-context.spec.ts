@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { fixture, launchDocument, savedSource, mod } from './helpers';
+import { editorSource, fixture, launchDocument, savedSource, mod } from './helpers';
 
 const source = fixture('synthetic-mixed-scroll.md');
 const editor = '.cm-scroller';
@@ -95,7 +95,20 @@ test('late tall image layout keeps the current source section aligned', async ({
     };
   });
   const modified = source.replace('assets/fixture-diagram.svg', 'SYNTHETIC_late.svg');
-  await page.locator('.cm-content').fill(modified);
+  expect(await editorSource(page)).toBe(source);
+  // Whole-contenteditable fill can add a leading line in WebKit's virtualized
+  // editor before layout is exercised. Make the intended URI edit through the
+  // editor instead, starting at the document beginning to select the first image.
+  await page.locator('.cm-content').focus();
+  await page.keyboard.press(`${mod}+a`);
+  await page.keyboard.press('ArrowLeft');
+  await page.getByRole('button', { name: '查找与替换', exact: true }).click();
+  await page.getByRole('textbox', { name: '查找', exact: true }).fill('assets/fixture-diagram.svg');
+  await page.getByRole('button', { name: '下一个', exact: true }).click();
+  await page.getByRole('button', { name: '关闭查找', exact: true }).click();
+  await page.locator('.cm-content').focus();
+  await page.keyboard.insertText('SYNTHETIC_late.svg');
+  await expect.poll(() => editorSource(page)).toBe(modified);
   await expect.poll(() => page.evaluate(() => typeof (window as any).__releaseSyntheticImage)).toBe('function');
   await revealEditor(page, 'SYNTHETIC_SECTION_13');
   const before = await headingOffset(page, 'SYNTHETIC_SECTION_13');
@@ -107,6 +120,22 @@ test('late tall image layout keeps the current source section aligned', async ({
   await page.screenshot({ path: info.outputPath('late-image.png') });
   expect(Math.abs(after - before)).toBeLessThan(40);
   expect(await savedSource(page)).toBe(modified);
+});
+
+test('whole-document keyboard replacement preserves exact long source and undo', async ({ page }) => {
+  await launchDocument(page, source, 'SYNTHETIC_scroll.md');
+  await expect(page.locator('.mermaid-svg svg')).toBeVisible();
+  expect(await editorSource(page)).toBe(source);
+  const modified = source.replace('SYNTHETIC_SCROLL_ACCEPTANCE', 'SYNTHETIC_KEYBOARD_REPLACEMENT');
+  await page.locator('.cm-content').focus();
+  await page.keyboard.press(`${mod}+a`);
+  await page.keyboard.insertText(modified);
+  await expect.poll(() => editorSource(page)).toBe(modified);
+  expect(await savedSource(page)).toBe(modified);
+  await page.locator('.cm-content').focus();
+  await page.keyboard.press(`${mod}+z`);
+  await expect.poll(() => editorSource(page)).toBe(source);
+  expect(await savedSource(page)).toBe(source);
 });
 
 test('returning from preview keeps its latest reading section', async ({ page }, info) => {

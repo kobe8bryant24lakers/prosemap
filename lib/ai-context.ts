@@ -7,6 +7,13 @@ export type AiContextDocument = {
   content: string;
 };
 
+export type AiContextFolder = {
+  id: string;
+  name: string;
+  files: Array<{ path: string; name: string; bytes: number }>;
+  truncated: boolean;
+};
+
 export type AiContextSummary = {
   block: string;
   includedCharacters: number;
@@ -71,4 +78,17 @@ export function mergeAiContextDocuments(
     throw new Error('最多可保留 ' + MAX_AI_CONTEXT_FILES + ' 个上下文文件，请先移除现有资料');
   }
   return [...merged.values()];
+}
+
+/** Bound the full prompt, including file labels and delimiters. */
+export function appendAiContext(prompt: string, documents: AiContextDocument[]) {
+  const available = 120_000 - prompt.length;
+  if (available < 0) throw new Error('模型指令为空或超过长度限制');
+  let budget = Math.min(MAX_AI_CONTEXT_CHARACTERS, available);
+  let context = createAiContextBlock(documents, budget);
+  while (context.block.length > available) {
+    budget = Math.max(0, budget - (context.block.length - available));
+    context = createAiContextBlock(documents, budget);
+  }
+  return { prompt: prompt + context.block, context };
 }

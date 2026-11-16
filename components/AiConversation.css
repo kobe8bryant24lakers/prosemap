@@ -1,0 +1,20 @@
+.ai-conversation { margin: 12px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+.ai-conversation > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.ai-conversation > header strong { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-soft); font-size: var(--font-ui); }
+.ai-conversation > header button { display: inline-flex; align-items: center; gap: 4px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; color: var(--green); background: #fff; font-size: var(--font-caption); }
+.ai-conversation > header button:disabled { opacity: .45; cursor: not-allowed; }
+.ai-conversation-turns { max-height: 280px; overflow: auto; margin: 0; padding: 0; list-style: none; }
+.ai-conversation-turns > li { padding: 10px; border-bottom: 1px solid var(--line); }
+.ai-conversation-turns > li:last-child { border-bottom: 0; }
+.ai-conversation-instruction { margin: 0 0 7px; color: var(--ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font-ui); line-height: 1.55; }
+.ai-conversation summary { cursor: pointer; color: var(--green); font-size: var(--font-caption); line-height: 1.5; }
+.ai-conversation summary small { margin-left: 8px; color: var(--muted); font-size: inherit; }
+.ai-conversation pre { max-height: 220px; overflow: auto; margin: 7px 0 0; padding: 9px; border-radius: 6px; background: #f4f7f5; color: var(--ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 "SFMono-Regular", Consolas, monospace; }
+.ai-conversation-empty, .ai-conversation > footer { margin: 0; padding: 8px 10px; color: var(--muted); font-size: var(--font-caption); line-height: 1.55; }
+.ai-conversation > footer { border-top: 1px solid var(--line); background: #f7f9f7; }
+.workbench-context-slot { min-width: 0; margin: 0; padding: 0; border: 0; }
+.workbench-request-notice { margin: 8px 0; padding: 8px 10px; border-radius: 7px; background: #fff8eb; color: #704b19; font-size: var(--font-caption); line-height: 1.55; }
+
+.ai-conversation-memory { margin: 0; padding: 10px; border-bottom: 1px solid var(--line); background: #edf5f0; }
+.ai-conversation-memory > summary { color: var(--green); font-weight: 650; }
+.ai-conversation-memory > p { margin: 7px 0 0; color: var(--muted); font-size: var(--font-caption); line-height: 1.5; }

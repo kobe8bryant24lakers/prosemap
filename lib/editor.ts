@@ -30,7 +30,10 @@ export type Proposal = {
   from: number;
   to: number;
   status: 'streaming' | 'ready' | 'error';
+  phase?: 'compressing' | 'generating';
+  compressionProgress?: { completed: number; total: number };
   error?: string;
+  requestContext?: { omittedTurns: number; includedReferenceCharacters: number; omittedReferenceCharacters: number };
 };
 
 export type MermaidTarget = {

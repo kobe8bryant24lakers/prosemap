@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  appendAiContext,
   createAiContextBlock,
   mergeAiContextDocuments,
 } from '../lib/ai-context.ts';
@@ -80,4 +81,40 @@ test('a rejected context batch can be retried after removing an existing file', 
   assert.equal(merged.length, 12);
   assert.equal(merged[11], incoming);
   assert.equal(merged.some(document => document.path === current[0].path), false);
+});
+
+test('full prompt budget includes the newly required truncation marker and file delimiters', () => {
+  const prompt = 'S'.repeat(40_000);
+  const document = { path: '/synthetic-context/large.txt', name: 'synthetic-large.txt', content: 'C'.repeat(80_000) };
+  const result = appendAiContext(prompt, [document]);
+  assert.ok(result.prompt.length <= 120_000);
+  assert.ok(result.context.omittedCharacters > 0);
+  assert.equal(result.context.includedCharacters + result.context.omittedCharacters, document.content.length);
+  assert.match(result.context.block, /截断/);
+  assert.ok(result.context.block.endsWith('</reference_context>'));
+  assert.ok(result.prompt.startsWith(prompt));
+});
+
+test('nearly full prompts omit whole context blocks rather than overflowing on labels', () => {
+  const document = { path: '/synthetic-context/label.txt', name: 'synthetic-' + 'x'.repeat(10_000), content: 'SYNTHETIC TEXT' };
+  for (const promptLength of [119_999, 120_000]) {
+    const result = appendAiContext('S'.repeat(promptLength), [document]);
+    assert.equal(result.prompt.length, promptLength);
+    assert.equal(result.context.block, '');
+    assert.equal(result.context.includedFiles, 0);
+    assert.equal(result.context.omittedCharacters, document.content.length);
+  }
+  assert.throws(() => appendAiContext('S'.repeat(120_001), []), /超过长度限制/);
+});
+
+test('context budget remains bounded across several file-boundary transitions', () => {
+  const documents = Array.from({ length: 12 }, (_, index) => ({
+    path: `/synthetic-context/${index}.txt`, name: `synthetic-${index}.txt`, content: String(index).repeat(8_000),
+  }));
+  for (const promptLength of [0, 40_000, 70_000, 90_000, 110_000, 119_800]) {
+    const result = appendAiContext('S'.repeat(promptLength), documents);
+    assert.ok(result.prompt.length <= 120_000);
+    assert.ok(result.context.includedCharacters <= 80_000);
+    assert.equal(result.context.includedCharacters + result.context.omittedCharacters, documents.reduce((sum, file) => sum + file.content.length, 0));
+  }
 });

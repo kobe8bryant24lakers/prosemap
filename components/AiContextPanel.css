@@ -1,0 +1,15 @@
+.project-context { padding: 9px; border-bottom: 1px solid var(--line); }
+.project-context-pick { width: 100%; min-height: 32px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px dashed #b8d4c6; border-radius: 6px; background: white; color: var(--green); font-size: var(--font-ui); }
+.project-context p { margin: 8px 0 0; font-size: var(--font-caption); color: var(--muted); line-height: 1.5; }
+.project-context-heading { display: flex; align-items: center; gap: 5px; margin: 8px 0; }
+.project-context-heading strong { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-ui); }
+.project-context-heading button { border: 0; background: transparent; color: var(--muted); padding: 5px; }
+.project-context > input { width: 100%; min-height: 30px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 5px; background: white; font-size: var(--font-ui); }
+.project-context-files { max-height: 180px; overflow: auto; margin-top: 7px; }
+.project-context-files label { display: flex; align-items: center; gap: 6px; min-height: 28px; font-size: var(--font-caption); }
+.project-context-files label input { flex: 0 0 auto; width: 14px; height: 14px; accent-color: var(--green); }
+.project-context-files label span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-context-files small { flex: 0 0 auto; color: var(--muted); }
+.project-context-selected { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.project-context-selected button { max-width: 100%; display: flex; align-items: center; gap: 4px; padding: 4px 6px; overflow-wrap: anywhere; text-align: left; background: #eaf3ed; color: var(--green); border: 0; border-radius: 5px; font-size: var(--font-caption); }
+.project-context p.project-context-warning { color: #895b1c; }

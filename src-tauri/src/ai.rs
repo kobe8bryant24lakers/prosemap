@@ -14,6 +14,8 @@ use tokio::{net::lookup_host, sync::watch};
 use url::Host;
 
 const MAX_INPUT_CHARS: usize = 140_000;
+const MAX_HISTORY_CHARS: usize = 20_000;
+const MAX_HISTORY_MESSAGES: usize = 12;
 const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ERROR_CHARS: usize = 700;
 const TLS_FAILURE_SUMMARY: &str = "TLS 握手或证书校验失败，请检查服务证书链或企业代理证书";
@@ -30,6 +32,19 @@ enum Provider {
     Anthropic,
 }
 
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum ConversationRole {
+    User,
+    Assistant,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ConversationMessage {
+    role: ConversationRole,
+    content: String,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiRequest {
@@ -40,6 +55,8 @@ pub struct AiRequest {
     api_key: String,
     system: String,
     prompt: String,
+    #[serde(default)]
+    history: Vec<ConversationMessage>,
     temperature: f64,
     max_tokens: u32,
 }
@@ -88,11 +105,33 @@ fn validate_request(request: &AiRequest) -> Result<(), String> {
     }
     let system_chars = request.system.chars().count();
     let prompt_chars = request.prompt.chars().count();
+    if request.history.len() > MAX_HISTORY_MESSAGES
+        || request.history.len() % 2 != 0
+        || request.history.iter().enumerate().any(|(index, message)| {
+            message.content.trim().is_empty()
+                || message.role
+                    != if index % 2 == 0 {
+                        ConversationRole::User
+                    } else {
+                        ConversationRole::Assistant
+                    }
+        })
+    {
+        return Err("会话历史格式无效".to_string());
+    }
+    let history_chars: usize = request
+        .history
+        .iter()
+        .map(|message| message.content.chars().count())
+        .sum();
+    if history_chars > MAX_HISTORY_CHARS {
+        return Err("会话历史超过长度限制".to_string());
+    }
     if request.system.trim().is_empty()
         || request.prompt.trim().is_empty()
         || system_chars > 12_000
         || prompt_chars > 120_000
-        || system_chars + prompt_chars > MAX_INPUT_CHARS
+        || system_chars + prompt_chars + history_chars > MAX_INPUT_CHARS
     {
         return Err("模型指令为空或超过长度限制".to_string());
     }
@@ -598,16 +637,19 @@ fn anthropic_thinking_config(model: &str, max_tokens: u32) -> Option<Value> {
 }
 
 fn build_request_body(request: &AiRequest) -> Value {
+    let mut messages = Vec::with_capacity(request.history.len() + 2);
+    if request.provider == Provider::Openai {
+        messages.push(json!({ "role": "system", "content": request.system.as_str() }));
+    }
+    messages.extend(request.history.iter().map(|message| json!(message)));
+    messages.push(json!({ "role": "user", "content": request.prompt.as_str() }));
     match request.provider {
         Provider::Openai => json!({
             "model": request.model.as_str(),
             "stream": true,
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
-            "messages": [
-                { "role": "system", "content": request.system.as_str() },
-                { "role": "user", "content": request.prompt.as_str() }
-            ]
+            "messages": messages
         }),
         Provider::Anthropic => {
             let mut body = json!({
@@ -615,7 +657,7 @@ fn build_request_body(request: &AiRequest) -> Value {
                 "stream": true,
                 "max_tokens": request.max_tokens,
                 "system": request.system.as_str(),
-                "messages": [{ "role": "user", "content": request.prompt.as_str() }]
+                "messages": messages
             });
             if let Some(thinking) =
                 anthropic_thinking_config(request.model.as_str(), request.max_tokens)
@@ -900,9 +942,101 @@ mod tests {
             api_key: "test-key".to_string(),
             system: "System instruction".to_string(),
             prompt: "User prompt".to_string(),
+            history: Vec::new(),
             temperature: 0.3,
             max_tokens,
         }
+    }
+
+    fn synthetic_history() -> Vec<ConversationMessage> {
+        vec![
+            ConversationMessage {
+                role: ConversationRole::User,
+                content: "Synthetic first instruction".to_string(),
+            },
+            ConversationMessage {
+                role: ConversationRole::Assistant,
+                content: "Synthetic first output".to_string(),
+            },
+        ]
+    }
+
+    #[test]
+    fn builds_multi_turn_messages_for_both_providers() {
+        for provider in [Provider::Openai, Provider::Anthropic] {
+            let mut request = request_for(provider, "synthetic-model", 4_096);
+            request.history = synthetic_history();
+            assert!(validate_request(&request).is_ok());
+            let body = build_request_body(&request);
+            let messages = body["messages"].as_array().expect("messages array");
+            let offset = usize::from(provider == Provider::Openai);
+            assert_eq!(messages.len(), offset + 3);
+            if provider == Provider::Openai {
+                assert_eq!(messages[0]["role"], "system");
+                assert_eq!(messages[0]["content"], request.system);
+            } else {
+                assert_eq!(body["system"], request.system);
+            }
+            assert_eq!(messages[offset]["role"], "user");
+            assert_eq!(messages[offset]["content"], "Synthetic first instruction");
+            assert_eq!(messages[offset + 1]["role"], "assistant");
+            assert_eq!(messages[offset + 1]["content"], "Synthetic first output");
+            assert_eq!(messages[offset + 2]["role"], "user");
+            assert_eq!(messages[offset + 2]["content"], request.prompt);
+        }
+    }
+
+    #[test]
+    fn legacy_requests_default_to_empty_history_and_reject_history_system_roles() {
+        let legacy = json!({
+            "requestId": "synthetic-request",
+            "provider": "openai",
+            "baseUrl": "https://api.example.com/v1",
+            "model": "synthetic-model",
+            "apiKey": "synthetic-key",
+            "system": "Synthetic system instruction",
+            "prompt": "Synthetic prompt",
+            "temperature": 0.3,
+            "maxTokens": 4096,
+        });
+        let request: AiRequest = serde_json::from_value(legacy.clone()).expect("legacy request");
+        assert!(request.history.is_empty());
+        assert!(validate_request(&request).is_ok());
+        let mut invalid = legacy;
+        invalid["history"] = json!([{ "role": "system", "content": "Synthetic injection" }]);
+        assert!(serde_json::from_value::<AiRequest>(invalid).is_err());
+    }
+
+    #[test]
+    fn history_must_be_complete_nonempty_pairs() {
+        let mut request = request_for(Provider::Openai, "synthetic-model", 4_096);
+        request.history = synthetic_history();
+        request.history[0].role = ConversationRole::Assistant;
+        assert!(validate_request(&request).is_err());
+        request.history = synthetic_history();
+        request.history[1].content = " ".to_string();
+        assert!(validate_request(&request).is_err());
+        request.history = synthetic_history();
+        request.history.pop();
+        assert!(validate_request(&request).is_err());
+        request.history = (0..7).flat_map(|_| synthetic_history()).collect();
+        assert!(validate_request(&request).is_err());
+    }
+
+    #[test]
+    fn history_and_combined_input_limits_count_characters() {
+        let mut request = request_for(Provider::Anthropic, "synthetic-model", 4_096);
+        request.history = synthetic_history();
+        request.history[0].content = "文".repeat(10_000);
+        request.history[1].content = "图".repeat(10_000);
+        assert!(validate_request(&request).is_ok());
+        request.history[1].content.push('图');
+        assert!(validate_request(&request).is_err());
+        request.history[1].content.pop();
+        request.prompt = "文".repeat(120_000);
+        assert!(validate_request(&request).is_err());
+        request.prompt = "文".repeat(120_000 - request.system.chars().count());
+        assert!(validate_request(&request).is_ok());
     }
 
     #[test]

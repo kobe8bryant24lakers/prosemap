@@ -31,7 +31,8 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { streamAi } from '@/lib/ai-client';
-import { createAiContextBlock, MAX_AI_CONTEXT_CHARACTERS, type AiContextDocument } from '@/lib/ai-context';
+import { appendAiContext, MAX_AI_CONTEXT_CHARACTERS, type AiContextDocument } from '@/lib/ai-context';
+import { useAiConversation } from '@/lib/use-ai-conversation';
 import type { ModelConfig } from '@/lib/editor';
 import { parseMermaid } from '@/lib/mermaid-runtime';
 import { MermaidSourceHistory } from '@/lib/mermaid-source-preservation';
@@ -51,6 +52,7 @@ import {
 } from '@/lib/mermaid-workbench';
 import MermaidCanvasEditor from './MermaidCanvasEditor';
 import MermaidDiagram from './MermaidDiagram';
+import AiConversation from './AiConversation';
 import type { ConfirmationRequest } from './ConfirmDialog';
 import './MermaidWorkbench.css';
 
@@ -69,6 +71,8 @@ type MermaidWorkbenchProps = {
   inactive?: boolean;
   interactionSuspended?: boolean;
   contextDocuments: AiContextDocument[];
+  contextPanel?: ReactNode;
+  resolveContextDocuments?: () => Promise<AiContextDocument[]>;
   mode: 'create' | 'edit';
   onApply: (source: string) => void;
   onClose: () => void;
@@ -137,6 +141,8 @@ export default function MermaidWorkbench({
   inactive = false,
   interactionSuspended = false,
   contextDocuments,
+  contextPanel,
+  resolveContextDocuments,
   mode,
   onApply,
   onClose,
@@ -160,9 +166,12 @@ export default function MermaidWorkbench({
   const tabRef = useRef<WorkbenchTab>('visual');
   const [selectedTemplateId, setSelectedTemplateId] = useState(initialSource.trim() ? '' : MERMAID_TEMPLATES[0].id);
   const [aiInstruction, setAiInstruction] = useState('');
+  const conversation = useAiConversation();
+  const [aiRequestNotice, setAiRequestNotice] = useState<{ omittedTurns: number; contextCharacters: number; contextTruncated: boolean } | null>(null);
   const [aiUseCurrentSource, setAiUseCurrentSource] = useState(mode === 'edit');
   const [aiStatus, setAiStatus] = useState<{ kind: 'idle' | 'running' | 'success' | 'error'; message: string }>({ kind: 'idle', message: '' });
   const [aiReasoning, setAiReasoning] = useState('');
+  const [aiCompressionFailed, setAiCompressionFailed] = useState(false);
   const [aiReasoningOpen, setAiReasoningOpen] = useState(true);
   const [aiPreviewEditing, setAiPreviewEditing] = useState(false);
   const [aiDraftValidation, setAiDraftValidation] = useState<AiDraftValidation>({ kind: 'checking', message: t("等待校验当前草稿") });
@@ -385,6 +394,9 @@ export default function MermaidWorkbench({
     }
     setCanvasRevision((revision) => revision + 1);
     updateDraft(nextSource, template.id);
+    conversation.reset();
+    setAiCompressionFailed(false);
+    setAiRequestNotice(null);
     setAiStatus({ kind: 'idle', message: '' });
     setAiReasoning('');
     tabRef.current = 'visual';
@@ -427,22 +439,48 @@ export default function MermaidWorkbench({
     const controller = new AbortController();
     abortRef.current = controller;
     setAiPreviewEditing(false);
+    setAiCompressionFailed(false);
+    setAiRequestNotice(null);
     setAiReasoning('');
     setAiReasoningOpen(true);
     setAiDraftValidation({ kind: 'idle', message: t("AI 生成中，完成后可继续手动编辑") });
     setAiStatus({ kind: 'running', message: t("AI 正在组织图表结构…") });
     const prompts = createMermaidAiPrompts(instruction, aiUseCurrentSource ? source : '');
-    const context = createAiContextBlock(contextDocuments);
     let generated = '';
+    let compressing = false;
     try {
+      const references = resolveContextDocuments ? await resolveContextDocuments() : contextDocuments;
+      if (controller.signal.aborted || aiOperationRef.current !== operation) return;
+      const { prompt, context } = appendAiContext(prompts.prompt, references);
+      const system = `${prompts.system}\n历史输出可能尚未应用或已被人工修改。以最新用户消息提供的当前草稿为编辑依据，同时延续历史中仍然适用的要求。`;
+      const history = await conversation.prepare(
+        config,
+        Math.max(0, 140_000 - system.length - prompt.length),
+        controller.signal,
+        ({ completed, total }) => {
+          if (controller.signal.aborted || aiOperationRef.current !== operation) return;
+          compressing = true;
+          setAiStatus({ kind: 'running', message: t('正在压缩对话上下文…（{0}/{1}）', Math.min(completed + 1, total), total) });
+        },
+        () => mountedRef.current && aiOperationRef.current === operation,
+      );
+      if (controller.signal.aborted || aiOperationRef.current !== operation) return;
+      compressing = false;
+      setAiStatus({ kind: 'running', message: t("AI 正在组织图表结构…") });
+      setAiRequestNotice(history.omittedTurns || context.omittedCharacters ? {
+        omittedTurns: history.omittedTurns,
+        contextCharacters: context.includedCharacters,
+        contextTruncated: context.omittedCharacters > 0,
+      } : null);
       await streamAi(
         {
           provider: config.provider,
           baseUrl: config.baseUrl,
           model: config.model,
           apiKey: config.apiKey,
-          system: prompts.system,
-          prompt: `${prompts.prompt}${context.block}`,
+          system,
+          prompt,
+          history: history.messages,
           temperature: 0.3,
           maxTokens: 4096,
         },
@@ -464,19 +502,25 @@ export default function MermaidWorkbench({
       await validateMermaid(nextSource);
       if (controller.signal.aborted || aiOperationRef.current !== operation) return;
       updateDraft(nextSource);
+      conversation.append({
+        id: crypto.randomUUID(), instruction, output: nextSource, status: 'proposed',
+      });
       setAiStatus({ kind: 'success', message: t("图表草稿已生成，可继续编辑或应用到文档") });
     } catch (reason) {
       if (controller.signal.aborted || aiOperationRef.current !== operation) return;
+      setAiCompressionFailed(compressing);
       setAiDraftValidation(source.trim()
         ? { kind: 'checking', message: t("正在重新校验当前草稿…") }
         : { kind: 'error', message: t("图表源码不能为空") });
-      setAiStatus({ kind: 'error', message: reason instanceof Error ? reason.message : t("图表生成失败，请重试") });
+      const message = reason instanceof Error ? reason.message : typeof reason === 'string' ? reason : '';
+      setAiStatus({ kind: 'error', message: message.trim() || t("图表生成失败，请重试") });
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
     }
   }
 
   function stopAi() {
+    setAiCompressionFailed(false);
     aiOperationRef.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
@@ -562,6 +606,22 @@ export default function MermaidWorkbench({
                     <span><Bot size={17} /></span>
                     <div><strong>{t("用自然语言生成或修改")}</strong><small>{t("AI 会基于右侧当前草稿生成完整 Mermaid 源码")}</small></div>
                   </div>
+                  <AiConversation
+                    turns={conversation.turns}
+                    memory={conversation.memory}
+                    onReset={() => {
+                      conversation.reset();
+                      setAiCompressionFailed(false);
+                      setAiRequestNotice(null);
+                      setAiStatus({ kind: 'idle', message: '' });
+                      setAiReasoning('');
+                    }}
+                    disabled={aiRunning || applying}
+                  />
+                  {aiRequestNotice ? <div className="workbench-request-notice" role="status">
+                    {aiRequestNotice.omittedTurns ? <div>{t('本次请求省略了 {0} 轮对话。', aiRequestNotice.omittedTurns)}</div> : null}
+                    {aiRequestNotice.contextTruncated ? <div>{t('参考资料已截断，本次包含 {0} 个字符。', aiRequestNotice.contextCharacters.toLocaleString())}</div> : null}
+                  </div> : null}
                   <label htmlFor="mermaid-ai-prompt">{t("描述你想要的图")}</label>
                   <textarea
                     id="mermaid-ai-prompt"
@@ -576,7 +636,7 @@ export default function MermaidWorkbench({
                     <span>{t("基于右侧当前草稿修改")}</span>
                     <small>{aiUseCurrentSource ? t("AI 会尽量保留未要求改变的内容") : t("AI 将从你的描述创建一张新图")}</small>
                   </label>
-                  <section className="workbench-context-files" aria-label={t("Mermaid AI 上下文资料")}>
+                  {contextPanel ? <fieldset className="workbench-context-slot" disabled={aiRunning}>{contextPanel}</fieldset> : <section className="workbench-context-files" aria-label={t("Mermaid AI 上下文资料")}>
                     <header>
                       <span><Paperclip size={13} />  {t("上下文资料")}</span>
                       <button type="button" onClick={onPickContext} disabled={aiRunning}><Paperclip size={12} />  {t("添加文件")}</button>
@@ -596,7 +656,7 @@ export default function MermaidWorkbench({
                         ? t("{0} 个文件 · {1} 字符{2}", contextDocuments.length, contextCharacters.toLocaleString('zh-CN'), contextCharacters > MAX_AI_CONTEXT_CHARACTERS ? t(" · 截取前 {0}", MAX_AI_CONTEXT_CHARACTERS.toLocaleString('zh-CN')) : '')
                         : t("资料只作为参考，不会被修改")}
                     </footer>
-                  </section>
+                  </section>}
                   <div className="workbench-prompt-examples">
                     {AI_EXAMPLES.map((example) => <button key={example} type="button" onClick={() => setAiInstruction(t(example))} disabled={aiRunning}>{t(example)}</button>)}
                   </div>
@@ -606,6 +666,7 @@ export default function MermaidWorkbench({
                       <span>{uiMessage(aiStatus.message)}</span>
                     </div>
                   ) : null}
+                  {aiCompressionFailed ? <p className="workbench-request-notice">{t('压缩未完成，原始对话已保留，文档没有被修改。')}</p> : null}
                   {aiStatus.kind !== 'idle' || aiReasoning ? (
                     <section className={`workbench-ai-reasoning${aiReasoningOpen ? ' open' : ''}`}>
                       <button

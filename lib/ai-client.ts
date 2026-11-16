@@ -1,4 +1,5 @@
 import type { ProviderKind } from './editor';
+import type { AiConversationMessage } from './ai-conversation';
 
 export type AiStreamInput = {
   provider: ProviderKind;
@@ -7,6 +8,7 @@ export type AiStreamInput = {
   apiKey: string;
   system: string;
   prompt: string;
+  history?: AiConversationMessage[];
   temperature: number;
   maxTokens: number;
 };
@@ -39,6 +41,9 @@ async function streamFromDesktop(
   signal: AbortSignal,
 ) {
   const { Channel, invoke } = await import('@tauri-apps/api/core');
+  // A document/session can close while the runtime module is loading. An
+  // already-aborted signal will not fire a newly attached abort listener.
+  if (signal.aborted) throw new DOMException('请求已取消', 'AbortError');
   const requestId = crypto.randomUUID();
   const channel = new Channel<DesktopStreamEvent>();
   let streamError = '';

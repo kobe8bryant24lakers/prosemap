@@ -12,7 +12,7 @@ import { inlineMarkdownEdit, lineMarkdownEdit, type MarkdownEdit, type MarkdownL
 import { EditorState, Prec } from '@codemirror/state';
 import { openSearchPanel, search } from '@codemirror/search';
 import { EditorView, keymap, type ViewUpdate } from '@codemirror/view';
-import { undo, redo, indentWithTab, isolateHistory } from '@codemirror/commands';
+import { undo, redo, indentMore, indentLess, indentWithTab, isolateHistory } from '@codemirror/commands';
 import { indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { classHighlighter } from '@lezer/highlight';
 import { findCodeBlock, formatCode, languages, UnsupportedCodeLanguageError } from '@/lib/code-blocks';
@@ -34,6 +34,8 @@ import {
   FolderOpen,
   Heading2,
   Italic,
+  IndentIncrease,
+  IndentDecrease,
   Link as LinkIcon,
   List,
   PanelLeft,
@@ -1039,6 +1041,16 @@ export default function Home() {
     applyMarkdownEdit(view, lineMarkdownEdit(view.state.doc.toString(), anchor, head, style, t("文字")));
   }
 
+  function indentSelection(command: typeof indentMore) {
+    const view = editorRef.current?.view;
+    if (!view) return;
+    // Each toolbar press is one undo step, even when clicked in quick succession.
+    view.dispatch({ annotations: isolateHistory.of('full') });
+    command(view);
+    view.dispatch({ annotations: isolateHistory.of('full') });
+    view.focus();
+  }
+
   function editorAction(action: (view: EditorView) => boolean) {
     const view = editorRef.current?.view;
     if (view) { action(view); view.focus(); }
@@ -1409,6 +1421,8 @@ export default function Home() {
               <button type="button" onClick={() => formatSelection('`', '`', t("代码"))} title={t("行内代码")} aria-label={t("行内代码")}><Code2 size={15} /></button>
               <button type="button" onClick={() => formatLines('list')} title={t("列表")} aria-label={t("列表")}><List size={15} /></button>
               <button type="button" onClick={() => formatLines('task')} title={t("任务清单")} aria-label={t("任务清单")}><ListChecks size={15} /></button>
+              <button type="button" onClick={() => indentSelection(indentMore)} title={t("增加缩进")} aria-label={t("增加缩进")}><IndentIncrease size={15} /></button>
+              <button type="button" onClick={() => indentSelection(indentLess)} title={t("减少缩进")} aria-label={t("减少缩进")}><IndentDecrease size={15} /></button>
               <button type="button" onClick={() => formatLines('quote')} title={t("引用")} aria-label={t("引用")}><Quote size={15} /></button>
               <button type="button" onClick={() => insertBlock(t('| 列一 | 列二 |\n| --- | --- |\n| 内容 | 内容 |'))} title={t("表格")} aria-label={t("插入表格")}><Table2 size={15} /></button>
               <button type="button" onClick={() => insertBlock('```json\n{\n  "name": "ProseMap"\n}\n```')} title={t("插入 JSON 代码块（可修改语言标记）")} aria-label={t("插入代码块")}><Braces size={15} /></button>

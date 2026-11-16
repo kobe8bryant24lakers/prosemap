@@ -5,7 +5,7 @@ import { useLocale } from '@/lib/use-locale';
 
 import DOMPurify from 'dompurify';
 import { Check, Copy, Maximize2, PencilRuler, X, ZoomIn, ZoomOut } from 'lucide-react';
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import {
   MERMAID_FULLSCREEN_MAX_ZOOM,
@@ -45,6 +45,12 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   const fullscreenTitleId = `mermaid-fullscreen-${reactId.replace(/:/g, '')}`;
   const fullscreenBackdropRef = useRef<HTMLDivElement>(null);
   const fullscreenDialogRef = useRef<HTMLElement>(null);
+  const inlineStageRef = useRef<HTMLSpanElement>(null);
+  const inlineFrameRef = useRef<HTMLSpanElement>(null);
+  const inlineZoomRef = useRef(1);
+  const [inlinePan, setInlinePan] = useState({ x: 0, y: 0 });
+  const inlinePanRef = useRef(inlinePan);
+  const suppressClickRef = useRef(false);
   const fullscreenStageRef = useRef<HTMLDivElement>(null);
   const fullscreenCloseRef = useRef<HTMLButtonElement>(null);
   const fullscreenRenderSequenceRef = useRef(0);
@@ -59,7 +65,7 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   const fullscreenLimitsRef = useRef(fullscreenLimits);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const panRef = useRef(pan);
-  const dragRef = useRef<{ id: number; x: number; y: number } | null>(null);
+  const dragRef = useRef<{ id: number; x: number; y: number; moved: boolean; fullscreen: boolean } | null>(null);
   const [panning, setPanning] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const copyRequestRef = useRef(0);
@@ -265,6 +271,77 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
     return () => activeStage.removeEventListener('wheel', handleWheel);
   }, [fullscreenOpen, fullscreenSvg]);
 
+  useEffect(() => {
+    const stage = inlineStageRef.current;
+    if (!stage || !currentRender?.svg) return;
+    function handleWheel(event: WheelEvent) {
+      if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return;
+      event.preventDefault();
+      const next = mermaidFullscreenZoomFromWheel(inlineZoomRef.current, event.deltaY, event.deltaMode, stage!.clientHeight,
+        { min: MERMAID_PREVIEW_MIN_ZOOM, max: MERMAID_PREVIEW_MAX_ZOOM });
+      const bounds = inlineFrameRef.current?.getBoundingClientRect();
+      if (!bounds || next === inlineZoomRef.current) return;
+      inlinePanRef.current = zoomMermaidViewport(inlinePanRef.current, inlineZoomRef.current, next, {
+        x: event.clientX - bounds.left - bounds.width / 2,
+        y: event.clientY - bounds.top - bounds.height / 2,
+      });
+      setInlinePan(inlinePanRef.current);
+      inlineZoomRef.current = next;
+      setZoom(next);
+    }
+    stage.addEventListener('wheel', handleWheel, { passive: false });
+    return () => stage.removeEventListener('wheel', handleWheel);
+  }, [currentRender?.svg]);
+
+  function changeInlineZoom(delta?: number) {
+    const next = delta === undefined ? 1 : Math.max(MERMAID_PREVIEW_MIN_ZOOM, Math.min(MERMAID_PREVIEW_MAX_ZOOM, inlineZoomRef.current + delta));
+    inlinePanRef.current = delta === undefined ? { x: 0, y: 0 }
+      : zoomMermaidViewport(inlinePanRef.current, inlineZoomRef.current, next, { x: 0, y: 0 });
+    setInlinePan(inlinePanRef.current);
+    inlineZoomRef.current = next;
+    setZoom(next);
+  }
+
+  const stopPreviewPan = (event: ReactPointerEvent<HTMLElement>) => {
+    if (dragRef.current?.id !== event.pointerId) return;
+    dragRef.current = null;
+    setPanning(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const previewPointerHandlers = {
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+      const fullscreen = event.currentTarget === fullscreenStageRef.current;
+      if (event.button !== 0 || !(fullscreen ? fullscreenSvg : currentRender?.svg)) return;
+      suppressClickRef.current = false;
+      dragRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false, fullscreen };
+    },
+    onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+      const fullscreen = event.currentTarget === fullscreenStageRef.current;
+      const drag = dragRef.current;
+      if (!drag || drag.id !== event.pointerId || drag.fullscreen !== fullscreen) return;
+      if (!(event.buttons & 1)) { stopPreviewPan(event); return; }
+      const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+      if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      suppressClickRef.current = true;
+      setPanning(true);
+      const ref = fullscreen ? panRef : inlinePanRef;
+      ref.current = { x: ref.current.x + dx, y: ref.current.y + dy };
+      (fullscreen ? setPan : setInlinePan)(ref.current);
+      dragRef.current = { ...drag, x: event.clientX, y: event.clientY, moved: true };
+    },
+    onPointerUp: stopPreviewPan,
+    onPointerCancel: stopPreviewPan,
+    onLostPointerCapture: stopPreviewPan,
+    onClickCapture: (event: React.MouseEvent<HTMLElement>) => {
+      if (suppressClickRef.current) { event.preventDefault(); event.stopPropagation(); }
+    },
+    onDoubleClickCapture: (event: React.MouseEvent<HTMLElement>) => {
+      if (suppressClickRef.current) { event.preventDefault(); event.stopPropagation(); }
+    },
+  };
+
   async function copySource() {
     const request = ++copyRequestRef.current;
     if (copyResetTimerRef.current !== null) window.clearTimeout(copyResetTimerRef.current);
@@ -332,7 +409,7 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   const diagramSvg = currentRender?.svg;
   const portrait = Boolean(currentRender
     && currentRender.intrinsicHeight > currentRender.intrinsicWidth * 1.15);
-  const inlineWidth = mermaidInlineWidth(currentRender, zoom, portrait);
+  const inlineWidth = mermaidInlineWidth(currentRender, 1, portrait);
 
   return (
     <>
@@ -345,13 +422,13 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
                 <PencilRuler size={13} /><span>{t("画布编辑")}</span>
               </button>
             ) : null}
-            <button type="button" onClick={() => setZoom((value) => Math.max(MERMAID_PREVIEW_MIN_ZOOM, value - 0.15))} aria-label={t("缩小图表")} title={t("缩小")}>
+            <button type="button" onClick={() => changeInlineZoom(-0.15)} aria-label={t("缩小图表")} title={t("缩小")}>
               <ZoomOut size={14} />
             </button>
-            <button type="button" className="diagram-zoom-value" onClick={() => setZoom(1)} aria-label={t("重置图表缩放，当前 {0}%", Math.round(zoom * 100))} title={t("重置为 100%")}>
+            <button type="button" className="diagram-zoom-value" onClick={() => changeInlineZoom()} aria-label={t("重置图表缩放，当前 {0}%", Math.round(zoom * 100))} title={t("重置为 100%")}>
               {Math.round(zoom * 100)}%
             </button>
-            <button type="button" onClick={() => setZoom((value) => Math.min(MERMAID_PREVIEW_MAX_ZOOM, value + 0.15))} aria-label={t("放大图表")} title={t("放大")}>
+            <button type="button" onClick={() => changeInlineZoom(0.15)} aria-label={t("放大图表")} title={t("放大")}>
               <ZoomIn size={14} />
             </button>
             <button type="button" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); openFullscreen(); }} disabled={!diagramSvg} aria-label={t("全屏查看图表")} title={t("全屏查看")}>
@@ -371,11 +448,18 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
           </span>
         ) : diagramSvg ? (
           <span
-            className={`mermaid-canvas${onEdit ? ' editable' : ''}`}
+            ref={inlineStageRef}
+            className={`mermaid-canvas${onEdit ? ' editable' : ''}${panning ? ' is-panning' : ''}`}
+            {...previewPointerHandlers}
             onDoubleClick={onEdit}
             title={onEdit ? t("双击进入可视化画布编辑") : undefined}
           >
-            <span className={`mermaid-svg${portrait ? ' is-portrait' : ''}`} style={{ width: inlineWidth }} dangerouslySetInnerHTML={{ __html: diagramSvg }} />
+            <span ref={inlineFrameRef} className="mermaid-inline-frame" style={{ width: inlineWidth, aspectRatio: `${currentRender!.intrinsicWidth} / ${currentRender!.intrinsicHeight}` }}>
+              <span className={`mermaid-svg${portrait ? ' is-portrait' : ''}`} style={{
+                width: `${zoom * 100}%`, left: `calc(${(1 - zoom) * 50}% + ${inlinePan.x}px)`,
+                top: `calc(${(1 - zoom) * 50}% + ${inlinePan.y}px)`,
+              }} dangerouslySetInnerHTML={{ __html: diagramSvg }} />
+            </span>
           </span>
         ) : (
           <span className="mermaid-loading"><i /><span>{t("正在绘制图表…")}</span></span>
@@ -422,28 +506,7 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
               </div>
             </header>
             <div ref={fullscreenStageRef} className={`mermaid-fullscreen-stage${panning ? ' is-panning' : ''}`} title={t("滚动鼠标缩放，按住鼠标拖动画布")}
-              onPointerDown={(event) => {
-                if (event.button !== 0 || !fullscreenSvg) return;
-                event.preventDefault();
-                event.currentTarget.setPointerCapture(event.pointerId);
-                dragRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
-                setPanning(true);
-              }}
-              onPointerMove={(event) => {
-                const drag = dragRef.current;
-                if (!drag || drag.id !== event.pointerId) return;
-                panRef.current = { x: panRef.current.x + event.clientX - drag.x, y: panRef.current.y + event.clientY - drag.y };
-                dragRef.current = { id: drag.id, x: event.clientX, y: event.clientY };
-                setPan(panRef.current);
-              }}
-              onPointerUp={(event) => {
-                if (dragRef.current?.id !== event.pointerId) return;
-                dragRef.current = null;
-                setPanning(false);
-                event.currentTarget.releasePointerCapture(event.pointerId);
-              }}
-              onPointerCancel={() => { dragRef.current = null; setPanning(false); }}
-              onLostPointerCapture={() => { dragRef.current = null; setPanning(false); }}
+              {...previewPointerHandlers}
             >
               <div className="mermaid-fullscreen-stage-inner">
                 {currentFullscreenRender?.error ? (

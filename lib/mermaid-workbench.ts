@@ -1357,19 +1357,42 @@ export function extractMermaidSource(value: string): string {
   return (fenced?.[1] ?? trimmed).trim();
 }
 
+function withoutMermaidAnnotations(source: string): string {
+  const lines = source.replace(/\r\n?/g, '\n').split('\n');
+  const header = lines.find((line) => line.trim() && !line.trimStart().startsWith('%%'))?.trim();
+  // These double-angle tokens are Mermaid declarations, not HTML. Match only
+  // complete declaration lines in their own diagram type; leave labels and all
+  // surrounding source available to the HTML check. Do not strip comments,
+  // which may be literal content inside a multiline label.
+  const reference = `[^\\s<>{}"';]+`;
+  const annotation = '<<(?:interface|abstract|service|enumeration)>>';
+  const declaration = header === 'classDiagram'
+    ? new RegExp(`^[ \\t]*(?:class[ \\t]+${reference}[ \\t]+${annotation}|${annotation}(?:[ \\t]+${reference})?)[ \\t]*;?[ \\t]*$`, 'i')
+    : /^stateDiagram(?:-v2)?$/.test(header ?? '')
+      ? new RegExp(`^[ \\t]*state[ \\t]+${reference}[ \\t]+<<(?:choice|fork|join)>>[ \\t]*;?[ \\t]*$`)
+      : null;
+  return declaration ? lines.map((line) => declaration.test(line)
+    ? line.replace(/<<[a-z]+>>/gi, '') : line).join('\n') : source;
+}
+
 export function mermaidSafetyError(source: string): string | null {
   if (!source.trim()) return '图表源码不能为空';
   if (/^\s*%%\{/m.test(source)) return '不支持 Mermaid 初始化指令';
   if (/\bclick\s+[\w-]+/i.test(source)) return '不支持可点击链接指令';
-  if (/<\/?[a-z][^>]*>/i.test(source)) return '不支持 HTML 标签';
+  const tags = withoutMermaidAnnotations(source).match(/<\/?[a-z][^>]*>/gi) ?? [];
+  if (tags.some((tag) => !/^<br[ \t\r\n]*\/?>$/i.test(tag))) {
+    return '不支持 HTML 标签（仅允许不带属性的 <br> 换行）';
+  }
   if (/javascript\s*:/i.test(source)) return '不支持 JavaScript 链接';
   return null;
 }
 
+export const MERMAID_AI_SAFETY_GUIDANCE = '禁止 click 指令、外部链接和初始化配置。HTML 仅允许不带任何属性的 <br/> 换行标签，不要使用其他 HTML 标签或事件属性。节点文字尽量简短，保留合法的 Mermaid 类注解和状态声明语法。';
+
 export function createMermaidAiPrompts(instruction: string, currentSource: string) {
   const source = currentSource.trim();
   return {
-    system: `你是 Mermaid v11 可视化专家。严格只返回完整 Mermaid 源码，不要 Markdown 代码围栏、解释、标题或前后缀。使用语法有效、结构清晰、文字简洁的标准 Mermaid 图。禁止 click、外部链接、HTML 标签和初始化配置。可使用 flowchart、sequenceDiagram、stateDiagram-v2、classDiagram、erDiagram、gantt、mindmap、journey 等常规图表；当用户要求 4+1 架构视图时，必须包含逻辑视图、开发视图、进程视图、物理视图和场景视图。${UML_AI_GUIDANCE}`,
+    system: `你是 Mermaid v11 可视化专家。严格只返回完整 Mermaid 源码，不要 Markdown 代码围栏、解释、标题或前后缀。使用语法有效、结构清晰、文字简洁的标准 Mermaid 图。${MERMAID_AI_SAFETY_GUIDANCE}可使用 flowchart、sequenceDiagram、stateDiagram-v2、classDiagram、erDiagram、gantt、mindmap、journey 等常规图表；当用户要求 4+1 架构视图时，必须包含逻辑视图、开发视图、进程视图、物理视图和场景视图。${UML_AI_GUIDANCE}`,
     prompt: source
       ? `按用户要求修改现有图表，保留未要求改变的含义，并返回修改后的完整源码。\n\n用户要求：${instruction}\n\n现有 Mermaid 源码：\n${source}`
       : `按用户要求创建 Mermaid 图表，并返回完整源码。\n\n用户要求：${instruction}`,

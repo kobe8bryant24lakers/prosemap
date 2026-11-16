@@ -770,6 +770,8 @@ export const english: Record<string, string> = {
   "不支持 Mermaid 初始化指令": "Mermaid initialization directives are not supported",
   "不支持可点击链接指令": "Clickable link directives are not supported",
   "不支持 HTML 标签": "HTML tags are not supported",
+  "不支持 HTML 标签（仅允许不带属性的 <br> 换行）": "HTML tags are not supported, except for attribute-free <br> line breaks",
+  "支持 Mermaid v11 常规语法及不带属性的 <br> 换行。保存时会拒绝其他 HTML、click 和初始化指令。": "Supports standard Mermaid v11 syntax and attribute-free <br> line breaks. Other HTML, click directives, and initialization directives are blocked when saving.",
   "不支持 JavaScript 链接": "JavaScript links are not supported",
   "本地模型请求失败": "Local model request failed",
   "请求已取消": "Request cancelled",

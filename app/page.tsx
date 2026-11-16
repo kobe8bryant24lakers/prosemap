@@ -61,7 +61,7 @@ import { activeModelProfile, emptyModelConfig, emptyModelProfiles, type ModelPro
 import ModelSwitcher from '@/components/ModelSwitcher';
 import ModelLoadDialog from '@/components/ModelLoadDialog';
 import { parseMermaid } from '@/lib/mermaid-runtime';
-import { UML_AI_GUIDANCE } from '@/lib/mermaid-workbench';
+import { MERMAID_AI_SAFETY_GUIDANCE, mermaidSafetyError, UML_AI_GUIDANCE } from '@/lib/mermaid-workbench';
 import { anchoredScrollTop } from '@/lib/scroll-sync';
 import { clipboardImageFiles, imageMarkdown, MAX_PASTED_IMAGE_BYTES } from '@/lib/image-paste';
 import {
@@ -155,9 +155,8 @@ function normalizeMermaidStream(value: string): string {
 }
 
 async function validateMermaidSource(source: string) {
-  if (/^\s*%%\{/m.test(source) || /\bclick\s+[\w-]+/i.test(source) || /<\/?[a-z][^>]*>/i.test(source) || /javascript\s*:/i.test(source)) {
-    throw new Error(t("AI 返回的图表包含不允许的指令或 HTML，请调整要求后重试"));
-  }
+  const safetyError = mermaidSafetyError(source);
+  if (safetyError) throw new Error(t(safetyError));
   try {
     await parseMermaid(source);
   } catch {
@@ -176,7 +175,7 @@ function createAiPrompts(
   if (action === 'mermaid') {
     const existing = original.trim();
     return {
-      system: `你是 Mermaid v11 可视化专家。请生成语法有效、结构清晰、节点文字简洁的 Mermaid 源码。严格只返回 Mermaid 源码本身，不要 Markdown 代码围栏、解释、标题或前后缀。禁止使用 click 指令、外部链接、HTML 标签或不安全初始化配置。优先使用 flowchart、sequenceDiagram、stateDiagram-v2、classDiagram、erDiagram、gantt、mindmap 等标准语法。${UML_AI_GUIDANCE}`,
+      system: `你是 Mermaid v11 可视化专家。请生成语法有效、结构清晰、节点文字简洁的 Mermaid 源码。严格只返回 Mermaid 源码本身，不要 Markdown 代码围栏、解释、标题或前后缀。${MERMAID_AI_SAFETY_GUIDANCE}优先使用 flowchart、sequenceDiagram、stateDiagram-v2、classDiagram、erDiagram、gantt、mindmap 等标准语法。${UML_AI_GUIDANCE}`,
       prompt: existing
         ? `请按要求修改下面的 Mermaid 图。保留未被要求改变的含义，并返回修改后的完整图表源码。\n\n用户要求：${instruction}\n\n现有图表源码：\n${existing}${context.block}`
         : `请按下面的自然语言要求创建一张 Mermaid 图，并返回完整图表源码。\n\n用户要求：${instruction}${context.block}`,

@@ -117,7 +117,7 @@ test('assistant: missing model and custom instruction disable generation; a new 
   const dialog = await configure(page);
   await dialog.getByRole('button', { name: '安全保存', exact: true }).click();
   await page.getByRole('button', { name: 'AI 文字助手', exact: true }).click();
-  await page.getByRole('button', { name: /自定义指令 按你的/ }).click();
+  await page.getByRole('button', { name: '自定义指令', exact: true }).click();
   await expect(page.getByRole('button', { name: '生成建议', exact: true })).toBeDisabled();
   await page.getByLabel('告诉 AI 你的要求', { exact: true }).fill('  ');
   await expect(page.getByRole('button', { name: '生成建议', exact: true })).toBeDisabled();

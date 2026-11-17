@@ -31,7 +31,7 @@ Screenshots show the actual production frontend with sample documents. Native fi
 ## Highlights
 
 - Save multiple named model connections and switch from the header, writing assistant, or Mermaid AI panel. Each profile keeps its own provider, endpoint, model, and API key; the last selection is restored on restart. Existing single-model credentials migrate automatically when saved.
-- Open individual Markdown files or browse every Markdown document in a local folder.
+- Open individual Markdown files or browse Markdown documents in a local folder. Search file names and relative paths, see matching counts, and clear the search without losing keyboard focus.
 - Edit Markdown in editor-only, preview-only, or side-by-side views using the persistent view controls.
 - Open **Outline / 大纲** to navigate headings in any view. Collapse individual sections or the whole panel; the panel preference is saved locally. The outline and file browser share the left sidebar.
 - Preview relative local images resolved against the saved Markdown document, including parent directories, Unicode names, and URL-encoded paths.
@@ -58,6 +58,7 @@ Screenshots show the actual production frontend with sample documents. Native fi
 - Review streamed AI output as a line-by-line diff before accepting or rejecting it.
 - Connect to OpenAI-compatible Chat Completions endpoints or Anthropic Claude Messages endpoints.
 - Save safely back to the original file or export with Save As.
+- See pending save feedback without losing edits made during a write. Use the compact AI action selector in shorter windows and `Cmd/Ctrl+Enter` to generate a suggestion; plain Enter keeps adding lines to the instruction.
 
 ## Project context and conversations
 

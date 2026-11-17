@@ -69,43 +69,55 @@ export default function AssistantPanel({
       : t("补充要求（可选），例如：更简洁、使用专业语气…");
 
   return (
-    <aside className="assistant-panel" aria-label={t("AI 助手")}>
+    <aside id="writing-assistant" className="assistant-panel" aria-label={t("AI 助手")}>
       <header className="assistant-header">
         <div className="assistant-title"><span><Sparkles size={16} /></span><div><strong>{t("AI 助手")}</strong><small>{t("建议先预览，再决定是否采用")}</small></div></div>
         <button type="button" className="icon-button" onClick={onClose} aria-label={t("关闭 AI 助手")}><X size={18} /></button>
       </header>
 
       <div className="assistant-scroll">
+        <label className="assistant-compact-action">
+          {t('处理方式')}
+          <select value={action} onChange={event => onActionChange(event.target.value as AssistAction)}>
+            {textActions.map(({ action: itemAction }) => <option key={itemAction} value={itemAction}>{t(ACTION_LABELS[itemAction])}</option>)}
+            <option value="mermaid">{t(ACTION_LABELS.mermaid)}</option>
+          </select>
+        </label>
         <section className="assistant-section">
-          <div className="section-kicker">{t("文字处理")}</div>
-          <div className="assistant-action-list">
+          <div className="assistant-action-list" role="group" aria-label={t("文字处理")}>
             {textActions.map(({ action: itemAction, icon: Icon, description }) => (
-              <button key={itemAction} type="button" className={`assistant-action ${action === itemAction ? 'active' : ''}`} onClick={() => onActionChange(itemAction)}>
-                <span className="assistant-action-icon"><Icon size={16} /></span>
-                <span><strong>{t(ACTION_LABELS[itemAction])}</strong><small>{description}</small></span>
-                <ChevronRight size={15} />
+              <button key={itemAction} type="button" className={`assistant-action ${action === itemAction ? 'active' : ''}`} aria-pressed={action === itemAction} title={description} onClick={() => onActionChange(itemAction)}>
+                <Icon size={15} aria-hidden="true" />
+                <strong>{t(ACTION_LABELS[itemAction])}</strong>
               </button>
             ))}
           </div>
         </section>
 
         <section className="assistant-section mermaid-section">
-          <div className="section-kicker">{t("智能可视化")}</div>
-          <button type="button" className={`mermaid-action ${action === 'mermaid' ? 'active' : ''}`} onClick={() => onActionChange('mermaid')}>
-            <span className="mermaid-action-art" aria-hidden="true"><i /><i /><i /></span>
-            <span><b><Workflow size={15} />  {t("Mermaid 智能绘图")}</b><small>{t("用自然语言创建或修改流程图、时序图与架构图")}</small></span>
-            <ChevronRight size={15} />
+          <button type="button" className={`mermaid-action ${action === 'mermaid' ? 'active' : ''}`} aria-pressed={action === 'mermaid'} onClick={() => onActionChange('mermaid')}>
+            <Workflow size={18} aria-hidden="true" />
+            <span><b>{t("Mermaid 智能绘图")}</b><small>{t("用自然语言创建或修改流程图、时序图与架构图")}</small></span>
+            <ChevronRight size={15} aria-hidden="true" />
           </button>
         </section>
 
         <section className="assistant-compose">
-          <div className="compose-context">
+          <div className="compose-context" id="assistant-scope" role="status" aria-atomic="true">
             <span><Bot size={14} /> {t(ACTION_LABELS[action])}</span>
             <small>{action === 'mermaid' ? (hasMermaidTarget ? t("将修改光标所在的 Mermaid 图") : t("将在光标位置创建新图")) : hasSelection ? t("已选中 {0} 个字符", targetLength) : t("将处理全文 · {0} 个字符", targetLength)}</small>
           </div>
-          {conversation}
           <label htmlFor="ai-instruction">{instructionRequired ? t("告诉 AI 你的要求") : t("补充要求")}</label>
-          <textarea id="ai-instruction" value={instruction} onChange={(event) => onInstructionChange(event.target.value)} placeholder={placeholder} rows={4} />
+          <textarea id="ai-instruction" value={instruction} onChange={(event) => onInstructionChange(event.target.value)} placeholder={placeholder} rows={4}
+            aria-describedby="assistant-scope assistant-submit-hint"
+            onKeyDown={event => {
+              if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+              if (configured && (!instructionRequired || instruction.trim())) onRun(instruction.trim());
+            }} />
+          <p className="assistant-submit-hint" id="assistant-submit-hint">{t('⌘ / Ctrl + Enter 生成建议')}</p>
+          {conversation}
           {contextPanel ?? <section className="assistant-context-files" aria-label={t("AI 上下文资料")}>
             <header>
               <span><Paperclip size={13} />  {t("上下文资料")}</span>
@@ -128,6 +140,9 @@ export default function AssistantPanel({
                 : t("仅在本次文档会话中使用，不会修改这些文件")}
             </footer>
           </section>}
+        </section>
+      </div>
+      <footer className="assistant-footer">
           {!configured ? (
             <button type="button" className="configure-callout" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); onOpenSettings(); }}>
               <KeyRound size={16} /><span><strong>{t("先连接一个模型")}</strong><small>{t("支持 OpenAI-compatible 与 Anthropic Claude")}</small></span><ChevronRight size={15} />
@@ -138,8 +153,7 @@ export default function AssistantPanel({
           <button type="button" className="run-button" onClick={() => onRun(instruction.trim())} disabled={!configured || (instructionRequired && !instruction.trim())}>
             <Sparkles size={15} />  {t("生成建议")} </button>
           <p className="compose-footnote">{t("不会直接改写文档；生成后可逐行检查差异。")}</p>
-        </section>
-      </div>
+      </footer>
     </aside>
   );
 }

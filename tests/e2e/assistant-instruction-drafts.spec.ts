@@ -26,7 +26,8 @@ async function ready(page: Page) {
         const state = w.__instructionAcceptance;
         state.requests.push(args.request);
         if (state.error) throw state.error;
-        args.onEvent.onmessage({ type: 'delta', text: 'SYNTHETIC SUGGESTION' });
+        const oldText = args.request.prompt.split('待处理 Markdown：\n')[1];
+        args.onEvent.onmessage({ type: 'delta', text: JSON.stringify({ edits: [{ oldText, newText: 'SYNTHETIC SUGGESTION' }] }) });
         args.onEvent.onmessage({ type: 'done' });
         return;
       }

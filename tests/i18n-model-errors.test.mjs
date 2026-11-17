@@ -93,6 +93,8 @@ test('static streaming and transport failures have English translations', () => 
     ['模型输出超过 8 MB 限制', 'The model output exceeds the 8 MB limit'],
     ['模型返回了无效的 UTF-8 数据', 'The model returned invalid UTF-8 data'],
     ['模型响应提前结束，请重试', 'The model response ended early. Please retry.'],
+    ['模型输出达到长度上限，结果不完整，请缩小修改范围后重试；原文未改动。', 'The model reached its output limit and the result is incomplete. Retry with a smaller edit scope. The original is unchanged.'],
+    ['模型未正常完成输出，请重试；原文未改动。', 'The model did not complete its response normally. Please retry. The original is unchanged.'],
     ['请求标识重复', 'Duplicate request ID'],
   ]) check(zh, en);
 });

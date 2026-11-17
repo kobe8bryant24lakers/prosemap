@@ -82,7 +82,8 @@ async function selectFile(page: Page, path: string) {
 }
 
 async function generate(page: Page, instruction: string, response = firstOutput) {
-  await page.evaluate(response => { (window as any).__projectConversation.response = response; }, response);
+  const oldText = await editorSource(page);
+  await page.evaluate(response => { (window as any).__projectConversation.response = response; }, JSON.stringify({ edits: [{ oldText, newText: response }] }));
   await page.locator('.assistant-action').filter({ hasText: 'Custom instruction' }).click();
   await page.getByLabel('Tell AI what you need', { exact: true }).fill(instruction);
   await page.getByRole('button', { name: 'Generate suggestion', exact: true }).click();

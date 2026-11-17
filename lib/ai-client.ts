@@ -47,22 +47,41 @@ async function streamFromDesktop(
   const requestId = crypto.randomUUID();
   const channel = new Channel<DesktopStreamEvent>();
   let streamError = '';
+  let completed = false;
+  let closed = false;
+  let finishDelivery!: () => void;
+  const delivered = new Promise<void>(resolve => { finishDelivery = resolve; });
+  let deliveryTimeout: ReturnType<typeof setTimeout> | undefined;
 
   channel.onmessage = (event) => {
+    if (closed || signal.aborted || completed || streamError) return;
     if (event.type === 'delta') handlers.onContentDelta(event.text);
     if (event.type === 'reasoning_delta') handlers.onReasoningDelta?.(event.text);
-    if (event.type === 'error') streamError = modelErrorMessage(event.message);
+    if (event.type === 'error') { streamError = modelErrorMessage(event.message); finishDelivery(); }
+    if (event.type === 'done') { completed = true; finishDelivery(); }
   };
 
-  const cancel = () => { void invoke('cancel_ai', { requestId }).catch(() => undefined); };
+  const cancel = () => {
+    finishDelivery();
+    void invoke('cancel_ai', { requestId }).catch(() => undefined);
+  };
   signal.addEventListener('abort', cancel, { once: true });
   try {
     await invoke('stream_ai', { request: { ...input, requestId }, onEvent: channel });
+    // Tauri fetches larger channel messages asynchronously. The command may
+    // resolve before the ordered final deltas and done event reach JavaScript.
+    // Wait for delivery, but fail closed if the channel never completes.
+    deliveryTimeout = setTimeout(finishDelivery, 5_000);
+    await delivered;
+    if (signal.aborted) throw new DOMException('请求已取消', 'AbortError');
     if (streamError) throw new Error(streamError);
+    if (!completed) throw new Error('模型响应提前结束，请重试');
   } catch (reason) {
     if (signal.aborted) throw new DOMException('请求已取消', 'AbortError');
     throw new Error(streamError || modelErrorMessage(reason));
   } finally {
+    closed = true;
+    clearTimeout(deliveryTimeout);
     signal.removeEventListener('abort', cancel);
   }
 }

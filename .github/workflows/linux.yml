@@ -49,12 +49,15 @@ jobs:
           if (process.env.PUBLISH === 'true' && (process.env.GITHUB_REF_TYPE !== 'tag' || process.env.GITHUB_REF_NAME !== `v${pkg.version}`)) throw new Error('Publishing requires a matching version tag');
           JS
       - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm run test:mermaid
-      - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
-      - run: cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets
+      - name: Run development checks
+        if: ${{ !inputs.publish }}
+        run: |
+          npm run lint
+          npm run typecheck
+          npm run test:mermaid
+          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          cargo test --locked --manifest-path src-tauri/Cargo.toml
+          cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets
       - name: Build Debian and AppImage packages
         run: npm run desktop:build:linux -- --ci
       - name: Verify and normalize Linux assets

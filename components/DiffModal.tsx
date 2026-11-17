@@ -88,7 +88,7 @@ export default function DiffModal({ proposal, onAccept, onReject, onStop, onCont
         <div className="diff-content" aria-live="polite">
           {proposal.phase === 'compressing' && proposal.status === 'streaming' ? <div className="diff-waiting"><LoaderCircle size={22} /><span>{t('正在整理历史中的目标、约束和决策…')}</span></div> : proposal.status === 'error' && !proposal.modified ? (
             <div className="diff-waiting diff-failed"><CircleAlert size={22} /><span>{t("未收到模型返回内容")}</span></div>
-          ) : proposal.modified || proposal.status === 'streaming' ? (
+          ) : proposal.modified || proposal.status === 'streaming' || proposal.status === 'ready' ? (
             <pre>
               {changes.map((change, changeIndex) => {
                 const lines = change.value.split('\n');
@@ -120,7 +120,7 @@ export default function DiffModal({ proposal, onAccept, onReject, onStop, onCont
             ) : (
               <button type="button" className="secondary-button" onClick={onReject}><X size={15} />  {t("拒绝")}</button>
             )}
-            <button type="button" className="confirm-button" onClick={onAccept} disabled={proposal.status !== 'ready' || !proposal.modified.trim()}><Check size={15} />  {t("接受并替换")}</button>
+            <button type="button" className="confirm-button" onClick={onAccept} disabled={proposal.status !== 'ready' || (proposal.action !== 'custom' && !proposal.modified.trim())}><Check size={15} />  {t("接受并替换")}</button>
           </div>
         </footer>
       </section>

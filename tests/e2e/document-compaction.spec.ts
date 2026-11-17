@@ -58,7 +58,8 @@ async function openAssistant(page: Page) {
 }
 
 async function generate(page: Page, instruction: string, response = '# SYNTHETIC follow-up result\n') {
-  await page.evaluate(response => { (window as any).__documentCompaction.response = response; }, response);
+  const oldText = await editorSource(page);
+  await page.evaluate(response => { (window as any).__documentCompaction.response = response; }, JSON.stringify({ edits: [{ oldText, newText: response }] }));
   await page.locator('.assistant-action').filter({ hasText: 'Custom instruction' }).click();
   await page.getByLabel('Tell AI what you need', { exact: true }).fill(instruction);
   await page.getByRole('button', { name: 'Generate suggestion', exact: true }).click();

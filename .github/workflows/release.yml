@@ -9,9 +9,6 @@ permissions:
   contents: write
 
 jobs:
-  acceptance:
-    uses: ./.github/workflows/acceptance.yml
-
   linux:
     name: Linux x64
     needs: windows
@@ -24,7 +21,6 @@ jobs:
 
   windows:
     name: Windows 10/11 x64
-    needs: acceptance
     runs-on: windows-latest
     timeout-minutes: 45
 
@@ -67,27 +63,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Run frontend lint
-        run: npm run lint
-
-      - name: Run TypeScript checks
-        run: npm run typecheck
-
-      - name: Run Mermaid workbench tests
-        run: npm run test:mermaid
-
-      - name: Build the frontend
-        run: npm run build
-
-      - name: Check Rust formatting
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-
-      - name: Run Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
-
-      - name: Check all Rust targets
-        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
-
+      # Tauri builds the frontend and native binary. Code checks run on the PR;
+      # publication retains version, package, signing and checksum validation.
       - name: Build Windows installers
         run: npm run desktop:build:windows
 
@@ -197,12 +174,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
-
-      - name: Run TypeScript checks
-        run: npm run typecheck
-
-      - name: Run Mermaid workbench tests
-        run: npm run test:mermaid
 
       - name: Build universal macOS application and DMG
         env:

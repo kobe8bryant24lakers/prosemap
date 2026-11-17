@@ -51,6 +51,7 @@ Screenshots show the actual production frontend with sample documents. Native fi
 - In structured sequence diagrams, edit participants and messages on the canvas; control statements remain preserved in source order and are inspected from the canvas. Change the control structure in the source tab; newly added messages are appended after existing statements.
 - Import class/ER directions and Unicode identifiers, separate class member declarations, standalone states and state descriptions, and plain-text mind map roots into the canvas. Isolated states survive document updates.
 - Use AI on the full document or a selection for polishing, continuation, summarization, and custom transformations.
+- Custom instructions apply validated local edits while preserving unmentioned source text. Incomplete responses and ambiguous or overlapping edits cannot be accepted.
 - Attach up to 12 explicitly selected UTF-8 reference, configuration, and source-code files so text and Mermaid AI edits can use project context beyond the active document.
 - Choose a local repository or reference folder, search its file paths, and select project files shared by the writing assistant and Mermaid workbench. Selected project files are read again before every generation.
 - Continue a conversation while creating or editing Markdown and diagrams. Review earlier outputs, keep refining an unapplied suggestion, or start a new conversation while keeping the current document.
@@ -218,6 +219,8 @@ cargo fmt --manifest-path src-tauri/Cargo.toml --check
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml --all-targets
 ```
+
+Pull requests and the main branch run code checks. The full Chromium/WebKit interaction suite runs when the **Repository checks and manual deep acceptance** workflow is started manually. Releases reuse completed validation after reviewing every outgoing commit and its metadata for private information and credentials. Packaging still verifies versions, installer contents, signing requirements, and checksums. Unverified native acceptance cases remain recorded in the release notes.
 
 ## Architecture
 

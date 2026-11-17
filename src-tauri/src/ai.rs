@@ -500,6 +500,34 @@ fn extract_anthropic_reasoning(payload: &Value) -> String {
     }
 }
 
+fn validate_completion_reason(
+    provider: Provider,
+    payload: &Value,
+    required: bool,
+) -> Result<(), String> {
+    let reason = match provider {
+        Provider::Openai => payload.pointer("/choices/0/finish_reason"),
+        Provider::Anthropic => payload
+            .pointer("/delta/stop_reason")
+            .or_else(|| payload.get("stop_reason")),
+    };
+    let Some(reason) = reason.filter(|value| !value.is_null()) else {
+        return if required {
+            Err("模型响应提前结束，请重试".to_string())
+        } else {
+            Ok(())
+        };
+    };
+    match (provider, reason.as_str()) {
+        (Provider::Openai, Some("stop"))
+        | (Provider::Anthropic, Some("end_turn" | "stop_sequence")) => Ok(()),
+        (_, Some("length" | "max_tokens" | "model_context_window_exceeded")) => {
+            Err("模型输出达到长度上限，结果不完整，请缩小修改范围后重试；原文未改动。".to_string())
+        }
+        _ => Err("模型未正常完成输出，请重试；原文未改动。".to_string()),
+    }
+}
+
 fn parse_sse_data(provider: Provider, data: &str) -> Result<AiResponseDelta, String> {
     if data.trim() == "[DONE]" {
         return Ok(AiResponseDelta {
@@ -519,6 +547,7 @@ fn parse_sse_data(provider: Provider, data: &str) -> Result<AiResponseDelta, Str
         return Err(message.chars().take(500).collect());
     }
 
+    validate_completion_reason(provider, &payload, false)?;
     let done = match provider {
         Provider::Openai => payload
             .pointer("/choices/0/finish_reason")
@@ -545,8 +574,12 @@ fn parse_sse_data(provider: Provider, data: &str) -> Result<AiResponseDelta, Str
     })
 }
 
-fn extract_non_streaming_content(provider: Provider, payload: &Value) -> AiResponseDelta {
-    match provider {
+fn extract_non_streaming_content(
+    provider: Provider,
+    payload: &Value,
+) -> Result<AiResponseDelta, String> {
+    validate_completion_reason(provider, payload, true)?;
+    Ok(match provider {
         Provider::Openai => {
             let message = payload.pointer("/choices/0/message");
             AiResponseDelta {
@@ -576,7 +609,7 @@ fn extract_non_streaming_content(provider: Provider, payload: &Value) -> AiRespo
                 done: true,
             }
         }
-    }
+    })
 }
 
 fn normalized_model_name(model: &str) -> String {
@@ -800,7 +833,7 @@ async fn execute_stream(
                 "模型服务返回了无法识别的内容（Content-Type: {response_content_type}）。请检查 API 地址与服务类型。请求地址：{endpoint}"
             )
         })?;
-        let delta = extract_non_streaming_content(request.provider, &payload);
+        let delta = extract_non_streaming_content(request.provider, &payload)?;
         if delta.text.is_empty() {
             return Err(format!(
                 "模型服务返回了空内容或不兼容的响应格式。请检查服务类型与模型接口。请求地址：{endpoint}"
@@ -1246,6 +1279,96 @@ mod tests {
     }
 
     #[test]
+    fn rejects_truncated_or_abnormal_stream_completions() {
+        for reason in [
+            "length",
+            "content_filter",
+            "tool_calls",
+            "function_call",
+            "synthetic_unknown",
+        ] {
+            let payload = json!({
+                "choices": [{"delta": {"content": "SYNTHETIC partial text"}, "finish_reason": reason}]
+            });
+            let error = parse_sse_data(Provider::Openai, &payload.to_string())
+                .expect_err("an incomplete response cannot become an editable proposal");
+            assert!(error.contains(if reason == "length" {
+                "长度上限"
+            } else {
+                "未正常完成"
+            }));
+        }
+        // Anthropic reports truncation in message_delta BEFORE message_stop.
+        for reason in [
+            "max_tokens",
+            "model_context_window_exceeded",
+            "tool_use",
+            "pause_turn",
+            "refusal",
+        ] {
+            let payload = json!({"type": "message_delta", "delta": {"stop_reason": reason}});
+            assert!(parse_sse_data(Provider::Anthropic, &payload.to_string()).is_err());
+        }
+        let complete = parse_sse_data(
+            Provider::Openai,
+            &json!({
+                "choices": [{"delta": {"content": "SYNTHETIC final text"}, "finish_reason": "stop"}]
+            })
+            .to_string(),
+        )
+        .expect("a final delta may include content");
+        assert!(complete.done);
+        assert_eq!(complete.text, "SYNTHETIC final text");
+        for reason in ["end_turn", "stop_sequence"] {
+            assert!(
+                !parse_sse_data(
+                    Provider::Anthropic,
+                    &json!({
+                        "type": "message_delta", "delta": {"stop_reason": reason}
+                    })
+                    .to_string()
+                )
+                .expect("complete message delta")
+                .done
+            );
+        }
+        assert!(
+            parse_sse_data(Provider::Anthropic, r#"{"type":"message_stop"}"#)
+                .expect("message stop")
+                .done
+        );
+    }
+
+    #[test]
+    fn non_streaming_responses_require_a_successful_completion_reason() {
+        for reason in [
+            Value::Null,
+            json!("length"),
+            json!("content_filter"),
+            json!("tool_calls"),
+            json!(42),
+        ] {
+            assert!(extract_non_streaming_content(Provider::Openai, &json!({
+                "choices": [{"message": {"content": "SYNTHETIC partial document"}, "finish_reason": reason}]
+            })).is_err());
+        }
+        for reason in [
+            Value::Null,
+            json!("max_tokens"),
+            json!("model_context_window_exceeded"),
+            json!("tool_use"),
+            json!("refusal"),
+        ] {
+            assert!(extract_non_streaming_content(Provider::Anthropic, &json!({
+                "content": [{"type": "text", "text": "SYNTHETIC partial document"}], "stop_reason": reason
+            })).is_err());
+        }
+        for provider in [Provider::Openai, Provider::Anthropic] {
+            assert!(extract_non_streaming_content(provider, &json!({})).is_err());
+        }
+    }
+
+    #[test]
     fn parses_openai_reasoning_variants_without_exposing_private_details() {
         let content = parse_sse_data(
             Provider::Openai,
@@ -1298,13 +1421,15 @@ mod tests {
             Provider::Openai,
             &json!({
                 "choices": [{
+                    "finish_reason": "stop",
                     "message": {
                         "content": "最终答案",
                         "reasoning_content": "非流式推理"
                     }
                 }]
             }),
-        );
+        )
+        .expect("complete non-streaming OpenAI response");
         assert_eq!(non_streaming.text, "最终答案");
         assert_eq!(non_streaming.reasoning, "非流式推理");
     }
@@ -1336,12 +1461,14 @@ mod tests {
         let non_streaming = extract_non_streaming_content(
             Provider::Anthropic,
             &json!({
+                "stop_reason": "end_turn",
                 "content": [
                     { "type": "thinking", "thinking": "验证结论" },
                     { "type": "text", "text": "最终答案" }
                 ]
             }),
-        );
+        )
+        .expect("complete non-streaming Anthropic response");
         assert_eq!(non_streaming.reasoning, "验证结论");
         assert_eq!(non_streaming.text, "最终答案");
     }

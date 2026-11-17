@@ -955,6 +955,12 @@ export const english: Record<string, string> = {
   "模型输出超过 8 MB 限制": "The model output exceeds the 8 MB limit",
   "模型返回了无效的 UTF-8 数据": "The model returned invalid UTF-8 data",
   "模型响应提前结束，请重试": "The model response ended early. Please retry.",
+  "模型输出达到长度上限，结果不完整，请缩小修改范围后重试；原文未改动。": "The model reached its output limit and the result is incomplete. Retry with a smaller edit scope. The original is unchanged.",
+  "模型未正常完成输出，请重试；原文未改动。": "The model did not complete its response normally. Please retry. The original is unchanged.",
+  "AI 返回的局部修改格式无效，请重新生成；原文未改动。": "The AI returned invalid edits. Generate a new suggestion. The original is unchanged.",
+  "AI 返回的修改无法唯一匹配原文，请重新生成或先选择较小范围。": "The AI edits could not be uniquely matched to the original. Regenerate or select a smaller range.",
+  "AI 返回的修改范围重叠，请重新生成；原文未改动。": "The AI edits overlap. Generate a new suggestion. The original is unchanged.",
+  "（此建议将清空处理范围内的文字）": "(This suggestion removes all text in the editing scope.)",
   "请求标识重复": "Duplicate request ID"
 };
 

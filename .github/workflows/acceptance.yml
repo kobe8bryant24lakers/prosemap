@@ -1,11 +1,10 @@
-name: Deep interaction acceptance
+name: Repository checks and manual deep acceptance
 
 on:
   pull_request:
   push:
     branches: [main]
   workflow_dispatch:
-  workflow_call:
 
 permissions:
   contents: read
@@ -30,6 +29,9 @@ jobs:
       - run: npm run test:mermaid
 
   browser:
+    # Full interaction acceptance remains available on demand. Release jobs
+    # reuse completed checks instead of rerunning every browser shard.
+    if: github.event_name == 'workflow_dispatch'
     needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 90

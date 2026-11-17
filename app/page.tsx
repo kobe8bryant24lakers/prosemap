@@ -26,6 +26,7 @@ import {
   Bot,
   Braces,
   Check,
+  Circle,
   Code2,
   Eye,
   FileDown,
@@ -38,6 +39,7 @@ import {
   IndentDecrease,
   Link as LinkIcon,
   List,
+  LoaderCircle,
   PanelLeft,
   PenLine,
   Quote,
@@ -60,6 +62,7 @@ import ConfirmDialog, { type ConfirmationRequest } from '@/components/ConfirmDia
 import DiffModal from '@/components/DiffModal';
 import MarkdownPreview from '@/components/MarkdownPreview';
 import DocumentOutline from '@/components/DocumentOutline';
+import FileExplorer from '@/components/FileExplorer';
 import type { OutlineHeading } from '@/lib/document-outline';
 import MermaidWorkbench from '@/components/MermaidWorkbench';
 import SettingsModal from '@/components/SettingsModal';
@@ -261,6 +264,7 @@ export default function Home() {
   const [aiContextDocuments, setAiContextDocuments] = useState<AiContextDocument[]>([]);
   const aiContextDocumentsRef = useRef<AiContextDocument[]>([]);
   const [isDirty, setIsDirty] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [confirmation, setConfirmation] = useState<ActiveConfirmation | null>(null);
   const [editorView, setEditorView] = useState<EditorView | null>(null);
@@ -533,6 +537,7 @@ export default function Home() {
   const saveDocument = useCallback(async (saveAs = false) => {
     if (savePendingRef.current) return;
     savePendingRef.current = true;
+    setIsSaving(true);
     const requestId = ++saveRequestIdRef.current;
     const documentSession = documentSessionRef.current;
     const documentRevision = documentRevisionRef.current;
@@ -570,6 +575,7 @@ export default function Home() {
       showToast('error', uiMessage(typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : t("文件保存失败，请重试")));
     } finally {
       savePendingRef.current = false;
+      setIsSaving(false);
     }
   }, [content, documentName, localPath, rawDocument, showToast, updateDirtyState]);
 
@@ -1364,10 +1370,11 @@ export default function Home() {
         </div>
 
         <div className="document-control">
-          <FileText size={14} />
-          <input value={documentName} onChange={(event) => setDocumentName(event.target.value)} aria-label={t("文档名称")} />
-          <span className={`saved-state ${isDirty ? 'dirty' : ''}`}>
-            <Check size={11} /> {isDirty ? t("未保存") : localPath ? t("已保存到本地") : t("本机内存")}
+          <FileText size={15} aria-hidden="true" />
+          <input value={documentName} title={documentName} onChange={(event) => setDocumentName(event.target.value)} aria-label={t("文档名称")} />
+          <span className={`saved-state ${isDirty ? 'dirty' : ''}`} role="status" aria-atomic="true">
+            {isSaving ? <LoaderCircle size={12} className="is-spinning" aria-hidden="true" /> : isDirty || !localPath ? <Circle size={8} aria-hidden="true" /> : <Check size={12} aria-hidden="true" />}
+            {isSaving ? t("正在保存…") : isDirty ? t("未保存") : localPath ? t("已保存到本地") : t("本机内存")}
           </span>
         </div>
 
@@ -1377,67 +1384,42 @@ export default function Home() {
             <option value="zh-CN" lang="zh-CN">中文</option>
           </select>
           <div className="header-model-switcher"><ModelSwitcher settings={modelProfiles} disabled={modelsLoading || modelsSaving || settingsOpen} onSelect={(id) => void switchModel(id)} onManage={() => setSettingsOpen(true)} /></div>
-          <button type="button" className="header-button import-button" onClick={() => void openFile()}><FolderOpen size={15} />  {t("打开文件")}</button>
-          <button type="button" className="header-button folder-button" onClick={() => void openFolder()}><Folder size={15} />  {t("打开文件夹")}</button>
-          <button type="button" className="header-button export-button" onClick={() => void saveDocument(true)}><FileDown size={15} />  {t("另存为")}</button>
-          <button type="button" className="header-primary" onClick={() => void saveDocument()}><Save size={15} />  {t("保存")}</button>
-          <button type="button" className="icon-button header-settings" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setSettingsOpen(true); }} aria-label={t("设置")}><Settings2 size={17} /></button>
+          <button type="button" className="header-button import-button" onClick={() => void openFile()} title={`${t("打开文件")} (⌘/Ctrl O)`} aria-label={t("打开文件")}><FolderOpen size={15} aria-hidden="true" /><span>{t("打开文件")}</span></button>
+          <button type="button" className="header-button folder-button" onClick={() => void openFolder()} title={t("打开文件夹")} aria-label={t("打开文件夹")}><Folder size={15} aria-hidden="true" /><span>{t("打开文件夹")}</span></button>
+          <button type="button" className="header-button export-button" disabled={isSaving} onClick={() => void saveDocument(true)} title={`${t("另存为")} (⌘/Ctrl Shift S)`} aria-label={t("另存为")}><FileDown size={15} aria-hidden="true" /><span>{t("另存为")}</span></button>
+          <button type="button" className="header-primary" disabled={isSaving} aria-busy={isSaving} onClick={() => void saveDocument()} title={`${t("保存")} (⌘/Ctrl S)`} aria-label={t("保存")}>
+            {isSaving ? <LoaderCircle size={15} className="is-spinning" aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}<span>{t("保存")}</span>
+          </button>
+          <button type="button" className="icon-button header-settings" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setSettingsOpen(true); }} aria-label={t("设置")} title={t("设置")}><Settings2 size={17} /></button>
         </div>
       </header>
 
       <div className="view-controls" role="group" aria-label={t("编辑器视图")}>
+        <div className="navigation-controls">
+        <button type="button" className={`compact-files-toggle ${fileExplorerOpen ? 'active' : ''}`} aria-expanded={fileExplorerOpen} aria-controls="local-files" onClick={() => setNavigationPanel(current => current === 'files' ? null : 'files')}><FolderOpen size={14} aria-hidden="true" /> {t("文件")}</button>
         <button ref={outlineToggleRef} type="button" className={outlineOpen ? 'active' : ''} aria-expanded={outlineOpen} aria-controls="document-outline" onClick={() => setNavigationPanel(current => current === 'outline' ? null : 'outline')}><ListTree size={14} /> {t("大纲")}</button>
+        </div>
+        <div className="view-mode-switch" role="group" aria-label={t("文档布局")}>
         <button type="button" aria-pressed={viewMode === 'editor'} className={viewMode === 'editor' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('editor'); }}><PenLine size={14} />  {t("纯编辑")}</button>
         <button type="button" aria-pressed={viewMode === 'preview'} className={viewMode === 'preview' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('preview'); }}><Eye size={14} />  {t("纯预览")}</button>
-        <button type="button" aria-pressed={viewMode === 'split'} className={viewMode === 'split' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('split'); }}><PanelLeft size={14} /> {t("左编辑右预览")}</button>
-        {localPath && <button type="button" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); void reloadDocument(); }} title={t("重新读取磁盘文件；未保存的修改会先确认")}><RefreshCw size={14} /> {t("重新载入")}</button>}
+        <button type="button" aria-pressed={viewMode === 'split'} className={viewMode === 'split' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('split'); }}><PanelLeft size={14} aria-hidden="true" /><span className="wide-label">{t("左编辑右预览")}</span><span className="compact-label">{t("编辑与预览")}</span></button>
+        </div>
+        {localPath && <button type="button" className="reload-document" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); void reloadDocument(); }} title={t("重新读取磁盘文件；未保存的修改会先确认")}><RefreshCw size={14} /> {t("重新载入")}</button>}
       </div>
 
       <section className={`workspace ${assistantOpen ? 'with-assistant' : ''} ${navigationPanel ? 'with-files' : ''}`}>
         <nav className="rail" aria-label={t("主要工具")}>
           <button type="button" className={`rail-button ${viewMode !== 'preview' ? 'active' : ''}`} aria-pressed={viewMode !== 'preview'} onClick={returnToDocument} aria-label={t("文档编辑")} title={t("文档编辑")}><PanelLeft size={18} /></button>
-          <button type="button" className={`rail-button ${fileExplorerOpen ? 'active' : ''}`} onClick={() => setNavigationPanel(current => current === 'files' ? null : 'files')} aria-label={t("本地文件")} title={t("本地文件")}><FolderOpen size={18} /></button>
-          <button type="button" className="rail-button" onClick={() => openAssistant('polish')} aria-label={t("AI 文字助手")} title={t("AI 文字助手")}><Bot size={18} /></button>
-          <button type="button" className="rail-button mermaid-rail" onClick={() => openAssistant('mermaid')} aria-label={t("Mermaid 智能绘图")} title={t("Mermaid 智能绘图")}><Workflow size={19} /></button>
+          <button type="button" className={`rail-button ${fileExplorerOpen ? 'active' : ''}`} aria-expanded={fileExplorerOpen} aria-controls="local-files" onClick={() => setNavigationPanel(current => current === 'files' ? null : 'files')} aria-label={t("本地文件")} title={t("本地文件")}><FolderOpen size={18} /></button>
+          <button type="button" className={`rail-button ${assistantOpen && assistantAction !== 'mermaid' ? 'active' : ''}`} aria-expanded={assistantOpen && assistantAction !== 'mermaid'} aria-controls="writing-assistant" onClick={() => openAssistant('polish')} aria-label={t("AI 文字助手")} title={t("AI 文字助手")}><Bot size={18} /></button>
+          <button type="button" className={`rail-button mermaid-rail ${assistantOpen && assistantAction === 'mermaid' ? 'active' : ''}`} aria-expanded={assistantOpen && assistantAction === 'mermaid'} aria-controls="writing-assistant" onClick={() => openAssistant('mermaid')} aria-label={t("Mermaid 智能绘图")} title={t("Mermaid 智能绘图")}><Workflow size={19} /></button>
           <button type="button" className="rail-button diagram-workbench-rail" onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onMouseDown={(event) => event.preventDefault()} onClick={() => openMermaidWorkbench()} aria-label={t("Mermaid 可视化画布")} title={mermaidTarget ? t("编辑光标所在图表") : t("新建 Mermaid 图表")}><Braces size={18} /></button>
           <span className="rail-spacer" />
           <button type="button" className="rail-button" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setSettingsOpen(true); }} aria-label={t("模型设置")} title={t("模型设置")}><Settings2 size={18} /></button>
         </nav>
 
-        {fileExplorerOpen ? (
-          <aside className="file-explorer" aria-label={t("本地 Markdown 文件")}>
-            <header>
-              <div>
-                <span>{t("本地文件夹")}</span>
-                <strong title={localWorkspace?.root}>{localWorkspace?.name ?? t("尚未打开文件夹")}</strong>
-              </div>
-              <button type="button" className="icon-button" onClick={() => setNavigationPanel(null)} aria-label={t("关闭文件列表")}><X size={15} /></button>
-            </header>
-            {localWorkspace && <div className="file-scan-status" role="status">
-              <span>{t("已列出 {0} 个文件", localWorkspace.files.length.toLocaleString(locale))}</span>
-              {localWorkspace.scanLimits?.fileCount != null && <p>{t("本次扫描达到 {0} 个文件上限，可能还有文件未显示。", localWorkspace.scanLimits.fileCount.toLocaleString(locale))}</p>}
-              {localWorkspace.scanLimits?.depth != null && <p>{t("超过 {0} 层的子文件夹未扫描。", localWorkspace.scanLimits.depth)}</p>}
-            </div>}
-            {localWorkspace ? (
-              localWorkspace.files.length ? (
-                <div className="file-list">
-                  {localWorkspace.files.map((entry) => (
-                    <button type="button" className={entry.path === localPath ? 'active' : ''} key={entry.path} onClick={() => void openWorkspaceFile(entry)} title={entry.path}>
-                      <FileText size={13} />
-                      <span>{entry.relativePath}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : <p className="file-explorer-empty">{t(localWorkspace.scanLimits?.depth != null ? "扫描范围内没有 Markdown 文件。" : "此文件夹中没有 Markdown 文件。")}</p>
-            ) : (
-              <div className="file-explorer-welcome">
-                <FolderOpen size={27} />
-                <p>{t("打开文件夹后，可在这里直接切换其中的 Markdown 文件。")}</p>
-                <button type="button" onClick={() => void openFolder()}>{t("选择文件夹")}</button>
-              </div>
-            )}
-          </aside>
-        ) : null}
+        {fileExplorerOpen && <FileExplorer key={localWorkspace?.root ?? 'empty'} workspace={localWorkspace} activePath={localPath}
+          onOpen={entry => void openWorkspaceFile(entry)} onChooseFolder={() => void openFolder()} onClose={() => setNavigationPanel(null)} />}
 
         {outlineOpen && <DocumentOutline key={documentSessionRef.current} markdown={previewContent}
           activeLine={viewMode === 'preview' ? previewOutlineLine : cursorLine}
@@ -1445,33 +1427,41 @@ export default function Home() {
 
         <section className="editor-pane">
           <header className="pane-header editor-header">
-            <div className="pane-title"><span className="status-dot" />  {t("编辑器")} <small>Markdown</small></div>
-            <div className="format-actions" aria-label={t("格式工具栏")} onMouseDown={(event) => event.preventDefault()}>
+            <div className="pane-title"><PenLine size={14} aria-hidden="true" /> {t("编辑器")} <small>Markdown</small></div>
+            <div className="editor-ai-actions">
+              <button type="button" title={t("润色")} onClick={() => openAssistant('polish')}><Sparkles size={14} /> {t("润色")}</button>
+              <button type="button" title={t("续写")} onClick={() => openAssistant('continue')}><PenLine size={14} /> {t("续写")}</button>
+              <button type="button" title={t("总结")} onClick={() => openAssistant('summarize')}><TextQuote size={14} /> {t("总结")}</button>
+              <button type="button" className="mermaid-quick" title={t("智能绘图")} onClick={() => openAssistant('mermaid')}><Workflow size={14} /> {t("智能绘图")}</button>
+              <button type="button" className="mermaid-workbench-quick" title={mermaidTarget ? t("编辑当前图表") : t("新建图表")} onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onMouseDown={(event) => event.preventDefault()} onClick={() => openMermaidWorkbench()}><Braces size={14} /> {mermaidTarget ? t("编辑当前图表") : t("新建图表")}</button>
+            </div>
+            <div className="format-actions" role="group" aria-label={t("格式工具栏")} onMouseDown={(event) => event.preventDefault()}>
+              <div className="format-group">
               <button type="button" onClick={() => editorAction(undo)} title={t("撤销（⌘/Ctrl Z）")} aria-label={t("撤销")}><Undo2 size={15} /></button>
               <button type="button" onClick={() => editorAction(redo)} title={t("重做（⌘/Ctrl Shift Z）")} aria-label={t("重做")}><Redo2 size={15} /></button>
               <button type="button" onClick={() => { const view = editorRef.current?.view; if (view) openSearchPanel(view); }} title={t("查找与替换（⌘/Ctrl F）")} aria-label={t("查找与替换")}><Search size={15} /></button>
-              <span className="format-divider" />
+              </div>
+              <div className="format-group">
               <button type="button" onClick={() => formatLines('heading')} title={t("二级标题")} aria-label={t("二级标题")}><Heading2 size={15} /></button>
               <button type="button" onClick={() => formatSelection('**', '**')} title={t("粗体") + " (⌘/Ctrl B)"} aria-label={t("粗体")}><Bold size={15} /></button>
               <button type="button" onClick={() => formatSelection('*', '*')} title={t("斜体") + " (⌘/Ctrl I)"} aria-label={t("斜体")}><Italic size={15} /></button>
               <button type="button" onClick={() => formatSelection('[', '](https://)', t("链接文字"))} title={t("链接") + " (⌘/Ctrl K)"} aria-label={t("链接")}><LinkIcon size={15} /></button>
               <button type="button" onClick={() => formatSelection('`', '`', t("代码"))} title={t("行内代码")} aria-label={t("行内代码")}><Code2 size={15} /></button>
+              </div>
+              <div className="format-group">
               <button type="button" onClick={() => formatLines('list')} title={t("列表")} aria-label={t("列表")}><List size={15} /></button>
               <button type="button" onClick={() => formatLines('task')} title={t("任务清单")} aria-label={t("任务清单")}><ListChecks size={15} /></button>
               <button type="button" onClick={() => indentSelection(indentMore)} title={t("增加缩进")} aria-label={t("增加缩进")}><IndentIncrease size={15} /></button>
               <button type="button" onClick={() => indentSelection(indentLess)} title={t("减少缩进")} aria-label={t("减少缩进")}><IndentDecrease size={15} /></button>
               <button type="button" onClick={() => formatLines('quote')} title={t("引用")} aria-label={t("引用")}><Quote size={15} /></button>
+              </div>
+              <div className="format-group">
               <button type="button" onClick={() => insertBlock(t('| 列一 | 列二 |\n| --- | --- |\n| 内容 | 内容 |'))} title={t("表格")} aria-label={t("插入表格")}><Table2 size={15} /></button>
               <button type="button" onClick={() => insertBlock('```json\n{\n  "name": "ProseMap"\n}\n```')} title={t("插入 JSON 代码块（可修改语言标记）")} aria-label={t("插入代码块")}><Braces size={15} /></button>
               <button type="button" onClick={() => void formatCurrentCodeBlock()} title={t("格式化当前代码块（⌘/Ctrl+Shift+F）")} aria-label={t("格式化代码块")}><Sparkles size={15} /></button>
+              </div>
             </div>
-            <div className="editor-ai-actions">
-              <button type="button" onClick={() => openAssistant('polish')}><Sparkles size={14} />  {t("润色")}</button>
-              <button type="button" onClick={() => openAssistant('continue')}><PenLine size={14} />  {t("续写")}</button>
-              <button type="button" onClick={() => openAssistant('summarize')}><TextQuote size={14} />  {t("总结")}</button>
-              <button type="button" className="mermaid-quick" onClick={() => openAssistant('mermaid')}><Workflow size={14} />  {t("智能绘图")}</button>
-              <button type="button" className="mermaid-workbench-quick" onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onMouseDown={(event) => event.preventDefault()} onClick={() => openMermaidWorkbench()}><Braces size={14} /> {mermaidTarget ? t("编辑当前图表") : t("新建图表")}</button>
-            </div>
+
           </header>
 
           <div className="editor-surface">
@@ -1490,14 +1480,14 @@ export default function Home() {
             />
           </div>
           <footer className="statusbar">
-            <span><i className="live-dot" />  {t("实时预览已开启")}</span>
+            <span>{viewMode === 'split' ? <><i className="live-dot" /> {t("实时预览已开启")}</> : <><PenLine size={12} aria-hidden="true" /> {t("纯编辑")}</>}</span>
             <span>{t("行")} {cursorLine} · {readableCharacters.toLocaleString('zh-CN')}  {t("字 · UTF-8")}</span>
           </footer>
         </section>
 
         <section className="preview-pane">
           <header className="pane-header preview-header">
-            <div className="pane-title"><span className="status-dot mint" />  {t("可视化预览")} <small>{t("实时")}</small></div>
+            <div className="pane-title"><Eye size={14} aria-hidden="true" /> {t("可视化预览")}</div>
             <div className="preview-tools">
               <span className="diagram-ready"><Workflow size={13} />  {t("Mermaid 已启用")}</span>
               <button type="button" className="diagram-workbench-chip" onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onMouseDown={(event) => event.preventDefault()} onClick={() => openMermaidWorkbench(true)}><Braces size={13} />  {t("新建图表")}</button>

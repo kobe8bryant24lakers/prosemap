@@ -76,6 +76,7 @@ async function openDiff(page: Page, streaming = false) {
         w.__acceptance.calls.push({ command, args: { requestId: args.request.requestId } });
         args.onEvent.onmessage({ type: 'delta', text: '# Improved fixture\n\nA clearer paragraph.' });
         if (streaming) await new Promise<void>(resolve => { resolveStream = resolve; });
+        else args.onEvent.onmessage({ type: 'done' });
         return;
       }
       if (command === 'cancel_ai') { resolveStream?.(); return; }

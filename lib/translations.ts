@@ -1,5 +1,17 @@
 // UI copy only. Never pass document content through this dictionary.
 export const english: Record<string, string> = {
+  "文件": "Files",
+  "文档布局": "Document layout",
+  "处理方式": "Action",
+  "编辑与预览": "Edit & preview",
+  "查找文件": "Find files",
+  "文件名或路径": "File name or path",
+  "清除文件搜索": "Clear file search",
+  "找到 {0} / {1} 个文件": "Found {0} of {1} files",
+  "没有匹配的文件": "No matching files",
+  "清除搜索": "Clear search",
+  "正在保存…": "Saving…",
+  "⌘ / Ctrl + Enter 生成建议": "⌘ / Ctrl + Enter to generate",
   "正在压缩上下文": "Compressing context",
   "正在压缩对话上下文…（{0}/{1}）": "Compressing conversation context… ({0}/{1})",
   "正在整理历史中的目标、约束和决策…": "Summarizing goals, constraints, and decisions from the conversation…",

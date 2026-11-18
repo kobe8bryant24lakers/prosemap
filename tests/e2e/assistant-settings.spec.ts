@@ -29,7 +29,10 @@ async function boundary(page: Page) {
           args.onEvent.onmessage({ type: 'delta', text: a.response });
           args.onEvent.onmessage({ type: 'done' });
         };
-        if (a.pending) return new Promise<void>((resolve, reject) => { a.finish = () => { try { send(); resolve(); } catch (e) { reject(e); } }; });
+        if (a.pending) {
+          args.onEvent.onmessage({ type: 'delta', text: '合成的未完成建议' });
+          return new Promise<void>((resolve, reject) => { a.finish = () => { try { send(); resolve(); } catch (e) { reject(e); } }; });
+        }
         send(); return;
       }
       return invoke(command, args);
@@ -133,6 +136,8 @@ test('diff: reject keeps bytes; accepting CRLF suggestion replaces only selectio
   await page.evaluate(() => { (window as any).__assistantAcceptance.response = '建议第一行\r\n建议第二行'; });
   await generate(page);
   await expect(page.getByRole('button', { name: '接受并替换', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /AI 思考过程/ })).toHaveAttribute('aria-expanded', 'false');
+  await page.getByRole('button', { name: /AI 思考过程/ }).click();
   await expect(page.locator('.reasoning-content')).toContainText('测试服务提供的说明');
   await page.getByRole('button', { name: /AI 思考过程/ }).click();
   await expect(page.locator('.reasoning-content')).toHaveCount(0);
@@ -173,6 +178,8 @@ test('diff: stop, reject and late completion never apply partial or stale conten
   await ready(page);
   await page.evaluate(() => { (window as any).__assistantAcceptance.pending = true; });
   await generate(page);
+  await expect(page.locator('.diff-content')).toContainText('合成的未完成建议');
+  await expect(page.locator('.diff-line.removed')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '接受并替换', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: '停止生成', exact: true }).click();
   await expect(page.locator('.diff-error')).toContainText('生成已停止');

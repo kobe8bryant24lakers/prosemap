@@ -24,7 +24,7 @@ async function showSuggestion(page: Page, original: string, modified: string) {
   await page.getByRole('button', { name: 'AI 文字助手', exact: true }).click();
   await page.getByRole('button', { name: '生成建议', exact: true }).click();
   const dialog = page.locator('.diff-modal');
-  await expect(dialog.getByRole('button', { name: '接受并替换', exact: true })).toBeEnabled();
+  await expect(dialog.getByRole('group', { name: '对比视图' })).toBeVisible();
   return dialog;
 }
 
@@ -46,6 +46,10 @@ const cases = [
 for (const item of cases) {
   test('diff line counts: ' + item.name, async ({ page }) => {
     const dialog = await showSuggestion(page, item.original, item.modified);
+    if (!item.added && !item.removed) {
+      await expect(dialog.getByText('建议与原文相同，无需替换。')).toBeVisible();
+      await expect(dialog.getByRole('button', { name: '接受并替换', exact: true })).toBeDisabled();
+    } else await expect(dialog.getByRole('button', { name: '接受并替换', exact: true })).toBeEnabled();
     await expect(dialog.locator('.diff-line.added')).toHaveCount(item.added);
     await expect(dialog.locator('.diff-line.removed')).toHaveCount(item.removed);
     // Header totals must count the same visible rows, including empty rows.
@@ -53,3 +57,33 @@ for (const item of cases) {
     await expect(dialog.locator('.diff-stats i')).toHaveText('−' + item.removed, { timeout: 1000 });
   });
 }
+
+test('a final newline change is visible even when the words are the same', async ({ page }) => {
+  const dialog = await showSuggestion(page, 'Synthetic closing line', 'Synthetic closing line\n');
+  for (const view of ['只看改动', '全文对照']) {
+    await dialog.getByRole('button', { name: view, exact: true }).click();
+    await expect(dialog.locator('.diff-line.removed')).toContainText('行末无换行');
+    await expect(dialog.locator('.diff-line.added')).toContainText('行末：LF');
+  }
+});
+
+test('sparse changes link to the matching source in the full comparison without applying edits', async ({ page }) => {
+  const original = Array.from({ length: 180 }, (_, i) => `Synthetic paragraph ${i + 1}.`).join('\n');
+  const modified = original.replace('paragraph 62.', 'revised 62.').replace('paragraph 143.', 'revised 143.');
+  const dialog = await showSuggestion(page, original, modified);
+  await page.setViewportSize({ width: 390, height: 740 });
+  const content = dialog.locator('.diff-content');
+  await expect(content.getByRole('heading')).toHaveCount(2);
+  await expect(content).not.toContainText('Synthetic paragraph 100.');
+  await expect(dialog.locator('.privacy-note')).toHaveText('接受后将应用全部 2 处改动');
+  await dialog.getByRole('button', { name: '在全文中查看：原文第 143 行', exact: true }).press('Enter');
+  await expect(content).toBeFocused();
+  await expect(content.locator('.diff-line.removed').filter({ hasText: 'Synthetic paragraph 143.' })).toBeInViewport({ ratio: 0.9 });
+  await expect(content).toContainText('Synthetic paragraph 100.');
+  expect(await content.evaluate(el => el.scrollTop)).toBeGreaterThan(1000);
+  await dialog.getByRole('button', { name: '只看改动', exact: true }).click();
+  await expect(content.getByRole('heading')).toHaveCount(2);
+  await dialog.getByRole('button', { name: '拒绝', exact: true }).click();
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__acceptance.saved.at(-1)?.content)).toBe(original);
+});

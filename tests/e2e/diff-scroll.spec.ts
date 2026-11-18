@@ -57,6 +57,8 @@ for (const locale of ['en', 'zh-CN'] as const) for (const size of [{ width: 1440
       await expect(page.getByRole('button', { name: en ? 'Accept and replace' : '接受并替换', exact: true })).toBeEnabled();
       await expect(page.locator('.diff-line.removed')).toHaveCount(120);
       await expect(page.locator('.diff-line.added')).toHaveCount(120);
+      // Changes wrap prose. The full comparison preserves raw line widths.
+      await page.getByRole('button', { name: en ? 'Full comparison' : '全文对照', exact: true }).click();
       const start = await geometry(page);
       expect(start.reachable).toBe(true);
       expect(start.sh).toBeGreaterThan(start.height * 5);

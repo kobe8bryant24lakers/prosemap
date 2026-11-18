@@ -17,6 +17,7 @@ import { indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { classHighlighter } from '@lezer/highlight';
 import { findCodeBlock, formatCode, languages, UnsupportedCodeLanguageError } from '@/lib/code-blocks';
 import {
+  ArrowLeft,
   Bold,
   Undo2,
   Redo2,
@@ -26,9 +27,11 @@ import {
   Bot,
   Braces,
   Check,
+  ChevronDown,
   Circle,
   Code2,
   Eye,
+  Scan,
   FileDown,
   FileText,
   Folder,
@@ -52,7 +55,7 @@ import {
   Workflow,
   X,
 } from 'lucide-react';
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import AssistantPanel from '@/components/AssistantPanel';
 import AiContextPanel from '@/components/AiContextPanel';
 import AiConversation from '@/components/AiConversation';
@@ -111,6 +114,20 @@ function restoredViewMode(): ViewMode {
     const saved = window.localStorage.getItem('prosemap.viewMode');
     return saved === 'editor' || saved === 'preview' ? saved : 'split';
   } catch { return 'split'; }
+}
+
+// Layout changes rewrap prose and can reset WebKit's scroll box. Use the
+// document line between the two visible block anchors, including inside tables.
+function previewPosition(preview: HTMLElement, lines: number, restoreLine?: number) {
+  const origin = preview.scrollTop - preview.getBoundingClientRect().top;
+  const reading = restoreLine === undefined;
+  const anchors = Array.from(preview.querySelectorAll<HTMLElement>('[data-source-line]'), node => {
+    const line = Number(node.dataset.sourceLine) - 1, top = origin + node.getBoundingClientRect().top;
+    return reading ? { source: top, target: line } : { source: line, target: top };
+  });
+  const height = preview.scrollHeight - preview.clientHeight, lastLine = Math.max(1, lines - 1);
+  return reading ? anchoredScrollTop(preview.scrollTop, height, lastLine, anchors)
+    : anchoredScrollTop(restoreLine, lastLine, height, anchors);
 }
 
 type MermaidWorkbenchSession = {
@@ -226,7 +243,12 @@ export default function Home() {
   const [documentName, setDocumentName] = useState(t("ProseMap 入门"));
   const [selection, setSelection] = useState<SelectionRange>({ from: 0, to: 0, text: '' });
   const [cursorLine, setCursorLine] = useState(1);
-  const [viewMode, setViewMode] = useState<ViewMode>(restoredViewMode);
+  const [workspaceView, setViewMode] = useState<ViewMode>(restoredViewMode);
+  const [focusMode, setFocusMode] = useState(false);
+  const [compactFormatsOpen, setCompactFormatsOpen] = useState(false);
+  const focusToggleRef = useRef<HTMLButtonElement>(null);
+  const focusReadingRef = useRef<number | null>(null);
+  const viewMode = focusMode && workspaceView === 'split' ? 'editor' : workspaceView;
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantAction, setAssistantAction] = useState<AssistAction>('polish');
   const [assistantInstructionDrafts, setAssistantInstructionDrafts] = useState<Partial<Record<AssistAction, string>>>({});
@@ -300,8 +322,40 @@ export default function Home() {
   const configured = Boolean(config.apiKey && config.model);
 
   useEffect(() => {
-    try { window.localStorage.setItem('prosemap.viewMode', viewMode); } catch { /* Editing remains available if storage is disabled. */ }
-  }, [viewMode]);
+    try { window.localStorage.setItem('prosemap.viewMode', workspaceView); } catch { /* Editing remains available if storage is disabled. */ }
+  }, [workspaceView]);
+
+  const changeFocus = useCallback((next: boolean) => {
+    const preview = previewScrollRef.current, view = editorRef.current?.view;
+    focusReadingRef.current = workspaceView === 'preview' && preview && view ? previewPosition(preview, view.state.doc.lines) : null;
+    setFocusMode(next);
+    if (!next) window.requestAnimationFrame(() => focusToggleRef.current?.focus({ preventScroll: true }));
+  }, [workspaceView]);
+
+  useLayoutEffect(() => {
+    const view = editorRef.current?.view, preview = previewScrollRef.current;
+    if (focusMode) {
+      if (viewMode === 'preview') preview?.focus({ preventScroll: true });
+      else view?.focus();
+    }
+    const savedLine = focusReadingRef.current;
+    focusReadingRef.current = null;
+    if (savedLine !== null && view && preview) preview.scrollTop = previewPosition(preview, view.state.doc.lines, savedLine);
+  }, [focusMode, viewMode]);
+
+  useEffect(() => {
+    if (!focusMode) return;
+
+    function escapeFocus(event: KeyboardEvent) {
+      // Search, IME and nested dialogs own their Escape before the workspace.
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat) return;
+      if (document.querySelector('[aria-modal="true"], .editor-pane .cm-panel.cm-search')) return;
+      event.preventDefault();
+      changeFocus(false);
+    }
+    window.addEventListener('keydown', escapeFocus);
+    return () => window.removeEventListener('keydown', escapeFocus);
+  }, [focusMode, changeFocus]);
 
   const showToast = useCallback((kind: 'success' | 'error' | 'info', message: string) => {
     setToast({ kind, message });
@@ -338,6 +392,7 @@ export default function Home() {
       // A shifted lowercase key can otherwise match CodeMirror's unshifted
       // Ctrl-m tab-focus command before its Mod-Shift-m binding is considered.
       event.preventDefault();
+      setFocusMode(false);
       setAssistantAction('mermaid');
       setAssistantOpen(true);
       return true;
@@ -718,6 +773,7 @@ export default function Home() {
         const target = event.target instanceof Element ? event.target : null;
         if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
         event.preventDefault();
+        setFocusMode(false);
         setAssistantAction('mermaid');
         setAssistantOpen(true);
       }
@@ -869,13 +925,7 @@ export default function Home() {
 
       if (!editorView || !editorScroller || !previewScroller) return;
       if (previewReadingLineRef.current !== null) {
-        const origin = previewScroller.scrollTop - previewScroller.getBoundingClientRect().top;
-        const anchors = Array.from(previewScroller.querySelectorAll<HTMLElement>('[data-source-line]')).map(element => ({
-          source: Number(element.dataset.sourceLine) - 1,
-          target: origin + element.getBoundingClientRect().top,
-        }));
-        previewScroller.scrollTop = anchoredScrollTop(previewReadingLineRef.current, editorView.state.doc.lines - 1,
-          previewScroller.scrollHeight - previewScroller.clientHeight, anchors);
+        previewScroller.scrollTop = previewPosition(previewScroller, editorView.state.doc.lines, previewReadingLineRef.current);
         previewReadingLineRef.current = null;
         request = { source: previewScroller, target: editorScroller };
       }
@@ -992,13 +1042,7 @@ export default function Home() {
   function changeViewMode(nextMode: ViewMode) {
     const preview = previewScrollRef.current;
     if (viewMode === 'preview' && nextMode === 'split' && preview && editorView) {
-      const origin = preview.scrollTop - preview.getBoundingClientRect().top;
-      const anchors = Array.from(preview.querySelectorAll<HTMLElement>('[data-source-line]')).map(element => ({
-        source: origin + element.getBoundingClientRect().top,
-        target: Number(element.dataset.sourceLine) - 1,
-      }));
-      previewReadingLineRef.current = anchoredScrollTop(preview.scrollTop, preview.scrollHeight - preview.clientHeight,
-        editorView.state.doc.lines - 1, anchors);
+      previewReadingLineRef.current = previewPosition(preview, editorView.state.doc.lines);
     } else {
       previewReadingLineRef.current = null;
     }
@@ -1334,7 +1378,7 @@ export default function Home() {
     abortRef.current = null;
     if (proposal) conversation.updateStatus(String(proposal.id), 'discarded');
     setProposal(null);
-    showToast('info', t("已拒绝建议，原文保持不变"));
+    if (proposal?.status !== 'ready' || proposal.original !== proposal.modified) showToast('info', t("已拒绝建议，原文保持不变"));
   }
 
   function acceptProposal() {
@@ -1357,17 +1401,19 @@ export default function Home() {
 
   return (
     <main
-      className={`app-shell view-${viewMode}`}
+      className={`app-shell view-${viewMode}${focusMode ? ' focus-mode' : ''}`}
       onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
       onDragOver={(event) => event.preventDefault()}
       onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
       onDrop={(event) => { event.preventDefault(); setDragging(false); const file = event.dataTransfer.files[0]; if (file) void loadFile(file); }}
     >
       <header className="topbar">
-        <div className="brand">
+        {focusMode ? <button type="button" className="focus-exit" onClick={() => changeFocus(false)} aria-label={t('退出专注')} aria-keyshortcuts="Escape">
+          <ArrowLeft size={16} aria-hidden="true" />{t('退出专注')}<kbd aria-hidden="true">Esc</kbd>
+        </button> : <div className="brand">
           <span className="brand-mark">P</span>
           <div><strong>ProseMap</strong><small>Markdown &amp; Mermaid</small></div>
-        </div>
+        </div>}
 
         <div className="document-control">
           <FileText size={15} aria-hidden="true" />
@@ -1398,16 +1444,20 @@ export default function Home() {
         <div className="navigation-controls">
         <button type="button" className={`compact-files-toggle ${fileExplorerOpen ? 'active' : ''}`} aria-expanded={fileExplorerOpen} aria-controls="local-files" onClick={() => setNavigationPanel(current => current === 'files' ? null : 'files')}><FolderOpen size={14} aria-hidden="true" /> {t("文件")}</button>
         <button ref={outlineToggleRef} type="button" className={outlineOpen ? 'active' : ''} aria-expanded={outlineOpen} aria-controls="document-outline" onClick={() => setNavigationPanel(current => current === 'outline' ? null : 'outline')}><ListTree size={14} /> {t("大纲")}</button>
+        <button type="button" className={`compact-assistant-toggle ${assistantOpen ? 'active' : ''}`} aria-label={t('AI 文字助手')} title={t('AI 文字助手')} aria-expanded={assistantOpen} aria-controls="writing-assistant" onClick={() => setAssistantOpen(open => !open)}><Bot size={14} aria-hidden="true" /> AI</button>
         </div>
         <div className="view-mode-switch" role="group" aria-label={t("文档布局")}>
         <button type="button" aria-pressed={viewMode === 'editor'} className={viewMode === 'editor' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('editor'); }}><PenLine size={14} />  {t("纯编辑")}</button>
         <button type="button" aria-pressed={viewMode === 'preview'} className={viewMode === 'preview' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('preview'); }}><Eye size={14} />  {t("纯预览")}</button>
         <button type="button" aria-pressed={viewMode === 'split'} className={viewMode === 'split' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('split'); }}><PanelLeft size={14} aria-hidden="true" /><span className="wide-label">{t("左编辑右预览")}</span><span className="compact-label">{t("编辑与预览")}</span></button>
         </div>
-        {localPath && <button type="button" className="reload-document" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); void reloadDocument(); }} title={t("重新读取磁盘文件；未保存的修改会先确认")}><RefreshCw size={14} /> {t("重新载入")}</button>}
+        <div className="view-utilities">
+          <button ref={focusToggleRef} type="button" onClick={() => changeFocus(true)}><Scan size={15} aria-hidden="true" />{workspaceView === 'preview' ? t('专注阅读') : t('专注写作')}</button>
+          {localPath && <button type="button" className="reload-document" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); void reloadDocument(); }} aria-label={t('重新载入')} title={t("重新读取磁盘文件；未保存的修改会先确认")}><RefreshCw size={14} aria-hidden="true" /> <span>{t("重新载入")}</span></button>}
+        </div>
       </div>
 
-      <section className={`workspace ${assistantOpen ? 'with-assistant' : ''} ${navigationPanel ? 'with-files' : ''}`}>
+      <section className={`workspace ${assistantOpen && !focusMode ? 'with-assistant' : ''} ${navigationPanel && !focusMode ? 'with-files' : ''}`}>
         <nav className="rail" aria-label={t("主要工具")}>
           <button type="button" className={`rail-button ${viewMode !== 'preview' ? 'active' : ''}`} aria-pressed={viewMode !== 'preview'} onClick={returnToDocument} aria-label={t("文档编辑")} title={t("文档编辑")}><PanelLeft size={18} /></button>
           <button type="button" className={`rail-button ${fileExplorerOpen ? 'active' : ''}`} aria-expanded={fileExplorerOpen} aria-controls="local-files" onClick={() => setNavigationPanel(current => current === 'files' ? null : 'files')} aria-label={t("本地文件")} title={t("本地文件")}><FolderOpen size={18} /></button>
@@ -1436,29 +1486,33 @@ export default function Home() {
               <button type="button" className="mermaid-workbench-quick" title={mermaidTarget ? t("编辑当前图表") : t("新建图表")} onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onMouseDown={(event) => event.preventDefault()} onClick={() => openMermaidWorkbench()}><Braces size={14} /> {mermaidTarget ? t("编辑当前图表") : t("新建图表")}</button>
             </div>
             <div className="format-actions" role="group" aria-label={t("格式工具栏")} onMouseDown={(event) => event.preventDefault()}>
-              <div className="format-group">
-              <button type="button" onClick={() => editorAction(undo)} title={t("撤销（⌘/Ctrl Z）")} aria-label={t("撤销")}><Undo2 size={15} /></button>
-              <button type="button" onClick={() => editorAction(redo)} title={t("重做（⌘/Ctrl Shift Z）")} aria-label={t("重做")}><Redo2 size={15} /></button>
-              <button type="button" onClick={() => { const view = editorRef.current?.view; if (view) openSearchPanel(view); }} title={t("查找与替换（⌘/Ctrl F）")} aria-label={t("查找与替换")}><Search size={15} /></button>
+              <div className="format-group history-actions">
+                <button type="button" onClick={() => editorAction(undo)} title={t("撤销（⌘/Ctrl Z）")} aria-label={t("撤销")}><Undo2 size={15} /></button>
+                <button type="button" onClick={() => editorAction(redo)} title={t("重做（⌘/Ctrl Shift Z）")} aria-label={t("重做")}><Redo2 size={15} /></button>
+                <button type="button" onClick={() => { const view = editorRef.current?.view; if (view) openSearchPanel(view); }} title={t("查找与替换（⌘/Ctrl F）")} aria-label={t("查找与替换")}><Search size={15} /></button>
               </div>
-              <div className="format-group">
-              <button type="button" onClick={() => formatLines('heading')} title={t("二级标题")} aria-label={t("二级标题")}><Heading2 size={15} /></button>
-              <button type="button" onClick={() => formatSelection('**', '**')} title={t("粗体") + " (⌘/Ctrl B)"} aria-label={t("粗体")}><Bold size={15} /></button>
-              <button type="button" onClick={() => formatSelection('*', '*')} title={t("斜体") + " (⌘/Ctrl I)"} aria-label={t("斜体")}><Italic size={15} /></button>
-              <button type="button" onClick={() => formatSelection('[', '](https://)', t("链接文字"))} title={t("链接") + " (⌘/Ctrl K)"} aria-label={t("链接")}><LinkIcon size={15} /></button>
-              <button type="button" onClick={() => formatSelection('`', '`', t("代码"))} title={t("行内代码")} aria-label={t("行内代码")}><Code2 size={15} /></button>
-              </div>
-              <div className="format-group">
-              <button type="button" onClick={() => formatLines('list')} title={t("列表")} aria-label={t("列表")}><List size={15} /></button>
-              <button type="button" onClick={() => formatLines('task')} title={t("任务清单")} aria-label={t("任务清单")}><ListChecks size={15} /></button>
-              <button type="button" onClick={() => indentSelection(indentMore)} title={t("增加缩进")} aria-label={t("增加缩进")}><IndentIncrease size={15} /></button>
-              <button type="button" onClick={() => indentSelection(indentLess)} title={t("减少缩进")} aria-label={t("减少缩进")}><IndentDecrease size={15} /></button>
-              <button type="button" onClick={() => formatLines('quote')} title={t("引用")} aria-label={t("引用")}><Quote size={15} /></button>
-              </div>
-              <div className="format-group">
-              <button type="button" onClick={() => insertBlock(t('| 列一 | 列二 |\n| --- | --- |\n| 内容 | 内容 |'))} title={t("表格")} aria-label={t("插入表格")}><Table2 size={15} /></button>
-              <button type="button" onClick={() => insertBlock('```json\n{\n  "name": "ProseMap"\n}\n```')} title={t("插入 JSON 代码块（可修改语言标记）")} aria-label={t("插入代码块")}><Braces size={15} /></button>
-              <button type="button" onClick={() => void formatCurrentCodeBlock()} title={t("格式化当前代码块（⌘/Ctrl+Shift+F）")} aria-label={t("格式化代码块")}><Sparkles size={15} /></button>
+              <button type="button" className="format-disclosure" aria-expanded={compactFormatsOpen} aria-controls="markdown-format-options" onClick={() => setCompactFormatsOpen(open => !open)}>{t('格式')}<ChevronDown size={13} aria-hidden="true" /></button>
+              <div id="markdown-format-options" className="format-options">
+                <div className="format-group">
+                  <button type="button" onClick={() => formatLines('heading')} title={t("二级标题")} aria-label={t("二级标题")}><Heading2 size={15} /></button>
+                  <button type="button" onClick={() => formatSelection('**', '**')} title={t("粗体") + " (⌘/Ctrl B)"} aria-label={t("粗体")}><Bold size={15} /></button>
+                  <button type="button" onClick={() => formatSelection('*', '*')} title={t("斜体") + " (⌘/Ctrl I)"} aria-label={t("斜体")}><Italic size={15} /></button>
+                  <button type="button" onClick={() => formatSelection('[', '](https://)', t("链接文字"))} title={t("链接") + " (⌘/Ctrl K)"} aria-label={t("链接")}><LinkIcon size={15} /></button>
+                  <button type="button" onClick={() => formatSelection('`', '`', t("代码"))} title={t("行内代码")} aria-label={t("行内代码")}><Code2 size={15} /></button>
+                </div>
+                <div className="format-group">
+                  <button type="button" onClick={() => formatLines('list')} title={t("列表")} aria-label={t("列表")}><List size={15} /></button>
+                  <button type="button" onClick={() => formatLines('task')} title={t("任务清单")} aria-label={t("任务清单")}><ListChecks size={15} /></button>
+                  <button type="button" onClick={() => indentSelection(indentMore)} title={t("增加缩进")} aria-label={t("增加缩进")}><IndentIncrease size={15} /></button>
+                  <button type="button" onClick={() => indentSelection(indentLess)} title={t("减少缩进")} aria-label={t("减少缩进")}><IndentDecrease size={15} /></button>
+                  <button type="button" onClick={() => formatLines('quote')} title={t("引用")} aria-label={t("引用")}><Quote size={15} /></button>
+                </div>
+                <div className="format-group">
+                  <button type="button" onClick={() => insertBlock(t('| 列一 | 列二 |\n| --- | --- |\n| 内容 | 内容 |'))} title={t("表格")} aria-label={t("插入表格")}><Table2 size={15} /></button>
+                  <button type="button" onClick={() => insertBlock('```json\n{\n  "name": "ProseMap"\n}\n```')} title={t("插入 JSON 代码块（可修改语言标记）")} aria-label={t("插入代码块")}><Braces size={15} /></button>
+                  <button type="button" onClick={() => void formatCurrentCodeBlock()} title={t("格式化当前代码块（⌘/Ctrl+Shift+F）")} aria-label={t("格式化代码块")}><Sparkles size={15} /></button>
+                  <button type="button" className="compact-insert-diagram" onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onClick={() => openMermaidWorkbench()} aria-label={mermaidTarget ? t('编辑当前图表') : t('新建图表')} title={mermaidTarget ? t('编辑当前图表') : t('新建图表')}><Workflow size={15} /></button>
+                </div>
               </div>
             </div>
 
@@ -1494,7 +1548,7 @@ export default function Home() {
               <button type="button" className="ai-chip" onClick={() => openAssistant('custom')}><Sparkles size={13} />  {t("AI 助手")}</button>
             </div>
           </header>
-          <div ref={previewScrollRef} className="preview-scroll"><MarkdownPreview key={JSON.stringify([documentSessionRef.current, localPath])} markdown={previewContent} documentPath={localPath} onEditMermaid={deferredPreview.session === documentSession ? editPreviewMermaid : undefined} /></div>
+          <div ref={previewScrollRef} className="preview-scroll" role="region" aria-label={t('可视化预览')} tabIndex={focusMode && viewMode === 'preview' ? 0 : undefined}><MarkdownPreview key={JSON.stringify([documentSessionRef.current, localPath])} markdown={previewContent} documentPath={localPath} onEditMermaid={deferredPreview.session === documentSession ? editPreviewMermaid : undefined} /></div>
         </section>
 
         {assistantOpen ? (

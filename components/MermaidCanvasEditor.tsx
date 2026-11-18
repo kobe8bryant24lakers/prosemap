@@ -12,6 +12,7 @@ import { reconcileCanvasHistorySelection, type CanvasHistorySelection as Selecti
 import { beginCanvasLabelEdit, cancelCanvasLabelEdit, canvasLabelKeyAction, type CanvasLabelEdit } from '@/lib/canvas-label-edit';
 import { t } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
+import CanvasObjectFinder, { type CanvasObject } from './CanvasObjectFinder';
 
 import {
   Hand,
@@ -27,6 +28,10 @@ import {
   Maximize2,
   MousePointer2,
   Pencil,
+  Search,
+  SlidersHorizontal,
+  Settings2,
+  ScanSearch,
   Plus,
   RefreshCcw,
   Redo2,
@@ -679,6 +684,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
   const [canvasLayout, setCanvasLayout] = useState<MermaidCanvasLayout>(() => layoutMermaidGraph(graph));
   const { positions, routes, width: stageWidth, height: stageHeight } = canvasLayout;
   const [handTool, setHandTool] = useState(false);
+  const [finderOpen, setFinderOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const finderTrigger = useRef<HTMLButtonElement>(null);
+  const finderOpener = useRef<HTMLElement | null>(null);
+  const closeFinder = useCallback(() => setFinderOpen(false), []);
   const [marquee, setMarquee] = useState<Marquee | null>(null);
   const marqueeRef = useRef<Marquee | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
@@ -2212,8 +2222,51 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
     addNode(pointFromEvent(event));
   }
 
+  function openFinder(from: HTMLElement) {
+    finderOpener.current = from;
+    setFinderOpen(true);
+  }
+
+  function dismissFinder() {
+    closeFinder();
+    (finderOpener.current ?? editorRef.current)?.focus({ preventScroll: true });
+  }
+
+  function locateObject(object: CanvasObject, focusFields = false) {
+    const node = object.kind === 'node' ? graph.nodes.find(item => item.id === object.id) : null;
+    const position = node && positions[node.id], size = node && nodeSize(node, graph.kind);
+    const target = position && size
+      ? { x: position.x + size.width / 2, y: position.y + size.height / 2 }
+      : edgeGeometries.get(object.id)?.label;
+    if (!target) return;
+    closeFinder();
+    setHandTool(false);
+    setConnectMode(false);
+    setConnectingFrom(null);
+    setConnectionIssue(null);
+    setEditingNodeId(null);
+    setEditingEdgeId(null);
+    setSelection({ kind: object.kind, id: object.id });
+    setZoomWithTarget(zoomRef.current, { kind: 'center', canvasX: target.x, canvasY: target.y });
+    // A keyboard search leads straight into the selected object's controls.
+    // Pointer selection leaves subsequent canvas shortcuts available.
+    if (focusFields) requestAnimationFrame(() => {
+      const pane = editorRef.current?.querySelector<HTMLElement>('.canvas-selection-panel');
+      const first = pane?.querySelector<HTMLElement>('.canvas-semantic-inspector input:not(:disabled), .canvas-semantic-inspector select:not(:disabled)')
+        ?? pane?.querySelector<HTMLElement>('button:not(:disabled), select:not(:disabled)');
+      (first ?? editorRef.current)?.focus({ preventScroll: true });
+      if (pane && first) {
+        const field = first.getBoundingClientRect(), panel = pane.getBoundingClientRect();
+        if (field.top < panel.top || field.bottom > panel.bottom) pane.scrollTop += field.top - panel.top - 6;
+      }
+    });
+    else editorRef.current?.focus({ preventScroll: true });
+  }
+
   function handleEditorKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement;
+    if (target.closest('.canvas-finder')) return;
+    if (event.key === 'Tab' && target.closest('.canvas-editor-toolbar, .canvas-selection-panel')) return;
     const isControl = target.matches('input, textarea, select') || target.isContentEditable;
     const pointerInteraction = draggingRef.current || resizingRef.current || connectionDragRef.current
       || marqueeRef.current || panStateRef.current;
@@ -2223,6 +2276,11 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       return;
     }
     if (event.metaKey || event.ctrlKey) {
+      if (!isControl && !event.altKey && !event.shiftKey && !event.nativeEvent.isComposing && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        openFinder(target);
+        return;
+      }
       if (!isControl && event.key.toLowerCase() === 'a') {
         event.preventDefault();
         if (supportsMultiSelect) selectNodes(graph.nodes.map((node) => node.id));
@@ -2614,20 +2672,16 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
       tabIndex={0}
       onKeyDown={handleEditorKeyDown}
     >
-      <div className="canvas-editor-toolbar" onMouseDown={(event) => {
+      <div className="canvas-editor-toolbar" role="group" aria-label={t('画布编辑工具')} onMouseDown={(event) => {
         // Let an inline label blur and finish before the clicked tool runs.
         // Property fields retain focus so their existing toolbar/history flow stays intact.
         if ((event.target as Element).closest('button') && !editingNodeId && !editingEdgeId) event.preventDefault();
       }}>
+        <div className="canvas-primary-tools">
         <div className="canvas-tool-group" role="group" aria-label={t("画布工具")}>
           <button type="button" className={!handTool && !connectMode ? 'active' : ''} aria-pressed={!handTool && !connectMode} title={t("选择工具（V）")} onClick={() => { setHandTool(false); setConnectMode(false); setConnectionIssue(null); }}><MousePointer2 size={14} />{t("选择")}</button>
           <button type="button" className={handTool ? 'active' : ''} aria-pressed={handTool} title={t("平移工具（H），或按住空格拖动")} onClick={() => { setHandTool(true); setConnectMode(false); setConnectionIssue(null); }}><Hand size={14} />{t("平移")}</button>
         </div>
-        {graph.kind === 'flowchart' ? <div className="canvas-tool-group"><button type="button" onClick={addGroup}>{graph.data?.diagramType === 'usecase' ? t("系统边界") : t("包 / 分组")}</button></div> : null}
-        {graph.data?.diagramType === 'usecase' ? <div className="canvas-tool-group">
-          <button type="button" onClick={() => addUseCaseObject(true)}>{t("参与者")}</button>
-          <button type="button" onClick={() => addUseCaseObject(false)}>{t("用例")}</button>
-        </div> : null}
         <div className="canvas-tool-group history-tools" role="group" aria-label={t("编辑历史")}>
           <button type="button" onClick={undoGraphChange} disabled={!historyStatus.undo} title={t("撤销（⌘/Ctrl Z）")} aria-label={t("撤销")}><Undo2 size={14} /></button>
           <button type="button" onClick={redoGraphChange} disabled={!historyStatus.redo} title={t("重做（⌘/Ctrl Shift Z）")} aria-label={t("重做")}><Redo2 size={14} /></button>
@@ -2654,9 +2708,29 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           >
             <Link2 size={15} /> {copy.connect}
           </button>
-          <button type="button" onClick={applyAutomaticLayout} title={t("重新排列{0}", copy.nodes)}><RefreshCcw size={14} />  {t("自动排列")}</button>
+
         </div>
 
+        <div className="canvas-command-group">
+          <button type="button" ref={finderTrigger} aria-label={t('查找图中对象')} title={t('查找图中对象') + ' (⌘/Ctrl F)'} aria-expanded={finderOpen && active && !suspended} onClick={event => { if (finderOpen) dismissFinder(); else openFinder(event.currentTarget); }}><Search size={15} aria-hidden="true" /><span>{t('查找')}</span></button>
+          <button type="button" className="canvas-tools-disclosure" aria-expanded={toolsOpen} aria-controls={canvasId + '-tools'} onClick={() => setToolsOpen(open => !open)}><SlidersHorizontal size={15} aria-hidden="true" />{t('更多工具')}</button>
+        </div>
+        <div className="canvas-zoom-tools" role="group" aria-label={t("画布缩放")}>
+          <button type="button" onClick={() => zoomAroundViewportCenter(zoomRef.current - 0.1)} aria-label={t("缩小画布")} title={t("缩小（⌘/Ctrl -）")}><ZoomOut size={15} /></button>
+          <button type="button" className="canvas-zoom-value" onClick={() => zoomAroundViewportCenter(1)} aria-label={t("当前缩放 {0}%，点击重置", Math.round(zoom * 100))} title={t("重置为 100%（0 或 ⌘/Ctrl 0）")}>{Math.round(zoom * 100)}%</button>
+          <button type="button" onClick={() => zoomAroundViewportCenter(zoomRef.current + 0.1)} aria-label={t("放大画布")} title={t("放大（⌘/Ctrl +）")}><ZoomIn size={15} /></button>
+          <button type="button" className="canvas-fit-button" onClick={() => fitContent()} title={t("适配全部内容（F）")}><Maximize2 size={14} />  {t("适配")}</button>
+          <button type="button" disabled={!selectedIds.length} onClick={() => fitContent(MAX_ZOOM, true)} title={t("适配选中对象（Shift F）")}>{t("选区")}</button>
+        </div>
+      </div>
+
+      <div id={canvasId + '-tools'} className={'canvas-tool-shelf' + (toolsOpen ? ' open' : '')}>
+        <div className="canvas-tool-group"><button type="button" onClick={applyAutomaticLayout} title={t("重新排列{0}", copy.nodes)}><RefreshCcw size={14} />  {t("自动排列")}</button></div>
+        {graph.kind === 'flowchart' ? <div className="canvas-tool-group"><button type="button" onClick={addGroup}>{graph.data?.diagramType === 'usecase' ? t("系统边界") : t("包 / 分组")}</button></div> : null}
+        {graph.data?.diagramType === 'usecase' ? <div className="canvas-tool-group">
+          <button type="button" onClick={() => addUseCaseObject(true)}>{t("参与者")}</button>
+          <button type="button" onClick={() => addUseCaseObject(false)}>{t("用例")}</button>
+        </div> : null}
         <div className="canvas-node-library" role="group" aria-label={t("{0}库", copy.node)}>
           <span>{t("对象")}</span>
           {nodePresets.map((preset) => {
@@ -2682,7 +2756,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
               <button
                 type="button"
                 key={value}
-                className={graph.direction === value ? 'active' : ''}
+                className={graph.direction === value || (graph.direction === 'TB' && value === 'TD') ? 'active' : ''}
+                aria-pressed={graph.direction === value || (graph.direction === 'TB' && value === 'TD')}
                 onClick={() => commitGraph({ ...graph, direction: value })}
                 aria-label={label}
                 title={label}
@@ -2702,24 +2777,14 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           <button type="button" className={canvasStyle === 'handdrawn' ? 'active' : ''} onClick={() => setCanvasStyle('handdrawn')} aria-pressed={canvasStyle === 'handdrawn'}><Pencil size={13} />  {t("手绘")}</button>
         </div>
 
-        <div className="canvas-zoom-tools" role="group" aria-label={t("画布缩放")}>
-          <button type="button" onClick={() => zoomAroundViewportCenter(zoomRef.current - 0.1)} aria-label={t("缩小画布")} title={t("缩小（⌘/Ctrl -）")}><ZoomOut size={15} /></button>
-          <button type="button" className="canvas-zoom-value" onClick={() => zoomAroundViewportCenter(1)} aria-label={t("当前缩放 {0}%，点击重置", Math.round(zoom * 100))} title={t("重置为 100%（0 或 ⌘/Ctrl 0）")}>{Math.round(zoom * 100)}%</button>
-          <button type="button" onClick={() => zoomAroundViewportCenter(zoomRef.current + 0.1)} aria-label={t("放大画布")} title={t("放大（⌘/Ctrl +）")}><ZoomIn size={15} /></button>
-          <button type="button" className="canvas-fit-button" onClick={() => fitContent()} title={t("适配全部内容（F）")}><Maximize2 size={14} />  {t("适配")}</button>
-          <button type="button" disabled={!selectedIds.length} onClick={() => fitContent(MAX_ZOOM, true)} title={t("适配选中对象（Shift F）")}>{t("选区")}</button>
-        </div>
       </div>
-
-      <div className="canvas-navigation-hint" style={connectionIssue ? { display: 'flex' } : undefined}>
-        <span role="status" style={connectionIssue ? { color: 'var(--red)' } : undefined}>
-          {connectionIssue
-            ? t(CANVAS_CONNECTION_MESSAGES[connectionIssue])
-            : supportsMultiSelect ? t("拖动空白框选 · Shift 点击多选 · 方向键微调 · Shift 加速") : t("双击对象编辑 · 方向键微调 · Shift 加速")}
-        </span>
-        <span>{t("滚轮平移 · ⌘/Ctrl + 滚轮缩放 · 空格拖动画布")}</span>
       </div>
-      <div className="canvas-selection-panel">
+      {finderOpen && active && !suspended && <CanvasObjectFinder graph={graph} nodeName={copy.node} edgeName={copy.edge}
+        labelFor={nodeDisplayLabel} trigger={finderTrigger} onPick={locateObject} onClose={closeFinder} onDismiss={dismissFinder} />}
+      <div className="canvas-edit-body">
+      <aside className="canvas-selection-panel" aria-label={t('对象属性')}>
+        <header className="canvas-properties-heading"><Settings2 size={15} aria-hidden="true" /><strong>{t('对象属性')}</strong>
+          <span>{selectedNode ? copy.node : selectedEdge ? copy.edge : ''}</span></header>
         <div className="canvas-context-bar" aria-live="polite" onMouseDown={(event) => { if ((event.target as Element).closest('button')) event.preventDefault(); }}>
           {connectMode ? (
             <>
@@ -2761,7 +2826,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
                     <button
                       type="button"
                       key={value}
-                      className={selectedNode.shape === value ? 'active' : ''}
+                      className={selectedNode.shape === value ? 'active' : ''} aria-pressed={selectedNode.shape === value}
                       onClick={() => updateNode(selectedNode.id, { shape: value })}
                       title={label}
                       aria-label={label}
@@ -2819,7 +2884,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
               {graph.kind === 'flowchart' ? (
                 <div className="canvas-edge-style-tools" role="group" aria-label={t("连线样式")}>
                   {EDGE_OPTIONS.map(({ value, label }) => (
-                    <button type="button" key={value} className={selectedEdge.style === value ? 'active' : ''} onClick={() => updateEdge(selectedEdge.id, { style: value })}>{label}</button>
+                    <button type="button" key={value} className={selectedEdge.style === value ? 'active' : ''} aria-pressed={selectedEdge.style === value} onClick={() => updateEdge(selectedEdge.id, { style: value })}>{label}</button>
                   ))}
                 </div>
               ) : null}
@@ -2834,13 +2899,10 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
               {canRemoveSelectedEdge ? <button type="button" className="danger" onClick={removeSelection}><Trash2 size={13} /> {graph.kind === 'mindmap' ? t("移到根主题") : t("删除")}</button> : null}
             </>
           ) : (
-            <span className="canvas-idle-hint">
-              {connectMode
-                ? connectingFrom ? t("再点一个{0}完成{1}；可连续操作", copy.node, copy.edge) : t("点一个{0}作为{1}起点", copy.node, copy.edge)
-                : graph.kind === 'sequence'
-                  ? t("移入对象生命线显示调整区域 · 左右拖动调宽 · 底部拖动调长 · 从连接点或生命线拖动创建消息")
-                  : t("选择{0}后用方向箭头快速创建 · 右下角端点可连接已有{1} · 双击空白新增", copy.node, copy.node)}
-            </span>
+            <div className="canvas-idle-hint"><strong>{t('选择一个{0}或{1}', copy.node, copy.edge)}</strong>
+              <span>{t('在图上点选，或按名称查找。')}</span>
+              <button type="button" onClick={event => openFinder(event.currentTarget)}><ScanSearch size={15} aria-hidden="true" />{t('查找对象')}</button>
+            </div>
           )}
         </div>
 
@@ -2917,7 +2979,6 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           </div>
         ) : null}
 
-      </div>
 
       {graph.kind === 'sequence' && graph.data?.sequenceItems ? <details className="canvas-groups-panel canvas-sequence-structure">
         <summary>{t("时序控制结构已保留")}</summary>
@@ -2943,6 +3004,7 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
         </div>)}</div>
       </details> : null}
 
+      </aside>
       <div
         className={`canvas-editor-viewport${connectMode ? ' connect-mode' : ''}${(spacePressed || handTool) && !panning ? ' pan-ready' : ''}${supportsMultiSelect && !handTool ? ' selection-mode' : ''}${panning ? ' is-panning' : ''}`}
         onPointerDownCapture={(event) => {
@@ -3390,6 +3452,8 @@ export default function MermaidCanvasEditor({ active = true, suspended = false, 
           </div>
         </div>
       </div>
+      </div>
+      {connectionIssue && <div className="canvas-navigation-hint canvas-connection-error"><span role="status">{t(CANVAS_CONNECTION_MESSAGES[connectionIssue])}</span></div>}
       <div className="canvas-editor-status">
         <span>{graph.nodes.length}  {t("个")}{copy.nodes} · {graph.edges.length}  {t("条")}{copy.edges}</span>
         <span>{graph.kind === 'sequence' ? t("点击参与者或生命线选择 · ") : ''}{t("Tab 创建并连接 · C 连线 · N 新建 · V 选择 · H 平移 · F 适配")}</span>

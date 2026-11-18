@@ -32,7 +32,7 @@ Screenshots show the actual production frontend with sample documents. Native fi
 
 - Save multiple named model connections and switch from the header, writing assistant, or Mermaid AI panel. Each profile keeps its own provider, endpoint, model, and API key; the last selection is restored on restart. Existing single-model credentials migrate automatically when saved.
 - Open individual Markdown files or browse Markdown documents in a local folder. Search file names and relative paths, see matching counts, and clear the search without losing keyboard focus.
-- Edit Markdown in editor-only, preview-only, or side-by-side views using the persistent view controls.
+- Choose editor, preview, or split view. Select **Focus on writing / 专注写作** for a centered editor, or **Focus on reading / 专注阅读** from preview. Press `Esc` to return to the previous layout with your selection, reading position and open panels intact.
 - Open **Outline / 大纲** to navigate headings in any view. Collapse individual sections or the whole panel; the panel preference is saved locally. The outline and file browser share the left sidebar.
 - Preview relative local images resolved against the saved Markdown document, including parent directories, Unicode names, and URL-encoded paths.
 - Open relative links to local spreadsheets, documents, images, and media in the system's default application directly from the preview.
@@ -55,7 +55,7 @@ Screenshots show the actual production frontend with sample documents. Native fi
 - Attach up to 12 explicitly selected UTF-8 reference, configuration, and source-code files so text and Mermaid AI edits can use project context beyond the active document.
 - Choose a local repository or reference folder, search its file paths, and select project files shared by the writing assistant and Mermaid workbench. Selected project files are read again before every generation.
 - Continue a conversation while creating or editing Markdown and diagrams. Review earlier outputs, keep refining an unapplied suggestion, or start a new conversation while keeping the current document.
-- Review streamed AI output as a line-by-line diff before accepting or rejecting it.
+- Read a suggestion as it streams. When it is ready, **Changes / 只看改动** pairs each changed passage with the original. Select a line number to see it in **Full comparison / 全文对照**. Accept applies the whole suggestion; identical suggestions need no replacement.
 - Connect to OpenAI-compatible Chat Completions endpoints or Anthropic Claude Messages endpoints.
 - Save safely back to the original file or export with Save As.
 - See pending save feedback without losing edits made during a write. Use the compact AI action selector in shorter windows and `Cmd/Ctrl+Enter` to generate a suggestion; plain Enter keeps adding lines to the instruction.
@@ -80,7 +80,7 @@ Automated checks use synthetic repositories and model responses. They validate r
 
 ## Code editing
 
-The Markdown toolbar preserves the current selection. Bold, italic, inline code, headings, lists, quotes and task lists toggle their markers; line actions support multiline selections. Use `Cmd/Ctrl+B`, `Cmd/Ctrl+I`, and `Cmd/Ctrl+K` for inline formatting, or `Cmd/Ctrl+F` for find and replace.
+The Markdown toolbar preserves the current selection. In a narrow editor, undo, redo and search stay visible; open **Format / 格式** for the other commands. Bold, italic, inline code, headings, lists, quotes and task lists toggle their markers; line actions support multiline selections. Use `Cmd/Ctrl+B`, `Cmd/Ctrl+I`, and `Cmd/Ctrl+K` for inline formatting, or `Cmd/Ctrl+F` for find and replace.
 
 Add a language after the opening fence, such as `json`, `jsonc`, `javascript`, `typescript`, `python`, `sql`, or `yaml`. Highlighting grammars are loaded locally on demand; unknown languages remain readable as plain text.
 
@@ -109,6 +109,10 @@ If the document has not been saved, pasting an image first opens the Markdown sa
 
 ## Canvas controls
 
+Open the [traveling exhibition handbook (Chinese)](examples/traveling-exhibition.zh-CN.md) in ProseMap to try eleven editable diagrams in one synthetic project, including a two-leg transfer, an offline receipt and a handoff exception.
+
+Use **Find / 查找** in the canvas toolbar, or press **Cmd/Ctrl+F** with the canvas focused. Search for a node name, source ID, member, field or connection endpoint. Arrow keys browse matches; Enter selects the object at the current zoom and opens its properties. The property panel sits beside the drawing on desktop and below it in a narrow window.
+
 For flowcharts, class diagrams and ER diagrams, drag a selection rectangle on empty canvas, or Shift/Cmd/Ctrl-click nodes to select multiple objects. Move, duplicate or delete the selection together; use the contextual toolbar to align or distribute it. Other diagram types retain their specialized individual editing behavior.
 
 | Action | Control |
@@ -128,7 +132,7 @@ For flowcharts, class diagrams and ER diagrams, drag a selection rectangle on em
 
 Dragging, alignment and a continuous rename each undo as one action. Escape cancels an active drag, resize or rename without replacing the existing redo history. New objects and copies find nearby free space; dragging toward the right or bottom expands the canvas, and dragging near the viewport edge scrolls it. Unsupported connections explain the diagram's relationship rule.
 
-Canvas selection and inspector changes preserve the current zoom and pointer location. Switching tabs or temporarily entering invalid source retains the canvas session; returning with changed, valid source preserves existing node positions and starts a new canvas undo history. Manual positions belong to the current canvas session; reopening Mermaid source and rendered previews still use automatic layout. Toolbars wrap to keep actions visible in smaller windows.
+Canvas selection and inspector changes preserve the current zoom and pointer location. Switching tabs or temporarily entering invalid source retains the canvas session; returning with changed, valid source preserves existing node positions and starts a new canvas undo history. Manual positions belong to the current canvas session; reopening Mermaid source and rendered previews still use automatic layout. In a narrow window, **More tools / 更多工具** reveals the object library, layout, snapping and style controls.
 
 ## Desktop support
 

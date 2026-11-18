@@ -51,6 +51,7 @@ import {
   type MermaidVisualGraph,
 } from '@/lib/mermaid-workbench';
 import MermaidCanvasEditor from './MermaidCanvasEditor';
+import MermaidTemplateLibrary from './MermaidTemplateLibrary';
 import MermaidDiagram from './MermaidDiagram';
 import AiConversation from './AiConversation';
 import type { ConfirmationRequest } from './ConfirmDialog';
@@ -577,10 +578,16 @@ export default function MermaidWorkbench({
           <div>
             <div className="workbench-title-row">
               <h2 id="mermaid-workbench-title">{t("Mermaid 图表工作台")}</h2>
-              <span>{mode === 'edit' ? t("编辑当前图表") : t("创建新图表")}</span>
             </div>
-            <p>{t("在画布上直接拖拽、改名和连线，AI、模板与源码作为辅助")}</p>
+            <p>{diagramKind(source)} · {mode === 'edit' ? t('编辑当前图表') : t('创建新图表')}</p>
           </div>
+          <nav className="workbench-tabs" aria-label={t("图表编辑方式")}>
+            {TABS.map(({ id, label, icon: Icon }) => (
+              <button key={id} type="button" aria-pressed={tab === id} className={tab === id ? 'active' : ''} onClick={() => switchTab(id)}>
+                <Icon size={15} aria-hidden="true" /> {label}
+              </button>
+            ))}
+          </nav>
           <div className="workbench-window-actions">
             <button type="button" className="icon-button" onClick={() => setExpanded((value) => !value)} aria-pressed={expanded} aria-label={expanded ? t('还原窗口') : t('全屏编辑')} title={expanded ? t('还原窗口') : t('全屏编辑')}>
               {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
@@ -591,136 +598,120 @@ export default function MermaidWorkbench({
 
         <div className={`workbench-main${tab === 'visual' ? ' visual-mode' : ''}`}>
           <section className="workbench-controls">
-            <nav className="workbench-tabs" aria-label={t("图表编辑方式")}>
-              {TABS.map(({ id, label, icon: Icon }) => (
-                <button key={id} type="button" className={tab === id ? 'active' : ''} onClick={() => switchTab(id)}>
-                  <Icon size={14} /> {label}
-                </button>
-              ))}
-            </nav>
-
-            <div className="workbench-control-scroll">
+            <div className={'workbench-control-scroll' + (tab === 'ai' ? ' ai-mode' : '')}>
               {tab === 'ai' ? (
                 <div className="workbench-ai-panel">
-                  <div className="workbench-section-heading">
-                    <span><Bot size={17} /></span>
-                    <div><strong>{t("用自然语言生成或修改")}</strong><small>{t("AI 会基于右侧当前草稿生成完整 Mermaid 源码")}</small></div>
-                  </div>
-                  <AiConversation
-                    turns={conversation.turns}
-                    memory={conversation.memory}
-                    onReset={() => {
-                      conversation.reset();
-                      setAiCompressionFailed(false);
-                      setAiRequestNotice(null);
-                      setAiStatus({ kind: 'idle', message: '' });
-                      setAiReasoning('');
-                    }}
-                    disabled={aiRunning || applying}
-                  />
-                  {aiRequestNotice ? <div className="workbench-request-notice" role="status">
-                    {aiRequestNotice.omittedTurns ? <div>{t('本次请求省略了 {0} 轮对话。', aiRequestNotice.omittedTurns)}</div> : null}
-                    {aiRequestNotice.contextTruncated ? <div>{t('参考资料已截断，本次包含 {0} 个字符。', aiRequestNotice.contextCharacters.toLocaleString())}</div> : null}
-                  </div> : null}
-                  <label htmlFor="mermaid-ai-prompt">{t("描述你想要的图")}</label>
-                  <textarea
-                    id="mermaid-ai-prompt"
-                    rows={6}
-                    value={aiInstruction}
-                    onChange={(event) => setAiInstruction(event.target.value)}
-                    disabled={aiRunning}
-                    placeholder={t("例如：生成电商订单从创建、支付、履约到售后的完整流程，并标出超时和退款分支")}
-                  />
-                  <label className="workbench-ai-context">
-                    <input type="checkbox" checked={aiUseCurrentSource} onChange={(event) => setAiUseCurrentSource(event.target.checked)} disabled={aiRunning} />
-                    <span>{t("基于右侧当前草稿修改")}</span>
-                    <small>{aiUseCurrentSource ? t("AI 会尽量保留未要求改变的内容") : t("AI 将从你的描述创建一张新图")}</small>
-                  </label>
-                  {contextPanel ? <fieldset className="workbench-context-slot" disabled={aiRunning}>{contextPanel}</fieldset> : <section className="workbench-context-files" aria-label={t("Mermaid AI 上下文资料")}>
-                    <header>
-                      <span><Paperclip size={13} />  {t("上下文资料")}</span>
-                      <button type="button" onClick={onPickContext} disabled={aiRunning}><Paperclip size={12} />  {t("添加文件")}</button>
-                    </header>
-                    {contextDocuments.length ? (
-                      <div>
-                        {contextDocuments.map((document) => (
-                          <span key={document.path} title={document.path}>
-                            <FileText size={11} /> <b>{document.name}</b>
-                            <button type="button" onClick={() => onRemoveContext(document.path)} disabled={aiRunning} aria-label={t("移除上下文 {0}", document.name)}><X size={11} /></button>
-                          </span>
-                        ))}
-                      </div>
-                    ) : <p>{t("加入需求、接口、代码或其他图表资料，AI 会据此补全参与者、节点和关系。")}</p>}
-                    <footer className={contextCharacters > MAX_AI_CONTEXT_CHARACTERS ? 'truncated' : ''}>
-                      {contextDocuments.length
-                        ? t("{0} 个文件 · {1} 字符{2}", contextDocuments.length, contextCharacters.toLocaleString('zh-CN'), contextCharacters > MAX_AI_CONTEXT_CHARACTERS ? t(" · 截取前 {0}", MAX_AI_CONTEXT_CHARACTERS.toLocaleString('zh-CN')) : '')
-                        : t("资料只作为参考，不会被修改")}
-                    </footer>
-                  </section>}
-                  <div className="workbench-prompt-examples">
-                    {AI_EXAMPLES.map((example) => <button key={example} type="button" onClick={() => setAiInstruction(t(example))} disabled={aiRunning}>{t(example)}</button>)}
-                  </div>
-                  {aiStatus.message ? (
-                    <div className={`workbench-ai-status ${aiStatus.kind}`} role="status">
-                      {aiStatus.kind === 'running' ? <LoaderCircle size={15} /> : aiStatus.kind === 'error' ? <CircleAlert size={15} /> : aiStatus.kind === 'success' ? <Check size={15} /> : <Bot size={15} />}
-                      <span>{uiMessage(aiStatus.message)}</span>
+                  <div className="workbench-ai-scroll">
+                    <div className="workbench-section-heading">
+                      <span><Bot size={17} /></span>
+                      <div><strong>{t("用自然语言生成或修改")}</strong><small>{t("描述图的用途，或说明想改动的地方。")}</small></div>
                     </div>
-                  ) : null}
-                  {aiCompressionFailed ? <p className="workbench-request-notice">{t('压缩未完成，原始对话已保留，文档没有被修改。')}</p> : null}
-                  {aiStatus.kind !== 'idle' || aiReasoning ? (
-                    <section className={`workbench-ai-reasoning${aiReasoningOpen ? ' open' : ''}`}>
-                      <button
-                        type="button"
-                        className="workbench-ai-reasoning-toggle"
-                        onClick={() => setAiReasoningOpen((open) => !open)}
-                        aria-expanded={aiReasoningOpen}
-                      >
-                        <BrainCircuit size={15} />
-                        <span>
-                          <strong>{t("AI 思考过程")}</strong>
-                          <small>{aiReasoning ? t("已接收 {0} 个字符", aiReasoning.length) : aiRunning ? t("等待模型返回推理内容") : t("模型未返回推理内容")}</small>
-                        </span>
-                        {aiRunning ? <LoaderCircle className="spinning" size={13} /> : aiReasoningOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                      </button>
-                      {aiReasoningOpen ? (
-                        <div className="workbench-ai-reasoning-content" aria-live="polite">
-                          {aiReasoning
-                            ? <pre>{aiReasoning}</pre>
-                            : <p>{aiRunning ? t("正在等待模型提供可展示的思考过程…") : t("当前模型或接口没有返回可展示的思考过程。")}</p>}
+                    <label htmlFor="mermaid-ai-prompt">{t("描述你想要的图")}</label>
+                    <textarea
+                      id="mermaid-ai-prompt"
+                      rows={4}
+                      value={aiInstruction}
+                      onChange={(event) => setAiInstruction(event.target.value)}
+                      aria-keyshortcuts="Meta+Enter Control+Enter"
+                      onKeyDown={event => {
+                        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && !event.repeat) {
+                          event.preventDefault(); if (configured && !aiRunning && aiInstruction.trim()) void runAi();
+                        }
+                      }}
+                      disabled={aiRunning}
+                      placeholder={t("例如：生成电商订单从创建、支付、履约到售后的完整流程，并标出超时和退款分支")}
+                    />
+                    <label className="workbench-ai-context">
+                      <input type="checkbox" checked={aiUseCurrentSource} onChange={(event) => setAiUseCurrentSource(event.target.checked)} disabled={aiRunning} />
+                      <span>{t("基于右侧当前草稿修改")}</span>
+                      <small>{aiUseCurrentSource ? t("AI 会尽量保留未要求改变的内容") : t("AI 将从你的描述创建一张新图")}</small>
+                    </label>
+                    <AiConversation
+                      turns={conversation.turns}
+                      memory={conversation.memory}
+                      onReset={() => {
+                        conversation.reset();
+                        setAiCompressionFailed(false);
+                        setAiRequestNotice(null);
+                        setAiStatus({ kind: 'idle', message: '' });
+                        setAiReasoning('');
+                      }}
+                      disabled={aiRunning || applying}
+                    />
+                    {aiRequestNotice ? <div className="workbench-request-notice" role="status">
+                      {aiRequestNotice.omittedTurns ? <div>{t('本次请求省略了 {0} 轮对话。', aiRequestNotice.omittedTurns)}</div> : null}
+                      {aiRequestNotice.contextTruncated ? <div>{t('参考资料已截断，本次包含 {0} 个字符。', aiRequestNotice.contextCharacters.toLocaleString())}</div> : null}
+                    </div> : null}
+                    {contextPanel ? <fieldset className="workbench-context-slot" disabled={aiRunning}>{contextPanel}</fieldset> : <section className="workbench-context-files" aria-label={t("Mermaid AI 上下文资料")}>
+                      <header>
+                        <span><Paperclip size={13} />  {t("上下文资料")}</span>
+                        <button type="button" onClick={onPickContext} disabled={aiRunning}><Paperclip size={12} />  {t("添加文件")}</button>
+                      </header>
+                      {contextDocuments.length ? (
+                        <div>
+                          {contextDocuments.map((document) => (
+                            <span key={document.path} title={document.path}>
+                              <FileText size={11} /> <b>{document.name}</b>
+                              <button type="button" onClick={() => onRemoveContext(document.path)} disabled={aiRunning} aria-label={t("移除上下文 {0}", document.name)}><X size={11} /></button>
+                            </span>
+                          ))}
                         </div>
-                      ) : null}
-                    </section>
-                  ) : null}
-                  {modelSwitcher}
-                  {!configured ? (
-                    <button type="button" className="workbench-configure" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); onOpenSettings(); }}>{t("先连接模型")}</button>
-                  ) : null}
-                  {aiStatus.kind === 'running' ? (
-                    <button type="button" className="workbench-ai-run secondary" onClick={stopAi}><X size={15} />  {t("停止生成")}</button>
-                  ) : (
-                    <button type="button" className="workbench-ai-run" onClick={() => void runAi()} disabled={!aiInstruction.trim()}><Sparkles size={15} />  {t("生成图表草稿")}</button>
-                  )}
-                  <p className="workbench-hint">{t("生成结果只更新工作台草稿，不会直接覆盖文档。")}</p>
+                      ) : <p>{t("加入需求、接口、代码或其他图表资料，AI 会据此补全参与者、节点和关系。")}</p>}
+                      <footer className={contextCharacters > MAX_AI_CONTEXT_CHARACTERS ? 'truncated' : ''}>
+                        {contextDocuments.length
+                          ? t("{0} 个文件 · {1} 字符{2}", contextDocuments.length, contextCharacters.toLocaleString('zh-CN'), contextCharacters > MAX_AI_CONTEXT_CHARACTERS ? t(" · 截取前 {0}", MAX_AI_CONTEXT_CHARACTERS.toLocaleString('zh-CN')) : '')
+                          : t("资料只作为参考，不会被修改")}
+                      </footer>
+                    </section>}
+                    <div className="workbench-prompt-examples">
+                      {AI_EXAMPLES.map((example) => <button key={example} type="button" onClick={() => setAiInstruction(t(example))} disabled={aiRunning}>{t(example)}</button>)}
+                    </div>
+                    {aiStatus.message ? (
+                      <div className={`workbench-ai-status ${aiStatus.kind}`} role="status">
+                        {aiStatus.kind === 'running' ? <LoaderCircle size={15} /> : aiStatus.kind === 'error' ? <CircleAlert size={15} /> : aiStatus.kind === 'success' ? <Check size={15} /> : <Bot size={15} />}
+                        <span>{uiMessage(aiStatus.message)}</span>
+                      </div>
+                    ) : null}
+                    {aiCompressionFailed ? <p className="workbench-request-notice">{t('压缩未完成，原始对话已保留，文档没有被修改。')}</p> : null}
+                    {aiStatus.kind !== 'idle' || aiReasoning ? (
+                      <section className={`workbench-ai-reasoning${aiReasoningOpen ? ' open' : ''}`}>
+                        <button
+                          type="button"
+                          className="workbench-ai-reasoning-toggle"
+                          onClick={() => setAiReasoningOpen((open) => !open)}
+                          aria-expanded={aiReasoningOpen}
+                        >
+                          <BrainCircuit size={15} />
+                          <span>
+                            <strong>{t("AI 思考过程")}</strong>
+                            <small>{aiReasoning ? t("已接收 {0} 个字符", aiReasoning.length) : aiRunning ? t("等待模型返回推理内容") : t("模型未返回推理内容")}</small>
+                          </span>
+                          {aiRunning ? <LoaderCircle className="spinning" size={13} /> : aiReasoningOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                        </button>
+                        {aiReasoningOpen ? (
+                          <div className="workbench-ai-reasoning-content" aria-live="polite">
+                            {aiReasoning
+                              ? <pre>{aiReasoning}</pre>
+                              : <p>{aiRunning ? t("正在等待模型提供可展示的思考过程…") : t("当前模型或接口没有返回可展示的思考过程。")}</p>}
+                          </div>
+                        ) : null}
+                      </section>
+                    ) : null}
+                  </div>
+                  <div className="workbench-ai-submit">
+                    {configured ? modelSwitcher : (
+                      <button type="button" className="workbench-configure" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); onOpenSettings(); }}>{t("先连接模型")}</button>
+                    )}
+                    {aiStatus.kind === 'running' ? (
+                      <button type="button" className="workbench-ai-run secondary" onClick={stopAi}><X size={15} />  {t("停止生成")}</button>
+                    ) : (
+                      <button type="button" className="workbench-ai-run" onClick={() => void runAi()} disabled={!configured || !aiInstruction.trim()} title={t("生成图表草稿") + " (⌘/Ctrl Enter)"}><Sparkles size={15} />  {t("生成图表草稿")}</button>
+                    )}
+                  </div>
                 </div>
               ) : null}
 
-              {tab === 'templates' ? (
-                <div className="workbench-template-panel">
-                  <div className="workbench-section-heading compact">
-                    <span><LayoutTemplate size={17} /></span>
-                    <div><strong>{t("从常用图表开始")}</strong><small>{t("所有现有图种均可直接进入画布，也可继续用 AI 或源码调整")}</small></div>
-                  </div>
-                  <div className="workbench-template-grid">
-                    {MERMAID_TEMPLATES.map((template) => (
-                      <button key={template.id} type="button" className={selectedTemplateId === template.id ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); void selectTemplate(template.id); }}>
-                        <span><b>{t(template.name)}</b><i>{t(template.category)}</i></span>
-                        <small>{t(template.description)}</small>
-                        <em>{t("支持画布直接编辑")}</em>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+              {tab === 'templates' && <MermaidTemplateLibrary selected={selectedTemplateId} onSelect={id => void selectTemplate(id)} />}
 
               <div className="workbench-visual-panel" hidden={tab !== 'visual'}>
                 {canvasGraph ? (
@@ -739,7 +730,9 @@ export default function MermaidWorkbench({
                   <section className="workbench-preview" style={{ height: '100%' }} aria-label={t("只读图表预览")}>
                     <header>
                       <div><CircleAlert size={14} /><strong>{t("当前图表仅支持只读预览")}</strong><small>{diagramKind(source)}</small></div>
-                      <span>{t("包含尚未支持的画布结构；原始内容已完整保留，可在“源码”页继续编辑")}</span>
+                      <button className="secondary-button" type="button" onClick={() => {
+                        switchTab('source'); requestAnimationFrame(() => dialogRef.current?.querySelector<HTMLTextAreaElement>('.workbench-source-panel textarea')?.focus());
+                      }}><Braces size={14} aria-hidden="true" />{t('编辑源码')}</button>
                     </header>
                     <div className="workbench-preview-canvas">
                       {source.trim() ? <MermaidDiagram code={source} /> : <div className="workbench-preview-empty"><Workflow size={28} /><span>{t("源码为空，请在源码页输入 Mermaid 图表")}</span></div>}
@@ -811,7 +804,9 @@ export default function MermaidWorkbench({
         </div>
 
         <footer className="workbench-footer">
-          <div className={formError ? 'error' : ''}>{formError ? <><CircleAlert size={14} /> {uiMessage(formError)}</> : <><Check size={14} />  {t("应用前会校验语法，文档不会被静默覆盖")}</>}</div>
+          <div className={formError ? 'error' : 'workbench-draft-state'} role={formError ? 'alert' : 'status'}>
+            {formError ? <><CircleAlert size={15} aria-hidden="true" /> {uiMessage(formError)}</> : <><span className={draftChanged ? 'draft-dot changed' : 'draft-dot'} />{draftChanged ? t('草稿有改动，尚未写入文档') : mode === 'create' ? t('新图表尚未插入') : t('与文档中的图表一致')}</>}
+          </div>
           <button type="button" className="secondary-button" onClick={() => void requestClose()}>{t("取消")}</button>
           <button type="button" className="confirm-button" onClick={() => void applySource()} disabled={applying || aiStatus.kind === 'running' || (tab === 'visual' && !!formError)}>{applying ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />}  {t("应用到文档")}</button>
         </footer>

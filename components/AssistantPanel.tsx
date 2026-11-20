@@ -5,11 +5,16 @@ import type { ReactNode } from 'react';
 import { t } from '@/lib/i18n';
 import { useLocale } from '@/lib/use-locale';
 
-import { Bot, ChevronRight, FileText, KeyRound, Paperclip, PenLine, Sparkles, TextQuote, WandSparkles, Workflow, X } from 'lucide-react';
+import { Bot, ChevronRight, FileText, KeyRound, MessageSquare, Paperclip, PenLine, Send, Sparkles, Square, TextQuote, WandSparkles, Workflow, X } from 'lucide-react';
+import DocumentQuestions, { type DocumentQuestionsState } from './DocumentQuestions';
 import { MAX_AI_CONTEXT_CHARACTERS, type AiContextDocument } from '@/lib/ai-context';
 import { ACTION_LABELS, type AssistAction, type ModelConfig } from '@/lib/editor';
 
 type AssistantPanelProps = {
+  mode: 'edit' | 'ask';
+  onModeChange: (mode: 'edit' | 'ask') => void;
+  questions: DocumentQuestionsState;
+  onAsk: (question: string) => void;
   action: AssistAction;
   instruction: string;
   config: ModelConfig;
@@ -37,6 +42,7 @@ const textActions: Array<{ action: Exclude<AssistAction, 'mermaid'>; icon: typeo
 ];
 
 export default function AssistantPanel({
+  mode, onModeChange, questions, onAsk,
   action,
   instruction,
   config,
@@ -57,6 +63,7 @@ export default function AssistantPanel({
 }: AssistantPanelProps) {
   useLocale();
   const configured = Boolean(config.apiKey && config.model);
+  const asking = mode === 'ask';
   const contextCharacters = contextDocuments.reduce((total, document) => total + document.content.length, 0);
 
   const instructionRequired = action === 'custom' || action === 'mermaid';
@@ -71,11 +78,14 @@ export default function AssistantPanel({
   return (
     <aside id="writing-assistant" className="assistant-panel" aria-label={t("AI 助手")}>
       <header className="assistant-header">
-        <div className="assistant-title"><span><Sparkles size={16} /></span><div><strong>{t("AI 助手")}</strong><small>{t("建议先预览，再决定是否采用")}</small></div></div>
+        <div className="assistant-title"><span><Sparkles size={16} aria-hidden="true" /></span><div><strong>{t("AI 助手")}</strong><small>{asking ? t('回答保存在本次文档会话中') : t("建议先预览，再决定是否采用")}</small></div></div>
+        <div className="assistant-mode-switch" role="group" aria-label={t('助手模式')}>
+          <button type="button" aria-pressed={!asking} onClick={() => onModeChange('edit')}><PenLine size={14} aria-hidden="true" />{t('编辑文档')}</button>
+          <button type="button" aria-pressed={asking} onClick={() => onModeChange('ask')}><MessageSquare size={14} aria-hidden="true" />{t('文档问答')}</button>
+        </div>
         <button type="button" className="icon-button" onClick={onClose} aria-label={t("关闭 AI 助手")}><X size={18} /></button>
       </header>
-
-      <div className="assistant-scroll">
+      {asking ? <DocumentQuestions questions={questions} configured={configured} hasSelection={hasSelection} onAsk={onAsk} contextPanel={contextPanel} /> : <div className="assistant-scroll">
         <label className="assistant-compact-action">
           {t('处理方式')}
           <select value={action} onChange={event => onActionChange(event.target.value as AssistAction)}>
@@ -141,8 +151,8 @@ export default function AssistantPanel({
             </footer>
           </section>}
         </section>
-      </div>
-      <footer className="assistant-footer">
+      </div>}
+      <footer className={`assistant-footer${asking ? ' question-footer' : ''}`}>
           {!configured ? (
             <button type="button" className="configure-callout" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); onOpenSettings(); }}>
               <KeyRound size={16} /><span><strong>{t("先连接一个模型")}</strong><small>{t("支持 OpenAI-compatible 与 Anthropic Claude")}</small></span><ChevronRight size={15} />
@@ -150,9 +160,13 @@ export default function AssistantPanel({
           ) : (
             <div className="active-model">{modelSwitcher}</div>
           )}
-          <button type="button" className="run-button" onClick={() => onRun(instruction.trim())} disabled={!configured || (instructionRequired && !instruction.trim())}>
+          {asking ? questions.busy
+            ? <button type="button" className="run-button" onClick={questions.stop}><Square size={14} aria-hidden="true" />{t('停止回答')}</button>
+            : <button type="button" className="run-button" onClick={() => onAsk(questions.draft)} disabled={!configured || !questions.draft.trim() || (questions.useSelection && !hasSelection)}>
+              <Send size={14} aria-hidden="true" />{t('发送问题')}</button>
+          : <><button type="button" className="run-button" onClick={() => onRun(instruction.trim())} disabled={!configured || (instructionRequired && !instruction.trim())}>
             <Sparkles size={15} />  {t("生成建议")} </button>
-          <p className="compose-footnote">{t("不会直接改写文档；生成后可逐行检查差异。")}</p>
+          <p className="compose-footnote">{t("不会直接改写文档；生成后可逐行检查差异。")}</p></>}
       </footer>
     </aside>
   );

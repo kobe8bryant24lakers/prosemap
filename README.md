@@ -32,7 +32,7 @@ Screenshots show the actual production frontend with sample documents. Native fi
 
 - Save multiple named model connections and switch from the header, writing assistant, or Mermaid AI panel. Each profile keeps its own provider, endpoint, model, and API key; the last selection is restored on restart. Existing single-model credentials migrate automatically when saved.
 - Open individual Markdown files or browse Markdown documents in a local folder. Search file names and relative paths, see matching counts, and clear the search without losing keyboard focus.
-- Choose editor, preview, or split view. Select **Focus on writing / 专注写作** for a centered editor, or **Focus on reading / 专注阅读** from preview. Press `Esc` to return to the previous layout with your selection, reading position and open panels intact.
+- Choose editor, preview, or split view. Preview uses the available width for tables, code and diagrams. Select **Focus on writing / 专注写作** or **Focus on reading / 专注阅读** for a centered column. Press `Esc` to return to the previous layout with your selection, reading position and open panels intact.
 - Open **Outline / 大纲** to navigate headings in any view. Collapse individual sections or the whole panel; the panel preference is saved locally. The outline and file browser share the left sidebar.
 - Preview relative local images resolved against the saved Markdown document, including parent directories, Unicode names, and URL-encoded paths.
 - Open relative links to local spreadsheets, documents, images, and media in the system's default application directly from the preview.
@@ -42,6 +42,7 @@ Screenshots show the actual production frontend with sample documents. Native fi
 - Format the current code block with Prettier and undo the change in one step.
 - Open HTTP/HTTPS links in the system browser, mail links in the default mail application, and heading anchors inside the preview.
 - Render Mermaid diagrams locally in strict security mode, including node descriptions and branch labels.
+- View the whole draft in the Mermaid AI workbench or choose **Actual size / 原始大小** to inspect labels. On narrow screens, switch between instructions and preview to give either the full drawing area.
 - Create diagrams from natural-language instructions, edit Mermaid source, or directly manipulate flowcharts, sequence diagrams, state diagrams, class diagrams, ER models, mind maps, and Gantt plans on a canvas.
 - Start from common templates including basic flowcharts, 4+1 architecture views, sequence diagrams, state diagrams, class diagrams, ER diagrams, Gantt charts, mind maps, use cases, and package structures.
 - Edit use cases and nested packages using standard Mermaid flowcharts: actors, system boundaries, include/extend relationships, package membership, and module dependencies are preserved when switching between source and canvas.
@@ -61,6 +62,8 @@ Screenshots show the actual production frontend with sample documents. Native fi
 - See pending save feedback without losing edits made during a write. Use the compact AI action selector in shorter windows and `Cmd/Ctrl+Enter` to generate a suggestion; plain Enter keeps adding lines to the instruction.
 
 ## Project context and conversations
+
+Open **AI assistant / AI 助手** from the view bar in editor, preview or split view. In focus mode the same control is in the header. Choose **Document Q&A / 文档问答** to ask about the whole document or the current editor selection. **Summarize / 总结要点** starts a summary. Ask follow-up questions in the same panel. Each request reads the current editor text and sends the selected scope and references to your configured model. Answers stay in the current document session. Choose **Edit document / 编辑文档** when you want to review a proposed change.
 
 In the writing assistant or the Mermaid workbench's **AI assist** tab, choose **Choose repository or folder / 选择代码仓或文件夹**. Select a local clone or reference directory, search file paths, and check the files to include. Selecting a folder lists candidate files; only the checked files are read into model requests. Use the refresh button after adding or removing files. This folder selection is shared by both assistants for the current document.
 

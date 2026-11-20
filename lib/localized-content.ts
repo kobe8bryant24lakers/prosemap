@@ -44,10 +44,10 @@ flowchart LR
 
 ## Get started
 
-- Select text and open the **AI assistant**.
+- Open the **AI assistant** from the view bar. Select a passage to edit or ask about it.
 - Open a Markdown file or a folder in the desktop app.
 - Choose **Edit canvas** on a diagram to drag, resize, and edit it.
-- Review all AI changes before accepting or rejecting them.
+- Use **Document Q&A** for questions and summaries. Review editing suggestions before accepting or rejecting them.
 - Switch between **English** and **简体中文** in the top bar or settings.
 
 | Feature | Status |

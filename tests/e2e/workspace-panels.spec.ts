@@ -27,9 +27,9 @@ async function expectHeaderControlsReachable(page: Page) {
     expect(control.receivesPointer, `${control.label} is not covered`).toBe(true);
   }
   if (await page.locator('.assistant-panel').isVisible()) {
-    const title = await page.locator('.assistant-title > div').boundingBox();
-    const close = await page.locator('.assistant-header button').boundingBox();
-    expect(title!.x + title!.width, 'AI title leaves room for the close button').toBeLessThanOrEqual(close!.x + 1);
+    const heading = await page.locator('.assistant-title > div').boundingBox() ?? await page.locator('.assistant-mode-switch').boundingBox();
+    const close = await page.locator('.assistant-header > button.icon-button').boundingBox();
+    expect(heading!.x + heading!.width, 'Assistant heading leaves room for the close button').toBeLessThanOrEqual(close!.x + 1);
   }
 }
 

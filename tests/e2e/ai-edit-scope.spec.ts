@@ -42,7 +42,7 @@ async function setup(page: Page, content = original) {
 
 async function generate(page: Page, response = change, instruction = '只把 target 章节的 Value: 10 改成 Value: 20，其他内容保持不变') {
   await page.evaluate(response => { (window as any).__editScope.response = response; }, response);
-  await page.getByRole('button', { name: 'AI 助手', exact: true }).click();
+  await page.getByRole('button', { name: 'AI 改写', exact: true }).click();
   await page.getByLabel('告诉 AI 你的要求', { exact: true }).fill(instruction);
   await page.getByRole('button', { name: '生成建议', exact: true }).click();
 }
@@ -114,7 +114,7 @@ for (const failure of failures) {
     expect(await editorSource(page)).toBe(normalize(original));
     await page.getByRole('button', { name: '拒绝', exact: true }).click();
     expect(await savedSource(page)).toBe(original);
-    await page.getByRole('button', { name: 'AI 助手', exact: true }).click();
+    await page.getByRole('button', { name: 'AI 改写', exact: true }).click();
     await expect(page.locator('.ai-conversation-turns > li')).toHaveCount(0);
   });
 }

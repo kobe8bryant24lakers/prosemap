@@ -12,7 +12,8 @@ export type AiConversationTurn = {
   id: string;
   instruction: string;
   output: string;
-  status: 'proposed' | 'applied' | 'discarded';
+  status: 'proposed' | 'applied' | 'discarded' | 'answered';
+  truncatedReferences?: { includedCharacters: number };
 };
 
 export type AiConversationHistory = {
@@ -31,6 +32,7 @@ function historyInstruction(turn: AiConversationTurn): string {
     proposed: 'This output was a proposal. Do not assume it was applied to the document.',
     applied: 'This output was applied at that time. The document may have changed since then.',
     discarded: 'This output was discarded. Do not treat it as the current document.',
+    answered: 'This was an answer about the document at the time of the question. It did not edit the document.',
   }[turn.status];
   return `${turn.instruction}\n\n[Conversation state: ${status} The current document or diagram supplied in the latest request is authoritative.]`;
 }

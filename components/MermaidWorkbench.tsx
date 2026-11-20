@@ -175,6 +175,7 @@ export default function MermaidWorkbench({
   const [aiCompressionFailed, setAiCompressionFailed] = useState(false);
   const [aiReasoningOpen, setAiReasoningOpen] = useState(true);
   const [aiPreviewEditing, setAiPreviewEditing] = useState(false);
+  const [compactAiPane, setCompactAiPane] = useState<'instructions' | 'preview'>('instructions');
   const [aiDraftValidation, setAiDraftValidation] = useState<AiDraftValidation>({ kind: 'checking', message: t("等待校验当前草稿") });
   const [formError, setFormError] = useState('');
   const [applying, setApplying] = useState(false);
@@ -596,7 +597,11 @@ export default function MermaidWorkbench({
           </div>
         </header>
 
-        <div className={`workbench-main${tab === 'visual' ? ' visual-mode' : ''}`}>
+        {tab === 'ai' && <div className="workbench-compact-panes" role="group" aria-label={t('AI 工作区')}>
+          <button type="button" aria-pressed={compactAiPane === 'instructions'} onClick={() => setCompactAiPane('instructions')}><Bot size={14} aria-hidden="true" />{t('AI 指令')}</button>
+          <button type="button" aria-pressed={compactAiPane === 'preview'} onClick={() => setCompactAiPane('preview')}><Eye size={14} aria-hidden="true" />{t('草稿预览')}</button>
+        </div>}
+        <div className={`workbench-main${tab === 'visual' ? ' visual-mode' : ''}`} data-ai-pane={tab === 'ai' ? compactAiPane : undefined}>
           <section className="workbench-controls">
             <div className={'workbench-control-scroll' + (tab === 'ai' ? ' ai-mode' : '')}>
               {tab === 'ai' ? (
@@ -623,7 +628,7 @@ export default function MermaidWorkbench({
                     />
                     <label className="workbench-ai-context">
                       <input type="checkbox" checked={aiUseCurrentSource} onChange={(event) => setAiUseCurrentSource(event.target.checked)} disabled={aiRunning} />
-                      <span>{t("基于右侧当前草稿修改")}</span>
+                      <span>{t("基于当前草稿修改")}</span>
                       <small>{aiUseCurrentSource ? t("AI 会尽量保留未要求改变的内容") : t("AI 将从你的描述创建一张新图")}</small>
                     </label>
                     <AiConversation
@@ -735,7 +740,7 @@ export default function MermaidWorkbench({
                       }}><Braces size={14} aria-hidden="true" />{t('编辑源码')}</button>
                     </header>
                     <div className="workbench-preview-canvas">
-                      {source.trim() ? <MermaidDiagram code={source} /> : <div className="workbench-preview-empty"><Workflow size={28} /><span>{t("源码为空，请在源码页输入 Mermaid 图表")}</span></div>}
+                      {source.trim() ? <MermaidDiagram code={source} fillPane /> : <div className="workbench-preview-empty"><Workflow size={28} /><span>{t("源码为空，请在源码页输入 Mermaid 图表")}</span></div>}
                     </div>
                   </section>
                 ) : null}
@@ -797,7 +802,7 @@ export default function MermaidWorkbench({
                       <div><strong>{aiDraftValidation.kind === 'checking' ? t("正在校验") : aiDraftValidation.kind === 'valid' ? t("语法有效") : aiDraftValidation.kind === 'error' ? t("需要修正") : t("等待 AI")}</strong><small>{uiMessage(aiDraftValidation.message)}</small></div>
                     </div>
                   </div>
-                ) : source.trim() ? <MermaidDiagram code={source} /> : <div className="workbench-preview-empty"><Workflow size={28} /><span>{t("输入源码后将在这里预览")}</span></div>}
+                ) : source.trim() ? <MermaidDiagram code={source} fillPane /> : <div className="workbench-preview-empty"><Workflow size={28} /><span>{t("输入源码后将在这里预览")}</span></div>}
               </div>
             </section>
           ) : null}

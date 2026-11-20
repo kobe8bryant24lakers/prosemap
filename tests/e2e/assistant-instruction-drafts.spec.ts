@@ -7,7 +7,7 @@ const actions = [
   { id: 'polish', label: '润色表达', entry: '润色' },
   { id: 'continue', label: '智能续写', entry: '续写' },
   { id: 'summarize', label: '提炼总结', entry: '总结' },
-  { id: 'custom', label: '自定义指令', entry: 'AI 助手' },
+  { id: 'custom', label: '自定义指令', entry: 'AI 改写' },
   { id: 'mermaid', label: 'Mermaid 智能绘图', entry: 'Mermaid 智能绘图' },
 ] as const;
 type Action = typeof actions[number];
@@ -47,7 +47,7 @@ async function choose(page: Page, action: Action) {
 }
 
 async function openAction(page: Page, action: Action) {
-  // Each entry explicitly names its action; the general writing rail selects polish.
+  // The preview rewrite shortcut opens a custom instruction.
   await page.getByRole('button', { name: action.entry, exact: true }).click();
   await expect(panel(page).locator('.compose-context')).toContainText(action.label);
 }

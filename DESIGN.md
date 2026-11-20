@@ -35,9 +35,11 @@ their own meaningful colors.
   separate from that group.
 - Group formatting by task. At editor widths of 475px or less, keep undo, redo,
   search and the Format disclosure on the first row. Reveal other commands below
-  without moving the selection. When the rail is hidden, keep an AI entry in
-  the view bar and diagram insertion available from the editor.
-- Bound reading content to 860px, including gutters. Use 15px preview prose,
+  without moving the selection. Keep the labelled AI assistant in the view bar
+  in every layout and keep diagram insertion available from the editor.
+- In split view, bound reading content to 860px, including gutters. In preview
+  only, use the available width with adaptive gutters so tables, code and
+  diagrams can expand. Limit long prose lines separately. Use 15px preview prose,
   14px editor text, 13px interface labels and 12px supporting text. Headings use
   the system sans with a 30px document title, reduced to 26px in narrow panes.
 - Focus writing and reading use one centered column (up to 80ch). Leave the file
@@ -45,9 +47,11 @@ their own meaningful colors.
   preserves the selection, reading position, side panels and assistant drafts.
 - File navigation shares the left panel with the outline. Search includes the
   relative path, reports matching counts and offers an explicit reset.
-- AI actions use a compact selector. Put instructions before conversation and
-  references; keep model setup and generation in a non-scrolling footer. In
-  windows no taller than 700px, use a native action select to preserve input space.
+- Offer Edit document and Document Q&A together. Keep questions, answers and
+  follow-ups in the reading conversation. Show the current scope before sending.
+  Keep the question field and send/stop control in view. For edits, put instructions
+  before conversation and references. In windows no taller than 700px, share the
+  panel header with the mode controls and use a native edit-action select.
 - At 820px and below, place document identity on a second header row and show
   side panels over the workspace. At 560px and below, expose file navigation in
   the view bar and stack the editor and preview vertically in the combined view.
@@ -55,6 +59,10 @@ their own meaningful colors.
 ## Diagram workbench
 
 Keep canvas, templates, AI and source in the same named navigation across window sizes. On the canvas, keep creation, connection, search, history and zoom available. The secondary tool row can fold on small screens. Selection updates a separately scrolling properties panel; it must not pan or zoom the diagram. Explicitly locating an object by name or ID may pan, but must preserve zoom, layout and undo history. Use the same panel for nodes, relations, entity fields, message order and task dependencies. Always surface validation errors next to the Apply action, including in compact layouts.
+
+Fit each draft preview to the full space below its toolbar. Offer actual-size
+viewing for dense diagrams. At 760px and below, let people switch between AI
+instructions and the draft preview so each can use the full workbench height.
 
 ## Interaction
 

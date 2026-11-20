@@ -5,7 +5,7 @@ import { useLocale } from '@/lib/use-locale';
 
 import DOMPurify from 'dompurify';
 import { Check, Copy, Maximize2, PencilRuler, X, ZoomIn, ZoomOut } from 'lucide-react';
-import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import {
   MERMAID_FULLSCREEN_MAX_ZOOM,
@@ -21,6 +21,7 @@ import { renderMermaid } from '@/lib/mermaid-runtime';
 type MermaidDiagramProps = {
   code: string;
   onEdit?: () => void;
+  fillPane?: boolean;
 };
 
 type MermaidRenderState = {
@@ -39,7 +40,7 @@ const EMPTY_RENDER_STATE: MermaidRenderState = {
   svg: '',
 };
 
-export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
+export default function MermaidDiagram({ code, onEdit, fillPane = false }: MermaidDiagramProps) {
   useLocale();
   const reactId = useId();
   const fullscreenTitleId = `mermaid-fullscreen-${reactId.replace(/:/g, '')}`;
@@ -74,6 +75,11 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   const currentRender = renderState.code === code ? renderState : null;
   const currentFullscreenRender = fullscreenRenderState.code === code ? fullscreenRenderState : null;
   const fullscreenSvg = currentFullscreenRender?.svg;
+  const naturalWidth = fillPane ? currentRender?.intrinsicWidth : undefined;
+  const actualSizeZoom = useCallback(() => {
+    const fittedWidth = inlineFrameRef.current?.getBoundingClientRect().width;
+    return naturalWidth && fittedWidth ? Math.max(1, naturalWidth / fittedWidth) : 1;
+  }, [naturalWidth]);
 
   useEffect(() => () => {
     copyRequestRef.current += 1;
@@ -278,7 +284,7 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
       if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return;
       event.preventDefault();
       const next = mermaidFullscreenZoomFromWheel(inlineZoomRef.current, event.deltaY, event.deltaMode, stage!.clientHeight,
-        { min: MERMAID_PREVIEW_MIN_ZOOM, max: MERMAID_PREVIEW_MAX_ZOOM });
+        { min: MERMAID_PREVIEW_MIN_ZOOM, max: Math.max(MERMAID_PREVIEW_MAX_ZOOM, actualSizeZoom()) });
       const bounds = inlineFrameRef.current?.getBoundingClientRect();
       if (!bounds || next === inlineZoomRef.current) return;
       inlinePanRef.current = zoomMermaidViewport(inlinePanRef.current, inlineZoomRef.current, next, {
@@ -291,11 +297,15 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
     }
     stage.addEventListener('wheel', handleWheel, { passive: false });
     return () => stage.removeEventListener('wheel', handleWheel);
-  }, [currentRender?.svg]);
+  }, [currentRender?.svg, actualSizeZoom]);
 
-  function changeInlineZoom(delta?: number) {
-    const next = delta === undefined ? 1 : Math.max(MERMAID_PREVIEW_MIN_ZOOM, Math.min(MERMAID_PREVIEW_MAX_ZOOM, inlineZoomRef.current + delta));
-    inlinePanRef.current = delta === undefined ? { x: 0, y: 0 }
+  function changeInlineZoom(adjustment: number | 'fit' | 'actual' = 'fit') {
+    const actual = actualSizeZoom();
+    let next = adjustment === 'actual' ? actual : 1;
+    if (typeof adjustment === 'number') {
+      next = Math.max(MERMAID_PREVIEW_MIN_ZOOM, Math.min(Math.max(MERMAID_PREVIEW_MAX_ZOOM, actual), inlineZoomRef.current + adjustment));
+    }
+    inlinePanRef.current = typeof adjustment !== 'number' ? { x: 0, y: 0 }
       : zoomMermaidViewport(inlinePanRef.current, inlineZoomRef.current, next, { x: 0, y: 0 });
     setInlinePan(inlinePanRef.current);
     inlineZoomRef.current = next;
@@ -409,7 +419,9 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
   const diagramSvg = currentRender?.svg;
   const portrait = Boolean(currentRender
     && currentRender.intrinsicHeight > currentRender.intrinsicWidth * 1.15);
-  const inlineWidth = mermaidInlineWidth(currentRender, 1, portrait);
+  const inlineWidth = fillPane && currentRender?.intrinsicHeight && currentRender.intrinsicWidth
+    ? `min(100cqw, ${100 * currentRender.intrinsicWidth / currentRender.intrinsicHeight}cqh, ${currentRender.intrinsicWidth}px)`
+    : mermaidInlineWidth(currentRender, 1, portrait);
 
   return (
     <>
@@ -425,12 +437,13 @@ export default function MermaidDiagram({ code, onEdit }: MermaidDiagramProps) {
             <button type="button" onClick={() => changeInlineZoom(-0.15)} aria-label={t("缩小图表")} title={t("缩小")}>
               <ZoomOut size={14} />
             </button>
-            <button type="button" className="diagram-zoom-value" onClick={() => changeInlineZoom()} aria-label={t("重置图表缩放，当前 {0}%", Math.round(zoom * 100))} title={t("重置为 100%")}>
+            <button type="button" className="diagram-zoom-value" onClick={() => changeInlineZoom()} aria-label={t("重置图表缩放，当前 {0}%", Math.round(zoom * 100))} title={fillPane ? t("适配预览窗口") : t("重置为 100%")}>
               {Math.round(zoom * 100)}%
             </button>
             <button type="button" onClick={() => changeInlineZoom(0.15)} aria-label={t("放大图表")} title={t("放大")}>
               <ZoomIn size={14} />
             </button>
+            {fillPane && <button type="button" className="diagram-actual-size" disabled={!diagramSvg} onClick={() => changeInlineZoom('actual')}>{t('原始大小')}</button>}
             <button type="button" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); openFullscreen(); }} disabled={!diagramSvg} aria-label={t("全屏查看图表")} title={t("全屏查看")}>
               <Maximize2 size={14} />
             </button>

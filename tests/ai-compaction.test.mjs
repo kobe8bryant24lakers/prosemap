@@ -32,6 +32,17 @@ test('short conversations preserve exact complete turns without calling a summar
   assert.equal(result.history.omittedTurns, 0);
 });
 
+test('document Q&A keeps earlier answers and the latest questions during compaction', async () => {
+  const turns = Array.from({ length: 7 }, (_, i) => turn(i, `SYNTHETIC answer ${i}`, 'answered'));
+  const fake = recorder('SYNTHETIC earlier answers');
+  const result = await prepareAiConversation(options({ turns, stream: fake.stream }));
+  assert.match(fake.requests[0].prompt, /"status":"answered"/);
+  assert.match(fake.requests[0].system, /answered questions/);
+  assert.deepEqual(result.turns, turns.slice(4));
+  assert.equal(result.history.messages[1].content, 'SYNTHETIC earlier answers');
+  assert.match(result.history.messages[2].content, /did not edit the document/);
+});
+
 test('seven raw turns compact the oldest four and preserve the latest three with application states', async () => {
   const turns = Array.from({ length: 7 }, (_, index) => turn(index, `SYNTHETIC document ${index}`, ['applied', 'discarded', 'proposed'][index % 3]));
   const before = structuredClone(turns);

@@ -61,6 +61,7 @@ import AiContextPanel from '@/components/AiContextPanel';
 import AiConversation from '@/components/AiConversation';
 import { useAiProjectContext } from '@/lib/use-ai-project-context';
 import { useAiConversation } from '@/lib/use-ai-conversation';
+import { useDocumentQuestions } from '@/lib/use-document-questions';
 import ConfirmDialog, { type ConfirmationRequest } from '@/components/ConfirmDialog';
 import DiffModal from '@/components/DiffModal';
 import MarkdownPreview from '@/components/MarkdownPreview';
@@ -250,6 +251,12 @@ export default function Home() {
   const focusReadingRef = useRef<number | null>(null);
   const viewMode = focusMode && workspaceView === 'split' ? 'editor' : workspaceView;
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [focusAssistantOpen, setFocusAssistantOpen] = useState(false);
+  const assistantVisible = focusMode ? focusAssistantOpen : assistantOpen;
+  const [assistantMode, setAssistantMode] = useState<'edit' | 'ask'>('edit');
+  const assistantOpener = useRef<HTMLElement | null>(null);
+  const questions = useDocumentQuestions();
+  const resetQuestions = questions.reset;
   const [assistantAction, setAssistantAction] = useState<AssistAction>('polish');
   const [assistantInstructionDrafts, setAssistantInstructionDrafts] = useState<Partial<Record<AssistAction, string>>>({});
   const [mermaidWorkbench, setMermaidWorkbench] = useState<MermaidWorkbenchSession | null>(null);
@@ -328,6 +335,7 @@ export default function Home() {
   const changeFocus = useCallback((next: boolean) => {
     const preview = previewScrollRef.current, view = editorRef.current?.view;
     focusReadingRef.current = workspaceView === 'preview' && preview && view ? previewPosition(preview, view.state.doc.lines) : null;
+    setFocusAssistantOpen(false);
     setFocusMode(next);
     if (!next) window.requestAnimationFrame(() => focusToggleRef.current?.focus({ preventScroll: true }));
   }, [workspaceView]);
@@ -351,11 +359,16 @@ export default function Home() {
       if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat) return;
       if (document.querySelector('[aria-modal="true"], .editor-pane .cm-panel.cm-search')) return;
       event.preventDefault();
+      if (focusAssistantOpen) {
+        setFocusAssistantOpen(false);
+        assistantOpener.current?.focus({ preventScroll: true });
+        return;
+      }
       changeFocus(false);
     }
     window.addEventListener('keydown', escapeFocus);
     return () => window.removeEventListener('keydown', escapeFocus);
-  }, [focusMode, changeFocus]);
+  }, [focusMode, focusAssistantOpen, changeFocus]);
 
   const showToast = useCallback((kind: 'success' | 'error' | 'info', message: string) => {
     setToast({ kind, message });
@@ -393,6 +406,7 @@ export default function Home() {
       // Ctrl-m tab-focus command before its Mod-Shift-m binding is considered.
       event.preventDefault();
       setFocusMode(false);
+      setAssistantMode('edit');
       setAssistantAction('mermaid');
       setAssistantOpen(true);
       return true;
@@ -557,6 +571,7 @@ export default function Home() {
     replaceAiContextDocuments([]);
     resetProjectContext();
     resetConversation();
+    resetQuestions();
     setAssistantInstructionDrafts({});
     setSelection({ from: 0, to: 0, text: '' });
     setCursorLine(1);
@@ -565,7 +580,7 @@ export default function Home() {
     workbenchPendingRef.current = false;
     setMermaidWorkbench(null);
     if (announcement) showToast('success', announcement);
-  }, [replaceAiContextDocuments, resetProjectContext, resetConversation, showToast, updateDirtyState]);
+  }, [replaceAiContextDocuments, resetProjectContext, resetConversation, resetQuestions, showToast, updateDirtyState]);
 
   const commitDocumentReplacement = useCallback(async (
     requestId: number,
@@ -774,6 +789,7 @@ export default function Home() {
         if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
         event.preventDefault();
         setFocusMode(false);
+        setAssistantMode('edit');
         setAssistantAction('mermaid');
         setAssistantOpen(true);
       }
@@ -1175,9 +1191,27 @@ export default function Home() {
     }
   }
 
-  function openAssistant(action: AssistAction) {
+  function openAssistant(action: AssistAction, opener: HTMLButtonElement) {
+    assistantOpener.current = opener;
+    setAssistantMode('edit');
     setAssistantAction(action);
     setAssistantOpen(true);
+  }
+
+  function closeAssistant() {
+    if (focusMode) setFocusAssistantOpen(false);
+    else setAssistantOpen(false);
+    if (assistantOpener.current?.isConnected) assistantOpener.current.focus({ preventScroll: true });
+  }
+
+  function askDocument(question: string) {
+    if (!configured || !question.trim()) return;
+    const { document, anchor, head } = readEditorSnapshot();
+    void questions.ask({
+      question, config, selectionOnly: questions.useSelection,
+      source: questions.useSelection ? document.slice(Math.min(anchor, head), Math.max(anchor, head)) : document,
+      getReferences: () => projectContext.resolve(aiContextDocumentsRef.current),
+    });
   }
 
   function returnToDocument() {
@@ -1295,6 +1329,7 @@ export default function Home() {
     };
     setProposal(initial);
     setAssistantOpen(false);
+    setFocusAssistantOpen(false);
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -1399,6 +1434,15 @@ export default function Home() {
     ? (mermaidTarget?.source.length ?? 0)
     : (selection.text.length || content.length);
 
+  const assistantToggle = <button type="button" className={`workspace-assistant-toggle${assistantVisible ? ' active' : ''}`}
+    aria-label={t('AI 文字助手')} aria-expanded={assistantVisible} aria-controls="writing-assistant"
+    onClick={event => {
+      assistantOpener.current = event.currentTarget;
+      if (focusMode) setFocusAssistantOpen(open => !open);
+      else setAssistantOpen(open => !open);
+      if (!assistantVisible) requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('#writing-assistant .assistant-mode-switch [aria-pressed="true"]')?.focus({ preventScroll: true }));
+    }}><Bot size={15} aria-hidden="true" />{t('AI 助手')}</button>;
+
   return (
     <main
       className={`app-shell view-${viewMode}${focusMode ? ' focus-mode' : ''}`}
@@ -1425,6 +1469,7 @@ export default function Home() {
         </div>
 
         <div className="top-actions">
+          {focusMode && assistantToggle}
           <select className="language-switcher" aria-label={t('界面语言')} title={t('界面语言')} value={locale} onChange={(event) => setLocale(event.target.value === 'zh-CN' ? 'zh-CN' : 'en')}>
             <option value="en" lang="en">EN</option>
             <option value="zh-CN" lang="zh-CN">中文</option>
@@ -1444,7 +1489,7 @@ export default function Home() {
         <div className="navigation-controls">
         <button type="button" className={`compact-files-toggle ${fileExplorerOpen ? 'active' : ''}`} aria-expanded={fileExplorerOpen} aria-controls="local-files" onClick={() => setNavigationPanel(current => current === 'files' ? null : 'files')}><FolderOpen size={14} aria-hidden="true" /> {t("文件")}</button>
         <button ref={outlineToggleRef} type="button" className={outlineOpen ? 'active' : ''} aria-expanded={outlineOpen} aria-controls="document-outline" onClick={() => setNavigationPanel(current => current === 'outline' ? null : 'outline')}><ListTree size={14} /> {t("大纲")}</button>
-        <button type="button" className={`compact-assistant-toggle ${assistantOpen ? 'active' : ''}`} aria-label={t('AI 文字助手')} title={t('AI 文字助手')} aria-expanded={assistantOpen} aria-controls="writing-assistant" onClick={() => setAssistantOpen(open => !open)}><Bot size={14} aria-hidden="true" /> AI</button>
+        {!focusMode && assistantToggle}
         </div>
         <div className="view-mode-switch" role="group" aria-label={t("文档布局")}>
         <button type="button" aria-pressed={viewMode === 'editor'} className={viewMode === 'editor' ? 'active' : ''} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); changeViewMode('editor'); }}><PenLine size={14} />  {t("纯编辑")}</button>
@@ -1457,12 +1502,11 @@ export default function Home() {
         </div>
       </div>
 
-      <section className={`workspace ${assistantOpen && !focusMode ? 'with-assistant' : ''} ${navigationPanel && !focusMode ? 'with-files' : ''}`}>
+      <section className={`workspace ${assistantVisible ? 'with-assistant' : ''} ${navigationPanel && !focusMode ? 'with-files' : ''}`}>
         <nav className="rail" aria-label={t("主要工具")}>
           <button type="button" className={`rail-button ${viewMode !== 'preview' ? 'active' : ''}`} aria-pressed={viewMode !== 'preview'} onClick={returnToDocument} aria-label={t("文档编辑")} title={t("文档编辑")}><PanelLeft size={18} /></button>
           <button type="button" className={`rail-button ${fileExplorerOpen ? 'active' : ''}`} aria-expanded={fileExplorerOpen} aria-controls="local-files" onClick={() => setNavigationPanel(current => current === 'files' ? null : 'files')} aria-label={t("本地文件")} title={t("本地文件")}><FolderOpen size={18} /></button>
-          <button type="button" className={`rail-button ${assistantOpen && assistantAction !== 'mermaid' ? 'active' : ''}`} aria-expanded={assistantOpen && assistantAction !== 'mermaid'} aria-controls="writing-assistant" onClick={() => openAssistant('polish')} aria-label={t("AI 文字助手")} title={t("AI 文字助手")}><Bot size={18} /></button>
-          <button type="button" className={`rail-button mermaid-rail ${assistantOpen && assistantAction === 'mermaid' ? 'active' : ''}`} aria-expanded={assistantOpen && assistantAction === 'mermaid'} aria-controls="writing-assistant" onClick={() => openAssistant('mermaid')} aria-label={t("Mermaid 智能绘图")} title={t("Mermaid 智能绘图")}><Workflow size={19} /></button>
+          <button type="button" className={`rail-button mermaid-rail ${assistantOpen && assistantMode === 'edit' && assistantAction === 'mermaid' ? 'active' : ''}`} aria-expanded={assistantOpen && assistantMode === 'edit' && assistantAction === 'mermaid'} aria-controls="writing-assistant" onClick={event => openAssistant('mermaid', event.currentTarget)} aria-label={t("Mermaid 智能绘图")} title={t("Mermaid 智能绘图")}><Workflow size={19} /></button>
           <button type="button" className="rail-button diagram-workbench-rail" onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onMouseDown={(event) => event.preventDefault()} onClick={() => openMermaidWorkbench()} aria-label={t("Mermaid 可视化画布")} title={mermaidTarget ? t("编辑光标所在图表") : t("新建 Mermaid 图表")}><Braces size={18} /></button>
           <span className="rail-spacer" />
           <button type="button" className="rail-button" onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setSettingsOpen(true); }} aria-label={t("模型设置")} title={t("模型设置")}><Settings2 size={18} /></button>
@@ -1479,10 +1523,10 @@ export default function Home() {
           <header className="pane-header editor-header">
             <div className="pane-title"><PenLine size={14} aria-hidden="true" /> {t("编辑器")} <small>Markdown</small></div>
             <div className="editor-ai-actions">
-              <button type="button" title={t("润色")} onClick={() => openAssistant('polish')}><Sparkles size={14} /> {t("润色")}</button>
-              <button type="button" title={t("续写")} onClick={() => openAssistant('continue')}><PenLine size={14} /> {t("续写")}</button>
-              <button type="button" title={t("总结")} onClick={() => openAssistant('summarize')}><TextQuote size={14} /> {t("总结")}</button>
-              <button type="button" className="mermaid-quick" title={t("智能绘图")} onClick={() => openAssistant('mermaid')}><Workflow size={14} /> {t("智能绘图")}</button>
+              <button type="button" title={t("润色")} onClick={event => openAssistant('polish', event.currentTarget)}><Sparkles size={14} /> {t("润色")}</button>
+              <button type="button" title={t("续写")} onClick={event => openAssistant('continue', event.currentTarget)}><PenLine size={14} /> {t("续写")}</button>
+              <button type="button" title={t("总结")} onClick={event => openAssistant('summarize', event.currentTarget)}><TextQuote size={14} /> {t("总结")}</button>
+              <button type="button" className="mermaid-quick" title={t("智能绘图")} onClick={event => openAssistant('mermaid', event.currentTarget)}><Workflow size={14} /> {t("智能绘图")}</button>
               <button type="button" className="mermaid-workbench-quick" title={mermaidTarget ? t("编辑当前图表") : t("新建图表")} onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onMouseDown={(event) => event.preventDefault()} onClick={() => openMermaidWorkbench()}><Braces size={14} /> {mermaidTarget ? t("编辑当前图表") : t("新建图表")}</button>
             </div>
             <div className="format-actions" role="group" aria-label={t("格式工具栏")} onMouseDown={(event) => event.preventDefault()}>
@@ -1545,14 +1589,15 @@ export default function Home() {
             <div className="preview-tools">
               <span className="diagram-ready"><Workflow size={13} />  {t("Mermaid 已启用")}</span>
               <button type="button" className="diagram-workbench-chip" onPointerDown={captureWorkbenchInsertion} onPointerCancel={() => { workbenchOpenSnapshotRef.current = null; }} onKeyDown={() => { workbenchOpenSnapshotRef.current = null; }} onMouseDown={(event) => event.preventDefault()} onClick={() => openMermaidWorkbench(true)}><Braces size={13} />  {t("新建图表")}</button>
-              <button type="button" className="ai-chip" onClick={() => openAssistant('custom')}><Sparkles size={13} />  {t("AI 助手")}</button>
+              <button type="button" className="ai-chip" onClick={event => openAssistant('custom', event.currentTarget)}><Sparkles size={13} aria-hidden="true" />{t("AI 改写")}</button>
             </div>
           </header>
           <div ref={previewScrollRef} className="preview-scroll" role="region" aria-label={t('可视化预览')} tabIndex={focusMode && viewMode === 'preview' ? 0 : undefined}><MarkdownPreview key={JSON.stringify([documentSessionRef.current, localPath])} markdown={previewContent} documentPath={localPath} onEditMermaid={deferredPreview.session === documentSession ? editPreviewMermaid : undefined} /></div>
         </section>
 
-        {assistantOpen ? (
+        {(assistantOpen || assistantVisible) ? (
           <AssistantPanel
+            mode={assistantMode} onModeChange={setAssistantMode} questions={questions} onAsk={askDocument}
             action={assistantAction}
             instruction={assistantInstructionDrafts[assistantAction] ?? ''}
             config={config}
@@ -1569,7 +1614,7 @@ export default function Home() {
             onRemoveContext={removeAiContextFile}
             onOpenSettings={() => setSettingsOpen(true)}
             onRun={runAssistant}
-            onClose={() => setAssistantOpen(false)}
+            onClose={closeAssistant}
           />
         ) : null}
       </section>
@@ -1630,7 +1675,7 @@ export default function Home() {
           }}
         />
       ) : null}
-      {proposal ? <DiffModal key={proposal.id} proposal={proposal} onAccept={acceptProposal} onReject={rejectProposal} onStop={stopGeneration} onContinue={() => { setProposal(null); setAssistantOpen(true); setAssistantInstructionDrafts(current => ({ ...current, [assistantAction]: '' })); }} /> : null}
+      {proposal ? <DiffModal key={proposal.id} proposal={proposal} onAccept={acceptProposal} onReject={rejectProposal} onStop={stopGeneration} onContinue={() => { setProposal(null); if (focusMode) setFocusAssistantOpen(true); else setAssistantOpen(true); setAssistantInstructionDrafts(current => ({ ...current, [assistantAction]: '' })); }} /> : null}
       {confirmation ? (
         <ConfirmDialog
           {...confirmation.request}

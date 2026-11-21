@@ -1,10 +1,12 @@
 # ProseMap
 
+**English** | [简体中文](README.zh-CN.md)
+
 ### Write the thought. See the whole picture.
 
 **A local-first Markdown and Mermaid desktop workspace.** Write in focus, turn ideas into editable diagrams, ask questions as you read, and review AI suggestions before they touch your document.
 
-[Explore the product page](https://kobe8bryant24lakers.github.io/prosemap/) · [Download v0.16.0](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.16.0) · [User guide](docs/guide.md) · [简体中文](README.zh-CN.md)
+[Explore the product page](https://kobe8bryant24lakers.github.io/prosemap/) · [Download v0.16.0](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.16.0) · [User guide](docs/guide.md)
 
 ![ProseMap v0.16.0: Markdown source and live preview of a synthetic release plan](website/assets/screenshots/workspace-en.webp)
 

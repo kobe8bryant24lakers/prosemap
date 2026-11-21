@@ -1,10 +1,12 @@
 # ProseMap
 
+[English](README.md) | **简体中文**
+
 ### 把想法写清楚，把结构画明白。
 
 **本地优先的 Markdown 与 Mermaid 桌面工作区。** 专注写作，把想法画成可编辑的图表，边读边问 AI，每一次 AI 修改都由你审阅。
 
-[浏览产品页](https://kobe8bryant24lakers.github.io/prosemap/zh/) · [下载 v0.16.0](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.16.0) · [使用指南（英文）](docs/guide.md) · [English](README.md)
+[浏览产品页](https://kobe8bryant24lakers.github.io/prosemap/zh/) · [下载 v0.16.0](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.16.0) · [使用指南（英文）](docs/guide.md)
 
 ![ProseMap v0.16.0 中文界面：虚构发布计划的 Markdown 源码与实时预览](website/assets/screenshots/workspace-zh-CN.webp)
 

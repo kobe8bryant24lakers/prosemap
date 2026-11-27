@@ -2,7 +2,7 @@
 version: 1
 slug: "website-index-html"
 primary_target: "website/index.html"
-related_targets: ["website/zh/index.html","website/assets/site.css","website/assets/site.js"]
+related_targets: ["website/zh/index.html","website/assets/site.css","website/assets/folio.css","website/assets/site.js"]
 ---
 
 # GitHub Pages product introduction
@@ -25,9 +25,11 @@ introduction; actual product captures provide the visual proof.
 STORY: Understand the workspace, inspect four real views, download the example,
 learn what stays local, then choose an available desktop package.
 
-FIRST VIEWPORT: A full-width two-line statement, concise description and download
-action lead directly into a broad screenshot stage. Four keyboard-operable tabs
-switch the same document between Write, Map, Ask and Refine; screenshots enlarge.
+FIRST VIEWPORT: The headline and download action sit beside a layered diagram of
+the fictional release plan. Turning it over reveals the Mermaid source from the
+same downloadable file. The example follows the introduction on phones and its
+views switch immediately under reduced motion. Four keyboard-operable screenshot tabs
+continue the walkthrough with Write, Map, Ask and Refine.
 
 FORM: Product walkthrough, derived from current UI and the requested introduction.
 seed:8668ce656adce1f3. No user-selected compositional comp; code-first is a

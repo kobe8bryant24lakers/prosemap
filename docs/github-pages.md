@@ -9,6 +9,7 @@ send model requests, collect analytics or require a frontend build.
 - [English page](../website/index.html)
 - [Simplified Chinese page](../website/zh/index.html)
 - [Shared styles](../website/assets/site.css) and [interactions](../website/assets/site.js)
+- [3D diagram and source views](../website/assets/folio.css) and [diagram symbols](../website/assets/site-symbols.svg)
 - [English example](../website/assets/launch-plan.md) and [Chinese example](../website/assets/launch-plan.zh-CN.md)
 - [Screenshot provenance](marketing-assets.md)
 
@@ -26,6 +27,11 @@ python3 -m http.server 4174 --bind 127.0.0.1 --directory website
 ```
 
 Open the loopback URL printed by the server. The Chinese page is at `/zh/`.
+Check the diagram and source views in both languages with the mouse and arrow
+keys. The source on the reverse matches the Mermaid block in the downloadable
+example. Both views work with JavaScript disabled and switch immediately when
+reduced motion is enabled.
+
 Check both languages on desktop and mobile, all four screenshot tabs, keyboard
 navigation, image enlargement and Escape, FAQ disclosures, example downloads,
 and package links. Without JavaScript, all four screenshots remain visible and

@@ -19,19 +19,66 @@
  <link rel="alternate" hreflang="x-default" href="https://kobe8bryant24lakers.github.io/prosemap/">
  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
  <link rel="stylesheet" href="assets/site.css">
+ <link rel="stylesheet" href="assets/folio.css">
  <script src="assets/site.js" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header class="site-header wrap">
  <a class="brand" href="./" aria-label="ProseMap"><span class="brand-mark" aria-hidden="true">P</span><span>ProseMap</span></a>
- <nav aria-label="Main navigation"><a href="#explore">Explore</a><a href="#your-files">Your files</a><a href="#download">Download</a></nav>
- <a class="language" href="zh/" lang="zh-CN" hreflang="zh-CN" aria-label="切换到简体中文">中文</a>
+ <nav aria-label="Main navigation">
+  <a href="#explore">Explore</a><a href="#your-files">Your files</a><a href="#download">Download</a>
+ </nav>
+ <a class="language" href="zh/" lang="zh-CN" hreflang="zh-CN" aria-label="切换到简体中文"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/site-symbols.svg#globe"/></svg>中文</a>
 </header>
 <main id="main">
  <section class="hero wrap" aria-labelledby="hero-title">
-  <h1 id="hero-title">Write the thought.<br><span>See the whole picture.</span></h1>
-  <div class="hero-bottom"><p class="hero-intro">A local-first Markdown &amp; Mermaid desktop editor.<br> Write, draw, and ask questions. Keep your ideas moving.</p><div class="hero-actions"><div class="button-row"><a class="button primary" href="#download">Get ProseMap</a><a class="button secondary" href="https://github.com/kobe8bryant24lakers/prosemap">View on GitHub</a></div><p class="release-note">v0.16.0 · Desktop preview · MIT licensed</p></div></div>
+  <div class="hero-copy">
+   <h1 id="hero-title">Write the thought.<br><span>See the whole picture.</span></h1>
+   <p class="hero-intro">A local-first Markdown &amp; Mermaid desktop editor.<br> Write, draw, and review changes in the same file.</p>
+   <div class="button-row">
+    <a class="button primary" href="#download"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/site-symbols.svg#download"/></svg>Get ProseMap</a>
+    <a class="button secondary" href="https://github.com/kobe8bryant24lakers/prosemap">View on GitHub<svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/site-symbols.svg#external"/></svg></a>
+   </div>
+   <p class="release-note">v0.16.0 · Desktop preview · MIT licensed</p>
+  </div>
+  <fieldset class="specimen">
+   <legend class="visually-hidden">View the example release plan as a diagram or as Mermaid source</legend>
+   <a class="example-file" href="assets/launch-plan.md" download aria-label="Download the fictional release plan as a Markdown file">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/site-symbols.svg#file"/></svg><span><small>Fictional example</small><code>launch-plan.md</code></span>
+   </a>
+   <input class="visually-hidden" type="radio" name="example-view" id="view-diagram" aria-controls="folio-diagram" checked>
+   <input class="visually-hidden" type="radio" name="example-view" id="view-source" aria-controls="folio-source">
+   <div class="view-switch">
+    <label for="view-diagram"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/site-symbols.svg#map"/></svg>Diagram</label>
+    <label for="view-source"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/site-symbols.svg#code"/></svg>Source</label>
+   </div>
+   <div class="folio-stage">
+    <div class="folio-shadow" aria-hidden="true"></div>
+    <div class="folio">
+     <div class="source-sheet" aria-hidden="true"></div>
+     <div class="paper-edge" aria-hidden="true"></div>
+     <div class="map-sheet" role="img" id="folio-diagram" aria-label="The example workflow. Capture an idea, write a draft, then review it. Refine the draft or publish the plan.">
+      <span class="sheet-title">From draft to decision</span>
+      <svg class="routes" viewBox="0 0 400 260" preserveAspectRatio="none" aria-hidden="true"><use href="assets/site-symbols.svg#routes"/></svg>
+      <span class="map-tile idea"><span><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/site-symbols.svg#file"/></svg>Idea</span></span>
+      <span class="map-tile draft"><span><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/site-symbols.svg#pen"/></svg>Draft</span></span>
+      <span class="map-tile review"><span><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/site-symbols.svg#fork"/></svg>Review?</span></span>
+      <span class="map-tile publish"><span><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/site-symbols.svg#check"/></svg>Publish</span></span>
+      <span class="branch-yes">Yes</span><span class="branch-refine">Refine</span>
+      <code class="sheet-key">flowchart LR</code>
+     </div>
+     <div class="source-listing" id="folio-source">
+      <div class="listing-title"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/site-symbols.svg#code"/></svg>Mermaid</div>
+      <pre tabindex="0" role="region" aria-label="Mermaid source from the example file"><code><b>flowchart LR</b>
+  idea[Capture the idea] <i>--&gt;</i> draft[Write a draft]
+  draft <i>--&gt;</i> review{Ready to share?}
+  review <i>--&gt;</i>|Refine| draft
+  review <i>--&gt;</i>|Yes| publish[Publish the plan]</code></pre>
+     </div>
+    </div>
+   </div>
+  </fieldset>
  </section>
  <section class="tour wrap" id="explore" aria-labelledby="tour-title">
   <div class="tour-heading"><h2 id="tour-title">One document. More ways to think.</h2><div class="tour-tablist" role="tablist" aria-label="Explore the workspace"><button type="button" role="tab" id="tab-workspace" aria-controls="panel-workspace" aria-selected="true" tabindex="0">Write</button><button type="button" role="tab" id="tab-canvas" aria-controls="panel-canvas" aria-selected="false" tabindex="-1">Map</button><button type="button" role="tab" id="tab-questions" aria-controls="panel-questions" aria-selected="false" tabindex="-1">Ask</button><button type="button" role="tab" id="tab-review" aria-controls="panel-review" aria-selected="false" tabindex="-1">Refine</button></div></div>
@@ -52,11 +99,12 @@
  </section>
  <section class="diagram-section wrap" aria-labelledby="diagram-title">
   <div class="section-intro"><h2 id="diagram-title">A diagram you can see.<br>A file you can keep.</h2><p>Explain the architecture. Untangle a workflow. Map the next release. Move between the canvas and Mermaid source, then save both words and diagrams in the same Markdown file.</p></div>
-  <div class="source-to-diagram"><div class="source-pane"><h3>Editable Mermaid source</h3><pre><code>flowchart LR
-  idea[Capture the idea] --&gt; draft[Write a draft]
-  draft --&gt; review{Ready to share?}
-  review --&gt;|Refine| draft
-  review --&gt;|Yes| publish[Publish the plan]</code></pre></div><div class="render-pane"><h3>Rendered from the same source</h3><img src="assets/diagram-en.svg" width="880" height="176" loading="lazy" alt="An idea becomes a draft, a review decision returns it for refinement or publishes the plan."></div></div>
+  <div class="source-to-diagram"><div class="source-pane"><h3>Markdown checklist</h3><pre><code>## The plan
+
+- [x] Write the first draft
+- [x] Map the review process
+- [ ] Review the changes together
+- [ ] Publish the approved document</code></pre></div><div class="render-pane"><h3>The flowchart in the same file</h3><img src="assets/diagram-en.svg" width="880" height="176" loading="lazy" alt="An idea becomes a draft, a review decision returns it for refinement or publishes the plan."></div></div>
   <p class="diagram-types">Flowcharts · Sequence · State · Class · ER · Mind maps · Gantt</p>
   <div class="sample-download"><a class="button secondary" href="assets/launch-plan.md" download>Download the example .md</a><p>A small, fictional release plan. Open it in ProseMap and make it yours.</p></div>
  </section>

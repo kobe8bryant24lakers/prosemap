@@ -19,19 +19,66 @@
  <link rel="alternate" hreflang="x-default" href="https://kobe8bryant24lakers.github.io/prosemap/">
  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
  <link rel="stylesheet" href="../assets/site.css">
+ <link rel="stylesheet" href="../assets/folio.css">
  <script src="../assets/site.js" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main">跳转到正文</a>
 <header class="site-header wrap">
- <a class="brand" href="../" aria-label="ProseMap"><span class="brand-mark" aria-hidden="true">P</span><span>ProseMap</span></a>
- <nav aria-label="主导航"><a href="#explore">看看能做什么</a><a href="#your-files">你的文件</a><a href="#download">下载</a></nav>
- <a class="language" href="../" lang="en" hreflang="en" aria-label="Switch to English">EN</a>
+ <a class="brand" href="./" aria-label="ProseMap"><span class="brand-mark" aria-hidden="true">P</span><span>ProseMap</span></a>
+ <nav aria-label="主导航">
+  <a href="#explore">功能导览</a><a href="#your-files">本地文件</a><a href="#download">下载</a>
+ </nav>
+ <a class="language" href="../" lang="en" hreflang="en" aria-label="Switch to English"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/site-symbols.svg#globe"/></svg>EN</a>
 </header>
 <main id="main">
  <section class="hero wrap" aria-labelledby="hero-title">
-  <h1 id="hero-title">把想法写清楚，<br><span>把结构画明白。</span></h1>
-  <div class="hero-bottom"><p class="hero-intro">本地优先的 Markdown 与 Mermaid 桌面编辑器。<br> 写作、画图、问答，让思路在同一个工作区里继续向前。</p><div class="hero-actions"><div class="button-row"><a class="button primary" href="#download">开始使用 ProseMap</a><a class="button secondary" href="https://github.com/kobe8bryant24lakers/prosemap">查看 GitHub</a></div><p class="release-note">v0.16.0 · 桌面预览版 · MIT 开源</p></div></div>
+  <div class="hero-copy">
+   <h1 id="hero-title">把想法写清楚，<br><span>把结构画明白。</span></h1>
+   <p class="hero-intro">本地优先的 Markdown 与 Mermaid 桌面编辑器。<br>在同一份文件里写作、画图、审阅修改。</p>
+   <div class="button-row">
+    <a class="button primary" href="#download"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/site-symbols.svg#download"/></svg>下载 ProseMap</a>
+    <a class="button secondary" href="https://github.com/kobe8bryant24lakers/prosemap">查看 GitHub<svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/site-symbols.svg#external"/></svg></a>
+   </div>
+   <p class="release-note">v0.16.0 · 桌面预览版 · MIT 开源</p>
+  </div>
+  <fieldset class="specimen">
+   <legend class="visually-hidden">选择虚构发布计划的视图：流程图或 Mermaid 源码</legend>
+   <a class="example-file" href="../assets/launch-plan.zh-CN.md" download aria-label="下载虚构发布计划的 Markdown 文件">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/site-symbols.svg#file"/></svg><span><small>虚构示例</small><code>launch-plan.zh-CN.md</code></span>
+   </a>
+   <input class="visually-hidden" type="radio" name="example-view" id="view-diagram" aria-controls="folio-diagram" checked>
+   <input class="visually-hidden" type="radio" name="example-view" id="view-source" aria-controls="folio-source">
+   <div class="view-switch">
+    <label for="view-diagram"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/site-symbols.svg#map"/></svg>流程图</label>
+    <label for="view-source"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/site-symbols.svg#code"/></svg>源码</label>
+   </div>
+   <div class="folio-stage">
+    <div class="folio-shadow" aria-hidden="true"></div>
+    <div class="folio">
+     <div class="source-sheet" aria-hidden="true"></div>
+     <div class="paper-edge" aria-hidden="true"></div>
+     <div class="map-sheet" role="img" id="folio-diagram" aria-label="虚构发布流程：记录想法，写出初稿，经评审后继续完善初稿或发布计划。">
+      <span class="sheet-title">从想法到行动</span>
+      <svg class="routes" viewBox="0 0 400 260" preserveAspectRatio="none" aria-hidden="true"><use href="../assets/site-symbols.svg#routes"/></svg>
+      <span class="map-tile idea"><span><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/site-symbols.svg#file"/></svg>想法</span></span>
+      <span class="map-tile draft"><span><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/site-symbols.svg#pen"/></svg>初稿</span></span>
+      <span class="map-tile review"><span><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/site-symbols.svg#fork"/></svg>评审</span></span>
+      <span class="map-tile publish"><span><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/site-symbols.svg#check"/></svg>发布</span></span>
+      <span class="branch-yes">是</span><span class="branch-refine">继续完善</span>
+      <code class="sheet-key">flowchart LR</code>
+     </div>
+     <div class="source-listing" id="folio-source">
+      <div class="listing-title"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/site-symbols.svg#code"/></svg>Mermaid</div>
+      <pre tabindex="0" role="region" aria-label="示例文件中的 Mermaid 源码"><code><b>flowchart LR</b>
+  idea[记录想法] <i>--&gt;</i> draft[写出初稿]
+  draft <i>--&gt;</i> review{可以分享了吗？}
+  review <i>--&gt;</i>|继续完善| draft
+  review <i>--&gt;</i>|是| publish[发布计划]</code></pre>
+     </div>
+    </div>
+   </div>
+  </fieldset>
  </section>
  <section class="tour wrap" id="explore" aria-labelledby="tour-title">
   <div class="tour-heading"><h2 id="tour-title">一份文档，让思路自在展开。</h2><div class="tour-tablist" role="tablist" aria-label="探索工作区"><button type="button" role="tab" id="tab-workspace" aria-controls="panel-workspace" aria-selected="true" tabindex="0">专注写</button><button type="button" role="tab" id="tab-canvas" aria-controls="panel-canvas" aria-selected="false" tabindex="-1">直观画</button><button type="button" role="tab" id="tab-questions" aria-controls="panel-questions" aria-selected="false" tabindex="-1">随时问</button><button type="button" role="tab" id="tab-review" aria-controls="panel-review" aria-selected="false" tabindex="-1">放心改</button></div></div>
@@ -52,11 +99,12 @@
  </section>
  <section class="diagram-section wrap" aria-labelledby="diagram-title">
   <div class="section-intro"><h2 id="diagram-title">看得见的结构，<br>带得走的文件。</h2><p>讲清系统架构，理顺业务流程，规划下一次发布。在可视化画布和 Mermaid 源码间切换，把文字与图表保存在同一份 Markdown 文件里。</p></div>
-  <div class="source-to-diagram"><div class="source-pane"><h3>可编辑的 Mermaid 源码</h3><pre><code>flowchart LR
-  idea[记录想法] --&gt; draft[写出初稿]
-  draft --&gt; review{可以分享了吗？}
-  review --&gt;|继续完善| draft
-  review --&gt;|是| publish[发布计划]</code></pre></div><div class="render-pane"><h3>同一份源码的渲染结果</h3><img src="../assets/diagram-zh-CN.svg" width="880" height="176" loading="lazy" alt="从记录想法到写出初稿，经评审后继续完善或发布计划。"></div></div>
+  <div class="source-to-diagram"><div class="source-pane"><h3>Markdown 任务清单</h3><pre><code>## 当前进度
+
+- [x] 写下第一版想法
+- [x] 画出评审流程
+- [ ] 一起审阅修改
+- [ ] 发布确认后的文档</code></pre></div><div class="render-pane"><h3>同一份文件中的流程图</h3><img src="../assets/diagram-zh-CN.svg" width="880" height="176" loading="lazy" alt="从记录想法到写出初稿，经评审后继续完善或发布计划。"></div></div>
   <p class="diagram-types">流程图 · 时序图 · 状态图 · 类图 · ER 图 · 思维导图 · 甘特图</p>
   <div class="sample-download"><a class="button secondary" href="../assets/launch-plan.zh-CN.md" download>下载示例 .md 文件</a><p>一份虚构的发布计划。用 ProseMap 打开，试着改成你的想法。</p></div>
  </section>
@@ -79,7 +127,7 @@
  </div></section>
  <section class="faq-section wrap" aria-labelledby="faq-title"><h2 id="faq-title">开始之前，你可能想知道。</h2><div class="faq-list"><details><summary>不配置 AI，也能使用吗？</summary><p>可以。写作、本地文件、Markdown 预览和 Mermaid 渲染都不依赖 AI 连接。需要文档问答、文字建议或 AI 图表草稿时，再连接模型。</p></details><details><summary>ProseMap 免费吗？</summary><p>项目使用 MIT 许可证开源。AI 需要你自己的模型连接；模型服务商可能对请求计费，对话压缩也可能产生额外请求。</p></details><details><summary>哪些内容留在本地，哪些会发送出去？</summary><p>文档仍然是本地文件。主动调用 AI 时，选定的文档范围、参考文件、指令和相关对话会发送给你配置的服务商。选择文件夹不会把整个代码仓发送出去。</p></details><details><summary>文件可以继续用其他工具打开吗？</summary><p>可以。文档是 Markdown，图表保留 Mermaid 源码，粘贴的图片使用相对链接。手动画布位置只属于当前编辑会话；从源码渲染时使用自动布局。</p></details><details><summary>当前版本成熟度如何？</summary><p>v0.16.0 是桌面预览版，已完成前端和浏览器检查。这些检查使用虚构数据与桌面模拟接口，不能代表已安装桌面应用的完整验收，也不能验证真实模型输出质量。版本说明保留了尚未完成的原生验收状态。</p></details></div></section>
 </main>
-<footer class="site-footer wrap"><div><a class="brand" href="../"><span class="brand-mark" aria-hidden="true">P</span><span>ProseMap</span></a><p>让文字与图表，一起把事情讲清楚。</p></div><nav aria-label="相关资源"><a href="https://github.com/kobe8bryant24lakers/prosemap">GitHub</a><a href="https://github.com/kobe8bryant24lakers/prosemap/blob/main/docs/guide.md">使用指南</a><a href="https://github.com/kobe8bryant24lakers/prosemap/blob/main/LICENSE">MIT 许可证</a></nav></footer>
+<footer class="site-footer wrap"><div><a class="brand" href="./"><span class="brand-mark" aria-hidden="true">P</span><span>ProseMap</span></a><p>让文字与图表，一起把事情讲清楚。</p></div><nav aria-label="相关资源"><a href="https://github.com/kobe8bryant24lakers/prosemap">GitHub</a><a href="https://github.com/kobe8bryant24lakers/prosemap/blob/main/docs/guide.md">使用指南</a><a href="https://github.com/kobe8bryant24lakers/prosemap/blob/main/LICENSE">MIT 许可证</a></nav></footer>
 <dialog class="image-dialog" aria-label="放大查看界面"><div class="image-dialog-toolbar"><p>可滚动查看原尺寸图片，按 Escape 关闭。</p><button class="button secondary" type="button" data-close-dialog autofocus>关闭截图</button></div><div class="image-dialog-scroll" role="region" tabindex="0" aria-label="原尺寸截图"><img src="../assets/screenshots/workspace-zh-CN.webp" alt="" loading="lazy"></div></dialog>
 </body>
 </html>

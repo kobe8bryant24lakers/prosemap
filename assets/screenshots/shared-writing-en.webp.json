@@ -1,0 +1,9 @@
+{
+  "prompt": "ProseMap v0.17.0 production frontend, captured by scripts/capture-shared-writing.mjs from two live Chromium sessions on a temporary loopback service. Editors changed one paragraph in the fictional launch plan. Viewport crop from the participant bar. PNG converted to WebP at quality 88.",
+  "sourceCommit": "979741701157c1c353c33af8b4736101e7c8e63a",
+  "locale": "en",
+  "width": 2000,
+  "height": 1280,
+  "createdAt": "2026-11-28T14:57:37Z",
+  "sha256": "d06c010221cd169ca635c12ee63bcd7ddc83326d4a2b3ba1a5645c0c255aa6de"
+}

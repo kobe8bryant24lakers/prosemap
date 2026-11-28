@@ -36,3 +36,8 @@ yarn-error.log*
 /outputs/
 /work/
 /.worktrees/
+
+# Private collaboration service state in custom data directories
+rooms.sqlite
+rooms.sqlite-*
+create-[0-9]*.tmp

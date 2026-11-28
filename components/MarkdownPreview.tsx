@@ -23,11 +23,13 @@ import { previewSourceLines } from '@/lib/preview-source-lines';
 type MarkdownPreviewProps = {
   markdown: string;
   documentPath?: string | null;
+  shared?: boolean;
   onEditMermaid?: (target: NonNullable<MermaidTarget>) => void;
 };
 
 const PreviewImg = ({ src, alt, title }: ImgHTMLAttributes<HTMLImageElement>) => {
-  const { documentPath } = useContext(PreviewContext);
+  const { documentPath, shared } = useContext(PreviewContext);
+  if (shared) return <span className="preview-image-error">{alt && alt + ' — '}{t('共享会话不加载附件')}</span>;
   return <PreviewImage src={typeof src === 'string' ? src : undefined} alt={alt} title={title} documentPath={documentPath} />;
 };
 
@@ -47,10 +49,14 @@ const PreviewPre: Components['pre'] = ({ children, node }) => {
 };
 
 const PreviewCode: Components['code'] = ({ className, children, node, ...props }) => {
-  const { markdown, onEditMermaid } = useContext(PreviewContext);
+  const { markdown, onEditMermaid, shared } = useContext(PreviewContext);
   const language = /language-([^\s]+)/.exec(className ?? '')?.[1]?.toLowerCase();
   const value = String(children).replace(/\n$/, '');
   if (language === 'mermaid') {
+    // Resource-bearing diagram directives can request assets during layout, before SVG sanitization.
+    if (shared && /(?:^\s*---|%%\{|<(?!(?:br\s*\/?>))|\b(?:img|image|icon|href|src)\s*[:=]|\burl\s*\(|^\s*(?:click|link)\s)/im.test(value)) {
+      return <span className="preview-image-error">{t('包含外部资源或自定义配置的图表仅显示源码。')}</span>;
+    }
     const from = node?.position?.start.offset;
     const to = node?.position?.end.offset;
     const target = typeof from === 'number' && typeof to === 'number'
@@ -69,16 +75,16 @@ const PreviewCode: Components['code'] = ({ className, children, node, ...props }
   return <code className={className} {...props}>{children}</code>;
 };
 
-function MarkdownPreview({ markdown, documentPath, onEditMermaid }: MarkdownPreviewProps) {
+function MarkdownPreview({ markdown, documentPath, onEditMermaid, shared }: MarkdownPreviewProps) {
   useLocale();
   const [linkError, setLinkError] = useState('');
-  const context = useMemo(() => ({ markdown, documentPath, onEditMermaid }), [markdown, documentPath, onEditMermaid]);
+  const context = useMemo(() => ({ markdown, documentPath, onEditMermaid, shared }), [markdown, documentPath, onEditMermaid, shared]);
   if (!markdown.trim()) {
     return (
       <div className="preview-empty">
         <span><FileText size={23} /></span>
-        <strong>{t("预览会出现在这里")}</strong>
-        <p>{t("从左侧开始写 Markdown，内容会实时呈现。")}</p>
+        <strong>{shared ? t("共享文档有正文后，这里会显示预览。") : t("预览会出现在这里")}</strong>
+        {!shared && <p>{t("从左侧开始写 Markdown，内容会实时呈现。")}</p>}
       </div>
     );
   }
@@ -86,6 +92,9 @@ function MarkdownPreview({ markdown, documentPath, onEditMermaid }: MarkdownPrev
   const components: Components = {
     img: PreviewImg,
     a({ children, href, title, style }) {
+      if (shared && href && !href.startsWith('#') && !isExternalPreviewLink(href)) {
+        return <span title={t('共享会话不打开本地附件')}>{children}</span>;
+      }
       return <a href={href} title={title} style={style} target={href?.startsWith('#') ? undefined : '_blank'} rel="noreferrer noopener" onClick={async (event) => {
         setLinkError('');
         if (href?.startsWith('#')) {
@@ -134,7 +143,7 @@ function MarkdownPreview({ markdown, documentPath, onEditMermaid }: MarkdownPrev
 
   return (
     <PreviewContext.Provider value={context}><article className="markdown-body">
-      <>{linkError && <div className="preview-link-error" role="alert">{uiMessage(linkError)}</div>}<ReactMarkdown remarkPlugins={[remarkGfm, relativeFileLinks, previewLineBreaks]} rehypePlugins={[rehypeRaw, previewHtmlSanitize, previewHeadingIds, previewSourceLines]} components={components}>{markdown}</ReactMarkdown></>
+      <>{linkError && <div className="preview-link-error" role="alert">{uiMessage(linkError)}</div>}<ReactMarkdown remarkPlugins={[remarkGfm, relativeFileLinks, previewLineBreaks]} skipHtml={shared} rehypePlugins={shared ? [previewHtmlSanitize, previewHeadingIds, previewSourceLines] : [rehypeRaw, previewHtmlSanitize, previewHeadingIds, previewSourceLines]} components={components}>{markdown}</ReactMarkdown></>
     </article></PreviewContext.Provider>
   );
 }

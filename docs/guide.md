@@ -3,6 +3,20 @@
 Practical controls, workflows and limits for the desktop application.
 For an introduction and downloads, see the [README](../README.md).
 
+## Shared editing sessions
+
+In the source build, **Share this document** checks the selected service and creates a separate Markdown copy when you confirm. The original file stays open locally. Guests can choose **Join** in their own ProseMap app, paste the invitation and select **Join session**. The invitation chooses the destination and grants edit or view access. It also works in a browser.
+
+Build the frontend with `npm ci` and `npm run build`. For a synthetic LAN test, start `npm run collab:serve -- --mode lan --host 192.168.1.10 --synthetic-demo` on the host, substituting its actual private IP. Enter `http://192.168.1.10:8787` and the host’s private `create.key` in the sharing form. Plaintext LAN is limited to synthetic content. TLS is available with `--cert` and `--key`.
+
+For a cloud or VPN deployment, open **Settings → Configure remote servers**. Enter the full HTTP or HTTPS origin and select **Save as default server**. You can keep several addresses on the device. Sharing checks the default server automatically. Guests can join an invitation to a different server. On a local network, the desktop sharing window also discovers advertised ProseMap services via mDNS. Service checks send no document or invitation credentials.
+
+The service persists rooms in SQLite. HTTPS addresses use WSS. HTTP addresses use WS and transmit text and access credentials in cleartext. Both the owner and guests confirm before using HTTP. Use the desktop app or open the HTTP invitation directly in a browser. An HTTPS editor page can only connect to encrypted services.
+
+To host remote HTTP on a trusted network or VPN, substitute the server’s reachable private IP in `npm run collab:serve -- --mode remote --host 10.20.0.8 --port 8787 --public-url http://10.20.0.8:8787`. Read the creation key from the service’s data directory. For HTTPS, the [systemd service](../deploy/collaboration/prosemap-collab.service) and [Caddy configuration](../deploy/collaboration/Caddyfile) show a persistent data directory and a loopback upstream. Full setup and verification commands are in the [deployment guide](collaboration.zh-CN.md).
+
+Owners issue or revoke edit and view links independently under **Manage invitations**. Both expire after 24 hours. Keep the owner recovery link private. **Saved to server** confirms a durable write. Keep the window open to merge offline edits on reconnect, or use **Export .md** for a local copy. Shared sessions include Markdown, Mermaid source and collaborator cursors. Local attachments, AI conversations, credentials and canvas drafts stay on their respective devices.
+
 ## Project context and conversations
 
 Open **AI assistant / AI 助手** from the view bar in editor, preview or split view. In focus mode the same control is in the header. Choose **Document Q&A / 文档问答** to ask about the whole document or the current editor selection. **Summarize / 总结要点** starts a summary. Ask follow-up questions in the same panel. Each request reads the current editor text and sends the selected scope and references to your configured model. Answers stay in the current document session. Choose **Edit document / 编辑文档** when you want to review a proposed change.
@@ -83,7 +97,7 @@ Canvas selection and inspector changes preserve the current zoom and pointer loc
 
 | Platform | Status |
 | --- | --- |
-| macOS 11+ on Apple silicon | Development builds have historical local verification; installed v0.16.0 acceptance remains pending |
+| macOS 11+ on Apple silicon | Two macOS development clients verified collaborative editing on Apple silicon. Installed distribution acceptance is pending |
 | Windows 10/11 x64 | NSIS and MSI packages share one compatible build; WebView2 bootstrapper configuration is included |
 | Linux x64 | Debian and AppImage preview packages built on Ubuntu 22.04; native Linux runtime acceptance pending |
 | macOS on Intel | Universal macOS build target; native Intel runtime acceptance pending |

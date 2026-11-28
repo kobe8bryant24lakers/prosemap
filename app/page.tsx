@@ -42,6 +42,7 @@ import {
   IndentDecrease,
   Link as LinkIcon,
   List,
+  LogIn,
   LoaderCircle,
   PanelLeft,
   PenLine,
@@ -51,11 +52,12 @@ import {
   Settings2,
   Sparkles,
   Table2,
+  Users,
   TextQuote,
   Workflow,
   X,
 } from 'lucide-react';
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import AssistantPanel from '@/components/AssistantPanel';
 import AiContextPanel from '@/components/AiContextPanel';
 import AiConversation from '@/components/AiConversation';
@@ -107,6 +109,9 @@ import {
   type LocalWorkspace,
 } from '@/lib/local-desktop';
 import { includeSavedFile } from '@/lib/local-workspace';
+
+const CollaborationFlow = lazy(() => import('@/components/CollaborationFlow'));
+const CollaborationServers = lazy(() => import('@/components/CollaborationServers'));
 
 type ViewMode = 'split' | 'editor' | 'preview';
 
@@ -230,7 +235,22 @@ function createAiPrompts(
   };
 }
 
-export default function Home() {
+export default function AppEntry() {
+  const [initialInvitation] = useState(() => location.hash.startsWith('#session/') ? location.href : null);
+  useEffect(() => {
+    // Pasting a second same-origin invitation navigates just the fragment.
+    // A full navigation also runs the current draft's normal unload protection.
+    function followInvite(event: HashChangeEvent) {
+      if ([event.oldURL, event.newURL].some(url => new URL(url).hash.startsWith('#session/'))) location.reload();
+    }
+    window.addEventListener('hashchange', followInvite);
+    return () => window.removeEventListener('hashchange', followInvite);
+  }, []);
+  return initialInvitation ? <Suspense fallback={null}><CollaborationFlow invitation={initialInvitation}
+    onClose={() => location.replace(location.pathname)}/></Suspense> : <Home/>;
+}
+
+function Home() {
   const locale = useLocale();
   const documentSessionRef = useRef(0);
   const documentSession = documentSessionRef.current;
@@ -260,6 +280,10 @@ export default function Home() {
   const [assistantAction, setAssistantAction] = useState<AssistAction>('polish');
   const [assistantInstructionDrafts, setAssistantInstructionDrafts] = useState<Partial<Record<AssistAction, string>>>({});
   const [mermaidWorkbench, setMermaidWorkbench] = useState<MermaidWorkbenchSession | null>(null);
+  const [sharingDraft, setSharingDraft] = useState<{ title: string; markdown: string } | 'join' | null>(null);
+  const [serversOpen, setServersOpen] = useState(false);
+  const sharedPendingRef = useRef(false);
+  const sharedPending = useCallback((value: boolean) => { sharedPendingRef.current = value; }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelProfiles, setModelProfiles] = useState<ModelProfiles>(emptyModelProfiles);
   const [modelsLoading, setModelsLoading] = useState(true);
@@ -856,7 +880,7 @@ export default function Home() {
     let active = true;
     let listening = false;
     function warnBeforeClose(event: BeforeUnloadEvent) {
-      if (!dirtyRef.current && !workbenchPendingRef.current) return;
+      if (!dirtyRef.current && !workbenchPendingRef.current && !sharedPendingRef.current) return;
       event.preventDefault();
       event.returnValue = '';
     }
@@ -881,14 +905,14 @@ export default function Home() {
       const stopListening = await currentWindow.onCloseRequested(async (event) => {
         const documentPending = dirtyRef.current;
         const workbenchPending = workbenchPendingRef.current;
-        if (!documentPending && !workbenchPending) return;
+        if (!documentPending && !workbenchPending && !sharedPendingRef.current) return;
         event.preventDefault();
         if (closeConfirmationPendingRef.current) return;
         closeConfirmationPendingRef.current = true;
         try {
           const confirmed = await askConfirmation({
             title: t("关闭 ProseMap？"),
-            message: documentPending && workbenchPending
+            message: sharedPendingRef.current ? t("共享正文有修改尚未同步。关闭窗口将放弃待同步修改和本机未保存的草稿。") : documentPending && workbenchPending
               ? t("当前文档和图表草稿都有尚未保存的修改。关闭后，这些修改将无法恢复。")
               : workbenchPending
                 ? t("当前图表草稿尚未应用到文档。关闭后，这些修改将无法恢复。")
@@ -1443,7 +1467,7 @@ export default function Home() {
       if (!assistantVisible) requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('#writing-assistant .assistant-mode-switch [aria-pressed="true"]')?.focus({ preventScroll: true }));
     }}><Bot size={15} aria-hidden="true" />{t('AI 助手')}</button>;
 
-  return (
+  return (<>
     <main
       className={`app-shell view-${viewMode}${focusMode ? ' focus-mode' : ''}`}
       onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
@@ -1475,6 +1499,13 @@ export default function Home() {
             <option value="zh-CN" lang="zh-CN">中文</option>
           </select>
           <div className="header-model-switcher"><ModelSwitcher settings={modelProfiles} disabled={modelsLoading || modelsSaving || settingsOpen} onSelect={(id) => void switchModel(id)} onManage={() => setSettingsOpen(true)} /></div>
+          <button type="button" className="header-button share-document" onClick={event => {
+            event.currentTarget.focus();
+            setSharingDraft({ title: safeDocumentName(documentName), markdown: editorRef.current?.view?.state.doc.toString() ?? content });
+          }} aria-label={t('共享此文档')} title={t('共享此文档')}><Users size={15} aria-hidden="true"/><span>{t('共享')}</span></button>
+          <button type="button" className="header-button join-document" onClick={event => {
+            event.currentTarget.focus(); setSharingDraft('join');
+          }} aria-label={t('加入共享文档')} title={t('加入共享文档')}><LogIn size={15} aria-hidden="true"/><span>{t('加入')}</span></button>
           <button type="button" className="header-button import-button" onClick={() => void openFile()} title={`${t("打开文件")} (⌘/Ctrl O)`} aria-label={t("打开文件")}><FolderOpen size={15} aria-hidden="true" /><span>{t("打开文件")}</span></button>
           <button type="button" className="header-button folder-button" onClick={() => void openFolder()} title={t("打开文件夹")} aria-label={t("打开文件夹")}><Folder size={15} aria-hidden="true" /><span>{t("打开文件夹")}</span></button>
           <button type="button" className="header-button export-button" disabled={isSaving} onClick={() => void saveDocument(true)} title={`${t("另存为")} (⌘/Ctrl Shift S)`} aria-label={t("另存为")}><FileDown size={15} aria-hidden="true" /><span>{t("另存为")}</span></button>
@@ -1655,6 +1686,7 @@ export default function Home() {
       {settingsOpen && !modelsLoading && !modelsLoadError && !modelsSaving ? (
         <SettingsModal
           settings={modelProfiles}
+          onCollaborationServers={() => setServersOpen(true)}
           storage={credentialStorage}
           onClose={() => setSettingsOpen(false)}
           onSave={async (next) => {
@@ -1685,5 +1717,8 @@ export default function Home() {
       ) : null}
       {toast ? <div className={`toast ${toast.kind}`} role="status">{toast.kind === 'success' ? <Check size={15} /> : toast.kind === 'error' ? <X size={15} /> : <FileText size={15} />}{uiMessage(toast.message)}</div> : null}
     </main>
-  );
+    {serversOpen && <Suspense fallback={null}><CollaborationServers onClose={() => setServersOpen(false)}/></Suspense>}
+    {sharingDraft && <Suspense fallback={null}><CollaborationFlow current={sharingDraft === 'join' ? undefined : sharingDraft}
+      onPending={sharedPending} onClose={() => setSharingDraft(null)}/></Suspense>}
+  </>);
 }

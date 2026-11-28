@@ -494,7 +494,7 @@ button:not(:disabled):active { filter: brightness(.96); }
 @media (max-width: 1200px) {
   .topbar { grid-template-columns: 160px minmax(160px, 1fr) auto; }
   .model-pill { width: 34px; padding: 0; }.model-pill span { display: none; }
-  .import-button, .folder-button, .export-button { width: 34px; padding: 0; }.import-button span, .folder-button span, .export-button span { display: none; }
+  .share-document, .join-document, .import-button, .folder-button, .export-button { width: 34px; padding: 0; }.share-document span, .join-document span, .import-button span, .folder-button span, .export-button span { display: none; }
   .editor-ai-actions { display: none; }
   .workspace { --rail-width: 51px; }
   .rail { padding-inline: 6px; }
@@ -586,7 +586,7 @@ button:not(:disabled):active { filter: brightness(.96); }
   .brand { gap: 6px; }
   .brand-mark { width: 28px; height: 28px; }
   .header-button, .header-primary, .language-switcher { padding-inline: 4px; }
-  .import-button, .folder-button, .export-button, .header-primary { width: 32px; }
+  .share-document, .join-document, .import-button, .folder-button, .export-button, .header-primary { width: 32px; }
   .language-switcher { max-width: 62px; }
   .settings-header, .diff-header { align-items: flex-start; }
 }
@@ -632,6 +632,10 @@ button:not(:disabled):active { filter: brightness(.96); }
   .document-control input { font-size: 16px; }
 }
 @media (max-width: 420px) { .brand div { display: none; } }
+@media (max-width: 360px) {
+  .topbar { padding-inline: 8px; }
+  .top-actions { gap: 2px; }
+}
 @media (max-width: 560px) {
   .view-utilities .reload-document span { display: none; }
 }

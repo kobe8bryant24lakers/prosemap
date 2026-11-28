@@ -6,11 +6,13 @@
 
 **A local-first Markdown and Mermaid desktop workspace.** Write in focus, turn ideas into editable diagrams, ask questions as you read, and review AI suggestions before they touch your document.
 
-[Explore the product page](https://kobe8bryant24lakers.github.io/prosemap/) · [Download v0.16.0](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.16.0) · [User guide](docs/guide.md)
+[Explore the product page](https://kobe8bryant24lakers.github.io/prosemap/) · [Download v0.17.0](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.17.0) · [User guide](docs/guide.md)
 
 ![ProseMap v0.16.0: Markdown source and live preview of a synthetic release plan](website/assets/screenshots/workspace-en.webp)
 
 Your next README, architecture note, or project plan can start with one ordinary `.md` file.
+
+Share a copy of a Markdown document on a LAN or a remote server. See [Shared editing sessions](docs/guide.md#shared-editing-sessions).
 
 ## One document. More ways to think.
 
@@ -53,13 +55,13 @@ All screenshots show the actual **v0.16.0 production frontend** with synthetic d
 2. **Open a Markdown file or folder.** Try split view, focus mode, and a Mermaid diagram. Local editing and rendering work without an AI connection.
 3. **Connect a model when you want help.** In Settings, add an OpenAI-compatible Chat Completions or Anthropic Messages connection. Save multiple profiles and switch while you work.
 
-| Platform | v0.16.0 availability |
+| Platform | v0.17.0 availability |
 | --- | --- |
-| Windows 10/11 x64 | [EXE installer](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.16.0/ProseMap-Windows-x64-v0.16.0-setup.exe) · [MSI installer](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.16.0/ProseMap-Windows-x64-v0.16.0.msi). Unsigned preview packages. |
-| Linux x64 | [AppImage](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.16.0/ProseMap-Linux-x64-v0.16.0.AppImage) · [DEB package](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.16.0/ProseMap-Linux-x64-v0.16.0.deb). Native Linux runtime acceptance is pending. |
-| macOS | [Build from source](docs/guide.md#macos). No macOS installer is attached to v0.16.0. Distribution builds require an Apple signing identity and notarization. |
+| Windows 10/11 x64 | [EXE installer](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.17.0/ProseMap-Windows-x64-v0.17.0-setup.exe) · [MSI installer](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.17.0/ProseMap-Windows-x64-v0.17.0.msi). Unsigned preview packages. |
+| Linux x64 | [AppImage](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.17.0/ProseMap-Linux-x64-v0.17.0.AppImage) · [DEB package](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.17.0/ProseMap-Linux-x64-v0.17.0.deb). Native Linux runtime acceptance is pending. |
+| macOS | [Build from source](docs/guide.md#macos). Public macOS installers require Developer ID signing and notarization. |
 
-The app starts in English; **EN / 中文** switches to Simplified Chinese immediately without changing your document. Checksums are attached to the [release](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.16.0). Mobile apps are not implemented.
+The app starts in English; **EN / 中文** switches to Simplified Chinese immediately without changing your document. Checksums are attached to the [release](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.17.0). Mobile apps are not implemented.
 
 ## Your files. Your model. Your decision.
 
@@ -72,9 +74,9 @@ Model usage, including conversation compression, may incur provider charges. See
 
 ## Current release
 
-**[v0.16.0](docs/releases/v0.16.0.md)** adds Document Q&A and gives tables, code, and Mermaid previews more room. Recent versions also introduced focus modes, passage-by-passage AI review, and canvas object search.
+**[v0.17.0](docs/releases/v0.17.0.md)** adds shared Markdown editing with live cursors, separate edit and read-only invitations, and reconnection to a persistent LAN or remote server. Sharing creates a separate copy after you confirm.
 
-This is a **desktop preview**. Completed frontend and browser checks do not imply complete native acceptance. Installed desktop behavior and live-model output quality remain unverified for this version. The [release notes](docs/releases/v0.16.0.md), [native acceptance matrix](docs/v0.11.0-deep-acceptance.md), and [coverage audit](docs/v0.11.0-acceptance-audit.md) retain partial, tool-limited, and unsupported cases.
+This is a **desktop preview**. Two macOS development clients exchanged and saved edits in synthetic documents. Installed Windows and Linux collaboration, physical cross-network use, and live-model quality remain unverified. The [release notes](docs/releases/v0.17.0.md), [native acceptance matrix](docs/v0.11.0-deep-acceptance.md), and [coverage audit](docs/v0.11.0-acceptance-audit.md) retain partial, tool-limited, and unsupported cases.
 
 ## Develop locally
 

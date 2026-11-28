@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "The main ProseMap window can only invoke audited application commands.",
   "windows": ["main"],
-  "permissions": ["core:event:default", "core:window:allow-destroy"]
+  "permissions": ["core:event:default", "core:window:allow-destroy", "websocket:default"]
 }

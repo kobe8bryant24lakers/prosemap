@@ -30,13 +30,14 @@ make those workflows clear and invite people to try the tool.
   Changes require acceptance; AI requests send content to the configured provider.
 - OpenAI-compatible and Anthropic endpoints and multiple model profiles are supported.
 - English and Simplified Chinese are available in the application.
-- v0.16.0 is a desktop preview. Windows and Linux packages are published;
-  no macOS package is attached to that release. Native acceptance is incomplete.
+- v0.17.0 is a desktop preview. Sharing creates a Markdown copy on an explicitly
+  started LAN or remote service. The desktop distribution formats and remaining
+  native acceptance cases are recorded in the release notes.
 - The repository is MIT licensed. Model service usage is separate.
 
 ## Evidence on Hand
 
-- [Release notes](docs/releases/v0.16.0.md) record current behavior and validation limits.
+- [Release notes](docs/releases/v0.17.0.md) record current behavior and validation limits.
 - [User guide](docs/guide.md) describes workflows and detailed constraints.
 - [Application design](DESIGN.md) records the existing neutral and blue interface.
 - Product screenshots use the actual frontend with explicitly synthetic documents

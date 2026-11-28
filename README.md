@@ -4,15 +4,17 @@
 
 ### Write the thought. See the whole picture.
 
-**A local-first Markdown and Mermaid desktop workspace.** Write in focus, turn ideas into editable diagrams, ask questions as you read, and review AI suggestions before they touch your document.
+**A local-first Markdown and Mermaid desktop workspace.** Write solo or with a coauthor, turn ideas into editable diagrams, and review AI suggestions before applying them.
 
 [Explore the product page](https://kobe8bryant24lakers.github.io/prosemap/) · [Download v0.17.0](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.17.0) · [User guide](docs/guide.md)
 
-![ProseMap v0.16.0: Markdown source and live preview of a synthetic release plan](website/assets/screenshots/workspace-en.webp)
+## Write together in Markdown
 
-Your next README, architecture note, or project plan can start with one ordinary `.md` file.
+Choose **Share this document** to create a copy on a LAN host or remote server. Send an edit or read-only invitation. Your coauthor opens **Join** in ProseMap and pastes the link.
 
-Share a copy of a Markdown document on a LAN or a remote server. See [Shared editing sessions](docs/guide.md#shared-editing-sessions).
+Edit the same paragraph, follow each other’s cursors and see the preview update as you write. Reconnecting merges pending edits from the open window. Your original file and attachments stay on your device. [Set up a shared writing session](docs/guide.md#shared-editing-sessions).
+
+![Two editors online with a live selection and preview in a fictional release plan](website/assets/screenshots/shared-writing-en.webp)
 
 ## One document. More ways to think.
 
@@ -24,6 +26,8 @@ Share a copy of a Markdown document on a LAN or a remote server. See [Shared edi
 | Improve a draft without losing control | Compare original and suggested passages in **Changes**, inspect the full comparison, then accept the entire suggestion, reject it, or continue the conversation. |
 | Give AI useful project context | Explicitly select up to 12 reference or source files from a local folder. Use the same selected context for writing and diagram assistance. |
 | Keep your existing file workflow | Open Markdown files and folders, paste images into a sibling `images/` folder, and open relative attachments in their default apps. |
+
+![ProseMap v0.16.0: Markdown source and live preview of a synthetic release plan](website/assets/screenshots/workspace-en.webp)
 
 ## Give the idea a shape
 
@@ -47,7 +51,7 @@ Ask for clearer wording, a continuation, a summary, or a custom edit. Read the d
 
 ![Changes view showing original passages and synthetic AI suggestions before acceptance](website/assets/screenshots/review-en.webp)
 
-All screenshots show the actual **v0.16.0 production frontend** with synthetic documents and model replies. Native file operations are simulated for capture; these images do not establish installed desktop acceptance.
+The shared writing image shows two real v0.17.0 sessions editing a synthetic document. The other screenshots show the v0.16.0 production frontend with synthetic documents and model replies. Native file operations are simulated for capture; these images do not establish installed desktop acceptance.
 
 ## Start with a file you already have
 

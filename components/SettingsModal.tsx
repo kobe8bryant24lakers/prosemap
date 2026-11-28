@@ -14,6 +14,7 @@ type SettingsModalProps = {
   settings: ModelProfiles;
   storage: ModelConfigStorage;
   onSave: (settings: ModelProfiles) => void | Promise<void>;
+  onCollaborationServers: () => void;
   onClose: () => void;
 };
 
@@ -54,11 +55,17 @@ function isCompleteProfile(profile: ModelProfile): boolean {
   return profile.model.trim().length > 0 && profile.apiKey.trim().length > 0 && isValidEndpoint(profile.baseUrl);
 }
 
-export default function SettingsModal({ settings, storage, onSave, onClose }: SettingsModalProps) {
+function newProfile(): ModelProfile {
+  // LAN synthetic previews have getRandomValues but may not expose randomUUID.
+  const id = crypto.randomUUID?.() ?? Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+  return { ...emptyModelConfig, id, name: '' };
+}
+
+export default function SettingsModal({ settings, storage, onCollaborationServers, onSave, onClose }: SettingsModalProps) {
   const locale = useLocale();
   const [collection, setCollection] = useState<ModelProfiles>(() => {
     if (settings.profiles.length) return settings;
-    const profile = { ...emptyModelConfig, id: crypto.randomUUID(), name: '' };
+    const profile = newProfile();
     return { profiles: [profile], activeId: profile.id };
   });
   const [editingId, setEditingId] = useState(() => settings.activeId);
@@ -68,7 +75,7 @@ export default function SettingsModal({ settings, storage, onSave, onClose }: Se
     setCollection((current) => ({ ...current, profiles: current.profiles.map((profile) => profile.id === draft.id ? typeof update === 'function' ? update(profile) : update : profile) }));
   }
   function addProfile() {
-    const profile = { ...emptyModelConfig, id: crypto.randomUUID(), name: '' };
+    const profile = newProfile();
     setCollection((current) => ({ profiles: [...current.profiles, profile], activeId: current.activeId ?? profile.id }));
     setEditingId(profile.id);
     setShowKey(false);
@@ -111,6 +118,7 @@ export default function SettingsModal({ settings, storage, onSave, onClose }: Se
 
         <div className="settings-scroll">
         <fieldset className="settings-body" disabled={saving}>
+          <div className="profile-manager-heading"><strong>{t('文档协作')}</strong><button type="button" className="secondary-button" onClick={onCollaborationServers}>{t('配置远程服务器')}</button></div>
           <div className="language-settings field-group">
             <label htmlFor="interface-language">{t('界面语言')}</label>
             <select id="interface-language" value={locale} onChange={(event) => setLocale(event.target.value === 'zh-CN' ? 'zh-CN' : 'en')}>

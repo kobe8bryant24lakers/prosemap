@@ -1,0 +1,21 @@
+[Unit]
+Description=ProseMap collaborative editing service
+After=network.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=prosemap-collab
+StateDirectoryMode=0700
+UMask=0077
+WorkingDirectory=/opt/prosemap
+ExecStart=/usr/bin/node --experimental-strip-types collaboration/serve.mjs --mode remote --host 127.0.0.1 --port 8787 --public-url https://collab.example.org --data /var/lib/prosemap-collab
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

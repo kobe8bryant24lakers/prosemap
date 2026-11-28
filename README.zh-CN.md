@@ -6,9 +6,11 @@
 
 **本地优先的 Markdown 与 Mermaid 桌面工作区。** 专注写作，把想法画成可编辑的图表，边读边问 AI，每一次 AI 修改都由你审阅。
 
-[浏览产品页](https://kobe8bryant24lakers.github.io/prosemap/zh/) · [下载 v0.16.0](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.16.0) · [使用指南（英文）](docs/guide.md)
+[浏览产品页](https://kobe8bryant24lakers.github.io/prosemap/zh/) · [下载 v0.17.0](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.17.0) · [使用指南（英文）](docs/guide.md)
 
 ![ProseMap v0.16.0 中文界面：虚构发布计划的 Markdown 源码与实时预览](website/assets/screenshots/workspace-zh-CN.webp)
+
+可以将 Markdown 正文副本共享到局域网或远程服务器，与受邀者共同编辑。见[协作会话与服务部署](docs/collaboration.zh-CN.md)。
 
 下一份 README、架构说明或项目计划，就从一份普通的 `.md` 文件开始。
 
@@ -53,13 +55,13 @@
 2. **打开 Markdown 文件或文件夹。** 试试分栏预览、专注模式和 Mermaid 图表。本地编辑与渲染无需配置 AI。
 3. **需要帮手时，再连接模型。** 在设置中添加 OpenAI 兼容 Chat Completions 或 Anthropic Messages 连接，可保存多组配置并随时切换。
 
-| 平台 | v0.16.0 可用方式 |
+| 平台 | v0.17.0 可用方式 |
 | --- | --- |
-| Windows 10/11 x64 | [EXE 安装包](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.16.0/ProseMap-Windows-x64-v0.16.0-setup.exe) · [MSI 安装包](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.16.0/ProseMap-Windows-x64-v0.16.0.msi)。当前为未签名预览包。 |
-| Linux x64 | [AppImage](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.16.0/ProseMap-Linux-x64-v0.16.0.AppImage) · [DEB 安装包](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.16.0/ProseMap-Linux-x64-v0.16.0.deb)。原生 Linux 运行验收尚未完成。 |
-| macOS | [从源码构建](docs/guide.md#macos)。v0.16.0 尚未附带 macOS 安装包，分发构建需要 Apple 签名身份与公证。 |
+| Windows 10/11 x64 | [EXE 安装包](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.17.0/ProseMap-Windows-x64-v0.17.0-setup.exe) · [MSI 安装包](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.17.0/ProseMap-Windows-x64-v0.17.0.msi)。当前为未签名预览包。 |
+| Linux x64 | [AppImage](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.17.0/ProseMap-Linux-x64-v0.17.0.AppImage) · [DEB 安装包](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.17.0/ProseMap-Linux-x64-v0.17.0.deb)。原生 Linux 运行验收尚未完成。 |
+| macOS | [从源码构建](docs/guide.md#macos)。公开分发的 macOS 安装包需要 Developer ID 签名与公证。 |
 
-应用默认英文，点击 **EN / 中文** 可即时切换简体中文，不会改动文档内容。[版本页面](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.16.0)附有校验文件。移动端尚未实现。
+应用默认英文，点击 **EN / 中文** 可即时切换简体中文，不会改动文档内容。[版本页面](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.17.0)附有校验文件。移动端尚未实现。
 
 ## 文件在本地，模型由你选，修改由你定
 
@@ -72,9 +74,9 @@
 
 ## 当前版本
 
-**[v0.16.0](docs/releases/v0.16.0.md)** 新增文档问答，并为表格、代码和 Mermaid 预览提供更多空间。近期版本还加入了专注模式、逐段 AI 修改审阅和画布对象搜索。
+**[v0.17.0](docs/releases/v0.17.0.md)** 新增 Markdown 多人共编，支持在场光标、编辑或只读邀请，以及断线重连。确认共享后，局域网或远程服务器保存独立的正文副本。
 
-当前为**桌面预览版**。已完成的前端和浏览器检查不代表完整原生验收；此版本的已安装桌面行为与真实模型输出质量仍未验证。[版本说明](docs/releases/v0.16.0.md)、[原生验收矩阵](docs/v0.11.0-deep-acceptance.md)与[覆盖审计](docs/v0.11.0-acceptance-audit.md)保留了部分完成、工具受限及不支持的案例状态。
+当前为**桌面预览版**。两个 macOS 开发客户端已用合成文档验证双向编辑和保存。Windows、Linux 安装版协作、跨物理网络使用及真实模型输出质量仍待验证。[版本说明](docs/releases/v0.17.0.md)、[原生验收矩阵](docs/v0.11.0-deep-acceptance.md)与[覆盖审计](docs/v0.11.0-acceptance-audit.md)保留了部分完成、工具受限及不支持的案例状态。
 
 ## 本地开发
 

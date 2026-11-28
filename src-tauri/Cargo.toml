@@ -1,6 +1,6 @@
 [package]
 name = "prosemap"
-version = "0.16.0"
+version = "0.17.0"
 description = "ProseMap desktop Markdown editor"
 license = "MIT"
 repository = "https://github.com/kobe8bryant24lakers/prosemap"
@@ -24,8 +24,10 @@ dev-credentials = []
 base64 = "0.22"
 dunce = "1"
 tauri = { version = "2.11.5", features = [] }
+tauri-plugin-websocket = { version = "~2.4.3", default-features = false, features = ["native-tls"] }
 futures-util = "0.3"
 ignore = "0.4"
+mdns-sd = { version = "0.22.0", default-features = false }
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls", "stream"] }
 rfd = "0.15"

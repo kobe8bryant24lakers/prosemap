@@ -1116,6 +1116,28 @@ pub async fn save_local_markdown(
 }
 
 #[tauri::command]
+pub async fn export_shared_markdown(name: String, content: String) -> Result<bool, String> {
+    if content.len() as u64 > MAX_DOCUMENT_BYTES {
+        return Err("Markdown 文件不能超过 16 MB".into());
+    }
+    let Some(handle) = rfd::AsyncFileDialog::new()
+        .add_filter("Markdown", &["md"])
+        .set_file_name(safe_suggested_name(&name))
+        .save_file()
+        .await
+    else {
+        return Ok(false);
+    };
+    let destination = handle.path().with_extension("md");
+    if destination.exists() {
+        return Err("请选择新的文件名，导出不能覆盖已有文件。".into());
+    }
+    // The no-baseline commit also refuses a destination created after the picker.
+    write_document_atomically(&destination, content.as_bytes(), None)?;
+    Ok(true)
+}
+
+#[tauri::command]
 pub fn read_launch_target(
     state: State<'_, FileAccessState>,
 ) -> Result<Option<LaunchTarget>, String> {

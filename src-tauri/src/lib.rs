@@ -1,4 +1,5 @@
 mod ai;
+mod collaboration;
 mod context;
 mod endpoint;
 mod files;
@@ -94,6 +95,7 @@ fn handle_run_event(app_handle: &tauri::AppHandle, event: tauri::RunEvent) {
 pub fn run() {
     let initial_target = launch_target_from_args();
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_websocket::init())
         .manage(AiState::default())
         .manage(AiContextState::default())
         .manage(FileAccessState::with_pending(initial_target))
@@ -115,6 +117,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ai::stream_ai,
+            collaboration::discover_collaboration_services,
             links::open_external_url,
             ai::cancel_ai,
             files::pick_markdown_file,
@@ -129,6 +132,7 @@ pub fn run() {
             files::open_relative_file,
             files::save_pasted_image,
             files::save_local_markdown,
+            files::export_shared_markdown,
             files::read_launch_target,
             secure_config::save_model_profiles,
             secure_config::model_config_storage,

@@ -3,6 +3,9 @@
 import { useEffect, useRef } from 'react';
 
 const activeDialogs: HTMLElement[] = [];
+// Portaled dialogs can unmount in either order. Restore a sibling only when
+// the last dialog that made it inert has released it.
+const inertSiblings = new WeakMap<HTMLElement, { owners: number; previous: string | null }>();
 const focusableSelector = 'a[href], button, input, select, textarea, [contenteditable="true"], [tabindex]';
 
 function available(element: HTMLElement) {
@@ -32,12 +35,15 @@ export function useModalFocus(
     if (!mountedDialog) return;
     const dialog: HTMLElement = mountedDialog;
     const opener = openerRef.current;
-    const snapshots: Array<{ element: HTMLElement; inert: string | null }> = [];
+    const siblings: HTMLElement[] = [];
     let branch: HTMLElement = dialog;
     while (branch.parentElement) {
       for (const sibling of branch.parentElement.children) {
         if (!(sibling instanceof HTMLElement) || sibling === branch) continue;
-        snapshots.push({ element: sibling, inert: sibling.getAttribute('inert') });
+        const entry = inertSiblings.get(sibling) ?? { owners: 0, previous: sibling.getAttribute('inert') };
+        entry.owners++;
+        inertSiblings.set(sibling, entry);
+        siblings.push(sibling);
         sibling.setAttribute('inert', '');
       }
       branch = branch.parentElement;
@@ -96,9 +102,12 @@ export function useModalFocus(
       document.removeEventListener('focusin', handleFocus);
       const index = activeDialogs.lastIndexOf(dialog);
       if (index !== -1) activeDialogs.splice(index, 1);
-      for (const { element, inert } of snapshots) {
-        if (inert === null) element.removeAttribute('inert');
-        else element.setAttribute('inert', inert);
+      for (const sibling of siblings) {
+        const entry = inertSiblings.get(sibling)!;
+        if (--entry.owners > 0) continue;
+        inertSiblings.delete(sibling);
+        if (entry.previous === null) sibling.removeAttribute('inert');
+        else sibling.setAttribute('inert', entry.previous);
       }
       const preferred = opener && opener !== document.body && available(opener) ? opener : callbacksRef.current.fallbackFocus?.();
       // An inline opener can unmount while a nested confirmation is visible.

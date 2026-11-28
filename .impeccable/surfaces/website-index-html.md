@@ -22,13 +22,15 @@ OWN-WORLD: Inherit the application's ink, white, neutral panels and restrained
 blue. Use its system type and P mark. Large editorial headings carry the
 introduction; actual product captures provide the visual proof.
 
-STORY: Understand the workspace, inspect four real views, download the example,
+STORY: Understand the workspace, see two authors edit the same paragraph,
+inspect four local writing views, download the example,
 learn what stays local, then choose an available desktop package.
 
 FIRST VIEWPORT: The headline and download action sit beside a layered diagram of
 the fictional release plan. Turning it over reveals the Mermaid source from the
 same downloadable file. The example follows the introduction on phones and its
-views switch immediately under reduced motion. Four keyboard-operable screenshot tabs
+views switch immediately under reduced motion. The shared-writing section follows
+the hero with a real two-editor capture. Four keyboard-operable screenshot tabs
 continue the walkthrough with Write, Map, Ask and Refine.
 
 FORM: Product walkthrough, derived from current UI and the requested introduction.
@@ -40,7 +42,8 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 ## Evidence and constraints
 
 Use synthetic documents and clearly disclose simulated model responses and native
-file operations. v0.16.0 is a preview; Windows and Linux assets exist, macOS has no
-published installer for this version. Do not claim complete native acceptance.
+file operations. The v0.17.0 shared-writing captures use a real temporary service.
+The four local tour views show v0.16.0. State package availability and native
+acceptance according to the release notes.
 All website assets are local. No analytics, signup or model service runs on the site.
 The established application DESIGN.md is preserved; this surface extends it.

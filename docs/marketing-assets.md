@@ -1,6 +1,6 @@
 # Product image provenance
 
-The images in [website/assets/screenshots](../website/assets/screenshots/) show
+The workbench images in [website/assets/screenshots](../website/assets/screenshots/) show
 the real v0.16.0 production frontend, captured from commit `d037a86` with
 [capture-marketing.mjs](../scripts/capture-marketing.mjs). They are not generated
 UI mockups. The viewport is 1440 × 900 at a 1.5 device scale, producing
@@ -32,3 +32,18 @@ native file operations, real provider quality or installed desktop acceptance.
 Raw captures and verification output remain in the ignored `outputs/` directory.
 Inspect every replacement image visually and keep provenance and simulation
 disclosures current before publishing.
+
+## Shared writing
+
+The two `shared-writing-*.webp` images show the v0.17.0 production frontend.
+Two independent Chromium sessions joined a temporary loopback collaboration
+service and edited the same paragraph in the fictional launch plan. The crop
+starts at the participant and save-status bar. It includes the guest’s live
+selection, the Markdown source and the preview.
+
+To reproduce, run `npm run build` and
+`node --experimental-strip-types scripts/capture-shared-writing.mjs` with
+Playwright Chromium installed. Convert the two PNGs in `outputs/marketing/`
+to WebP at quality 88. Each published image is 2000 × 1280 pixels and has a
+provenance sidecar. The invitation and creation credentials exist only in the
+temporary capture session.

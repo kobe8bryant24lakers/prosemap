@@ -34,7 +34,9 @@ reduced motion is enabled.
 
 Check both languages on desktop and mobile, all four screenshot tabs, keyboard
 navigation, image enlargement and Escape, FAQ disclosures, example downloads,
-and package links. Without JavaScript, all four screenshots remain visible and
+and package links. Follow **Write together / 共享写作** to the collaboration
+feature, enlarge the two-editor screenshot, and check the setup guide link.
+Without JavaScript, all four tour screenshots remain visible and
 the image links and FAQ still work.
 
 All shipped assets are local. Relative asset links support the `/prosemap/`

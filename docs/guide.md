@@ -128,6 +128,10 @@ The Vite development server only binds to `127.0.0.1`. It is an implementation d
 
 ### macOS
 
+Open the universal preview DMG and drag **ProseMap Preview** into Applications. It runs on Apple Silicon and Intel and installs alongside ProseMap. Model profiles and API keys stay in memory until you quit. Markdown files saved to disk persist normally. The preview uses an ad-hoc signature and has no Apple notarization. If macOS shows a first-open alert, see [Apple’s guide to opening downloaded apps](https://support.apple.com/en-us/102445).
+
+To reproduce the preview package, install the Rust targets `aarch64-apple-darwin` and `x86_64-apple-darwin` on a Mac. From the matching release source, run `npm ci` and then run the [preview packaging script](../scripts/package-macos-preview.sh) with Bash. It writes the DMG and `SHA256SUMS-macOS-Preview.txt` to `artifacts/macos-preview/`.
+
 Normal builds use the macOS Keychain and require an Apple-issued signing identity (Developer ID Application for distribution). Select an installed identity with `APPLE_SIGNING_IDENTITY`, or let the build select the only available identity:
 
 ```bash

@@ -63,7 +63,7 @@
 | --- | --- |
 | Windows 10/11 x64 | [EXE 安装包](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.17.0/ProseMap-Windows-x64-v0.17.0-setup.exe) · [MSI 安装包](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.17.0/ProseMap-Windows-x64-v0.17.0.msi)。当前为未签名预览包。 |
 | Linux x64 | [AppImage](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.17.0/ProseMap-Linux-x64-v0.17.0.AppImage) · [DEB 安装包](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.17.0/ProseMap-Linux-x64-v0.17.0.deb)。原生 Linux 运行验收尚未完成。 |
-| macOS | [从源码构建](docs/guide.md#macos)。公开分发的 macOS 安装包需要 Developer ID 签名与公证。 |
+| macOS · Apple Silicon 和 Intel | [下载通用预览版 DMG](https://github.com/kobe8bryant24lakers/prosemap/releases/download/v0.17.0/ProseMap-macOS-Preview-universal-v0.17.0.dmg)。**ProseMap Preview** 使用临时签名，未经 Apple 公证。模型密钥仅在本次运行有效。[安装说明](docs/guide.md#macos)。 |
 
 应用默认英文，点击 **EN / 中文** 可即时切换简体中文，不会改动文档内容。[版本页面](https://github.com/kobe8bryant24lakers/prosemap/releases/tag/v0.17.0)附有校验文件。移动端尚未实现。
 
